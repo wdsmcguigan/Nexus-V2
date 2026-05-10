@@ -9,8 +9,10 @@ import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { MobileTopBar } from "./MobileTopBar";
 import { MobileTabBar } from "./MobileTabBar";
+import { MobileSearchBar } from "./MobileSearchBar";
 import { useWorkspace } from "@/state/workspace";
 import { useSwipeBack } from "@/lib/useSwipeBack";
+import { useScrollDirection } from "@/lib/useScrollDirection";
 import { cn } from "@/lib/utils";
 
 export function MobileShell() {
@@ -23,6 +25,16 @@ export function MobileShell() {
   const swipeRef = useSwipeBack<HTMLDivElement>(popMobileView, {
     enabled: view !== "nav",
   });
+
+  const bodyRef = React.useRef<HTMLDivElement>(null);
+  const scrollDir = useScrollDirection(
+    () =>
+      (bodyRef.current?.querySelector("[data-scroll]") as HTMLElement | null) ??
+      null,
+    [view],
+  );
+
+  const showSearchBar = view === "nav" || view === "list";
 
   let body: React.ReactNode;
   let trailing: React.ReactNode = null;
@@ -51,8 +63,11 @@ export function MobileShell() {
         className="flex min-h-0 flex-1 flex-col"
       >
         <MobileTopBar trailing={trailing} />
-        <div className="relative min-h-0 flex-1 overflow-hidden">{body}</div>
-        <MobileTabBar />
+        {showSearchBar && <MobileSearchBar />}
+        <div ref={bodyRef} className="relative min-h-0 flex-1 overflow-hidden">
+          {body}
+        </div>
+        <MobileTabBar scrollDirection={scrollDir} />
       </div>
 
       <RadixDialog.Root open={composerOpen} onOpenChange={setComposerOpen}>

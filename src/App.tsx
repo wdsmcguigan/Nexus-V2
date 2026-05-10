@@ -12,7 +12,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={600}>
       <div
-        className="flex h-screen w-screen flex-col bg-canvas text-text-primary"
+        className="flex h-dvh w-screen flex-col bg-canvas text-text-primary"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             const tag = (document.activeElement as HTMLElement)?.tagName;

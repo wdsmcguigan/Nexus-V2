@@ -6,6 +6,7 @@ import { emails as fixtureEmails, emailById, type Email } from "@/data/fixtures"
 
 export type MobileView = "nav" | "list" | "viewer" | "inspector";
 export type MobileTab = "mail" | "search" | "compose" | "settings";
+export type TabBarBehavior = "always" | "autohide";
 
 export interface EmailOverride {
   archived?: boolean;
@@ -82,6 +83,11 @@ interface WorkspaceState {
   setMobileView: (v: MobileView) => void;
   setMobileTab: (t: MobileTab) => void;
   popMobileView: () => void;
+
+  // Tab bar behavior
+  tabBarBehavior: TabBarBehavior;
+  setTabBarBehavior: (b: TabBarBehavior) => void;
+  toggleTabBarBehavior: () => void;
 }
 
 const DENSITIES: Density[] = ["compact", "comfortable", "cozy"];
@@ -285,6 +291,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (v === "inspector") set({ mobileView: "viewer" });
     else if (v === "viewer") set({ mobileView: "list" });
     else if (v === "list") set({ mobileView: "nav" });
+  },
+
+  tabBarBehavior: "always",
+  setTabBarBehavior: (b) => set({ tabBarBehavior: b }),
+  toggleTabBarBehavior: () => {
+    const next = get().tabBarBehavior === "always" ? "autohide" : "always";
+    set({ tabBarBehavior: next });
+    toast(`Tab bar: ${next === "always" ? "always visible" : "auto-hide on scroll"}`);
   },
 }));
 

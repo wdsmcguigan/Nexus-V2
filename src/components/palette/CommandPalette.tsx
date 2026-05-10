@@ -20,6 +20,7 @@ import {
   Reply,
   Forward,
   AlarmClock,
+  EyeOff,
 } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ export function CommandPalette() {
   const archive = useWorkspace((s) => s.archive);
   const snooze = useWorkspace((s) => s.snooze);
   const deleteEmails = useWorkspace((s) => s.deleteEmails);
+  const toggleTabBarBehavior = useWorkspace((s) => s.toggleTabBarBehavior);
 
   // Restore focus on close — Focus Memory Stack §6.2.
   // Capture the previousPanelId at the moment the palette opens, then
@@ -209,6 +211,13 @@ export function CommandPalette() {
         perform: () => setDensity("cozy" as Density),
       },
       {
+        id: "tab-bar-autohide",
+        label: "Toggle tab bar autohide",
+        group: "Workspace",
+        icon: EyeOff,
+        perform: toggleTabBarBehavior,
+      },
+      {
         id: "settings",
         label: "Open Settings",
         group: "Workspace",
@@ -217,7 +226,7 @@ export function CommandPalette() {
         perform: () => {},
       },
     ],
-    [setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity, archive, snooze, deleteEmails],
+    [setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity, archive, snooze, deleteEmails, toggleTabBarBehavior],
   );
 
   const grouped = React.useMemo(() => {

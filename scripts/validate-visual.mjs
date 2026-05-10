@@ -200,5 +200,20 @@ await mPage.locator('nav button:has-text("Search")').click();
 await mPage.waitForTimeout(220);
 await mshot("m07-mobile-palette-bottom-sheet");
 
+// m08: dismiss palette, return to list, capture clean (non-overlapping) rows
+await mPage.keyboard.press("Escape");
+await mPage.waitForTimeout(160);
+await mPage.locator('nav button:has-text("Mail")').click();
+await mPage.waitForTimeout(160);
+await mPage.locator('[data-folder-id="inbox"]').click();
+await mPage.waitForTimeout(220);
+await mshot("m08-mobile-list-no-overlap");
+
+// m09: confirm search bar visible at top of list
+await mshot("m09-mobile-search-bar");
+
+// m10: confirm tab bar is visible at the bottom of the dvh viewport
+await mshot("m10-mobile-tabbar-visible");
+
 await browser.close();
 console.log("\nAll screenshots written to", OUT);

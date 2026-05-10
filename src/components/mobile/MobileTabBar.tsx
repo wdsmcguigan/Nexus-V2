@@ -2,7 +2,12 @@ import { Inbox, Search, PenSquare, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import type { MobileTab } from "@/state/workspace";
+import type { ScrollDirection } from "@/lib/useScrollDirection";
 import { cn } from "@/lib/utils";
+
+interface MobileTabBarProps {
+  scrollDirection?: ScrollDirection;
+}
 
 interface TabDef {
   id: MobileTab;
@@ -17,12 +22,14 @@ const TABS: TabDef[] = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-export function MobileTabBar() {
+export function MobileTabBar({ scrollDirection = "idle" }: MobileTabBarProps) {
   const tab = useWorkspace((s) => s.mobileTab);
   const setMobileTab = useWorkspace((s) => s.setMobileTab);
   const setMobileView = useWorkspace((s) => s.setMobileView);
   const setPaletteOpen = useWorkspace((s) => s.setPaletteOpen);
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
+  const tabBarBehavior = useWorkspace((s) => s.tabBarBehavior);
+  const hidden = tabBarBehavior === "autohide" && scrollDirection === "down";
 
   function handleTab(id: MobileTab) {
     setMobileTab(id);
@@ -35,9 +42,12 @@ export function MobileTabBar() {
     <nav
       role="navigation"
       aria-label="Primary"
+      data-hidden={hidden}
       className={cn(
         "flex shrink-0 items-stretch border-t border-border-default bg-surface-1",
         "pb-[env(safe-area-inset-bottom)]",
+        "transition-transform duration-fast ease-out",
+        hidden && "translate-y-full",
       )}
     >
       {TABS.map((t) => {

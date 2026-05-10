@@ -14,6 +14,7 @@ import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
+import { EmailRowMobile, EMAIL_ROW_MOBILE_HEIGHT } from "./EmailRowMobile";
 import { useWorkspace, useVisibleEmails } from "@/state/workspace";
 import { folders } from "@/data/fixtures";
 import { cn } from "@/lib/utils";
@@ -55,7 +56,7 @@ export function EmailListPanel() {
   const list = useVisibleEmails(folderId);
 
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const rowSize = HEIGHT_BY_DENSITY[density];
+  const rowSize = isMobile ? EMAIL_ROW_MOBILE_HEIGHT : HEIGHT_BY_DENSITY[density];
 
   const virtualizer = useVirtualizer({
     count: list.length,
@@ -265,21 +266,33 @@ export function EmailListPanel() {
                   transform: `translateY(${vi.start}px)`,
                 }}
               >
-                <EmailRow
-                  email={email}
-                  density={density}
-                  selected={isSelected || isSinglySelected}
-                  focused={isFocused}
-                  ghosted={!isPanelFocused}
-                  inSelectionSet={isSelected}
-                  onFocus={() => setFocusedRow(email.id)}
-                  onSelect={(e) => handleRowClick(email.id, e)}
-                  onToggleStar={() => setStarred(email.id, !email.starred)}
-                  onToggleCheck={(c) => {
-                    if (c && !isSelected) toggleEmailSelection(email.id);
-                    if (!c && isSelected) toggleEmailSelection(email.id);
-                  }}
-                />
+                {isMobile ? (
+                  <EmailRowMobile
+                    email={email}
+                    selected={isSelected || isSinglySelected}
+                    focused={isFocused}
+                    ghosted={!isPanelFocused}
+                    inSelectionSet={isSelected}
+                    onSelect={(e) => handleRowClick(email.id, e)}
+                    onToggleStar={() => setStarred(email.id, !email.starred)}
+                  />
+                ) : (
+                  <EmailRow
+                    email={email}
+                    density={density}
+                    selected={isSelected || isSinglySelected}
+                    focused={isFocused}
+                    ghosted={!isPanelFocused}
+                    inSelectionSet={isSelected}
+                    onFocus={() => setFocusedRow(email.id)}
+                    onSelect={(e) => handleRowClick(email.id, e)}
+                    onToggleStar={() => setStarred(email.id, !email.starred)}
+                    onToggleCheck={(c) => {
+                      if (c && !isSelected) toggleEmailSelection(email.id);
+                      if (!c && isSelected) toggleEmailSelection(email.id);
+                    }}
+                  />
+                )}
               </div>
             );
           })}
