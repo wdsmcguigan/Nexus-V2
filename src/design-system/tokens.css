@@ -1,0 +1,248 @@
+/* NEXUS Design Tokens — see docs/UI-DESIGN-SYSTEM-SPEC.md §2 */
+
+:root {
+  /* Surfaces */
+  --color-bg-canvas: oklch(0.985 0.002 270);
+  --color-surface-1: oklch(1 0 0);
+  --color-surface-2: oklch(0.975 0.003 270);
+  --color-surface-3: oklch(0.955 0.004 270);
+  --color-surface-4: oklch(0.935 0.005 270);
+  --color-surface-inset: oklch(0.92 0.005 270);
+
+  /* Borders */
+  --color-border-subtle: rgba(15, 17, 21, 0.06);
+  --color-border-default: rgba(15, 17, 21, 0.12);
+  --color-border-strong: rgba(15, 17, 21, 0.2);
+  --color-border-focus: var(--color-accent);
+  --color-border-ghost: color-mix(in oklch, var(--color-accent) 55%, transparent);
+
+  /* Text */
+  --color-text-primary: oklch(0.18 0.005 270);
+  --color-text-secondary: oklch(0.38 0.005 270);
+  --color-text-tertiary: oklch(0.5 0.005 270);
+  --color-text-muted: oklch(0.58 0.005 270);
+  --color-text-disabled: oklch(0.7 0.004 270);
+  --color-text-on-accent: oklch(0.985 0 0);
+  --color-text-on-danger: oklch(0.985 0 0);
+
+  /* Accent + semantic */
+  --color-accent: oklch(0.58 0.18 257);
+  --color-accent-hover: oklch(0.52 0.18 257);
+  --color-accent-active: oklch(0.46 0.18 257);
+  --color-accent-soft: color-mix(in oklch, var(--color-accent) 14%, transparent);
+  --color-accent-ghost: color-mix(in oklch, var(--color-accent) 10%, transparent);
+
+  --color-success: oklch(0.56 0.155 152);
+  --color-success-soft: color-mix(in oklch, var(--color-success) 14%, transparent);
+  --color-warning: oklch(0.62 0.15 78);
+  --color-warning-soft: color-mix(in oklch, var(--color-warning) 14%, transparent);
+  --color-danger: oklch(0.56 0.22 25);
+  --color-danger-hover: oklch(0.5 0.22 25);
+  --color-danger-soft: color-mix(in oklch, var(--color-danger) 14%, transparent);
+  --color-info: var(--color-accent);
+
+  /* Panel-link palette */
+  --color-link-1: oklch(0.62 0.16 25);
+  --color-link-2: oklch(0.66 0.14 78);
+  --color-link-3: oklch(0.66 0.14 130);
+  --color-link-4: oklch(0.62 0.16 152);
+  --color-link-5: oklch(0.62 0.14 200);
+  --color-link-6: oklch(0.6 0.16 290);
+  --color-link-7: oklch(0.6 0.18 330);
+  --color-link-8: oklch(0.66 0.04 250);
+
+  /* Radii */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows (light) */
+  --shadow-l0: none;
+  --shadow-l1: 0 1px 2px 0 rgba(15, 17, 21, 0.06);
+  --shadow-l2: 0 6px 16px -4px rgba(15, 17, 21, 0.12),
+    0 2px 4px -2px rgba(15, 17, 21, 0.08);
+  --shadow-l3: 0 16px 40px -8px rgba(15, 17, 21, 0.18),
+    0 4px 10px -4px rgba(15, 17, 21, 0.1);
+  --shadow-l4: 0 24px 56px -12px rgba(15, 17, 21, 0.22),
+    0 8px 16px -8px rgba(15, 17, 21, 0.12);
+  --shadow-focus: 0 0 0 2px var(--color-accent);
+  --shadow-focus-danger: 0 0 0 2px var(--color-danger);
+
+  /* Spacing helper aliases (used in inline styles) */
+  --space-px: 1px;
+  --space-0_5: 2px;
+  --space-1: 4px;
+  --space-1_5: 6px;
+  --space-2: 8px;
+  --space-2_5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Font stacks (also referenced from Tailwind config) */
+  --font-sans:
+    "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono",
+    "Menlo", "Consolas", monospace;
+}
+
+.dark {
+  /* Surfaces */
+  --color-bg-canvas: oklch(0.145 0.005 270);
+  --color-surface-1: oklch(0.18 0.005 270);
+  --color-surface-2: oklch(0.215 0.006 270);
+  --color-surface-3: oklch(0.255 0.007 270);
+  --color-surface-4: oklch(0.295 0.008 270);
+  --color-surface-inset: oklch(0.115 0.004 270);
+
+  /* Borders */
+  --color-border-subtle: rgba(255, 255, 255, 0.06);
+  --color-border-default: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.18);
+
+  /* Text */
+  --color-text-primary: oklch(0.97 0 0);
+  --color-text-secondary: oklch(0.78 0 0);
+  --color-text-tertiary: oklch(0.62 0 0);
+  --color-text-muted: oklch(0.5 0 0);
+  --color-text-disabled: oklch(0.42 0 0);
+
+  /* Accent + semantic (dark variants) */
+  --color-accent: oklch(0.68 0.17 257);
+  --color-accent-hover: oklch(0.73 0.17 257);
+  --color-accent-active: oklch(0.62 0.17 257);
+  --color-accent-soft: color-mix(in oklch, var(--color-accent) 18%, transparent);
+  --color-accent-ghost: color-mix(in oklch, var(--color-accent) 12%, transparent);
+
+  --color-success: oklch(0.74 0.155 152);
+  --color-success-soft: color-mix(in oklch, var(--color-success) 18%, transparent);
+  --color-warning: oklch(0.8 0.145 78);
+  --color-warning-soft: color-mix(in oklch, var(--color-warning) 18%, transparent);
+  --color-danger: oklch(0.66 0.22 25);
+  --color-danger-hover: oklch(0.7 0.22 25);
+  --color-danger-soft: color-mix(in oklch, var(--color-danger) 18%, transparent);
+
+  /* Panel-link palette (lighter for dark bg) */
+  --color-link-1: oklch(0.72 0.16 25);
+  --color-link-2: oklch(0.78 0.14 78);
+  --color-link-3: oklch(0.78 0.14 130);
+  --color-link-4: oklch(0.74 0.16 152);
+  --color-link-5: oklch(0.74 0.14 200);
+  --color-link-6: oklch(0.72 0.16 290);
+  --color-link-7: oklch(0.72 0.18 330);
+  --color-link-8: oklch(0.78 0.04 250);
+
+  /* Shadows (dark — heavier) */
+  --shadow-l1: 0 1px 0 0 rgba(0, 0, 0, 0.45);
+  --shadow-l2: 0 8px 24px -8px rgba(0, 0, 0, 0.65),
+    0 2px 6px -2px rgba(0, 0, 0, 0.45);
+  --shadow-l3: 0 24px 48px -12px rgba(0, 0, 0, 0.7),
+    0 4px 12px -4px rgba(0, 0, 0, 0.5);
+  --shadow-l4: 0 32px 64px -16px rgba(0, 0, 0, 0.75),
+    0 8px 16px -8px rgba(0, 0, 0, 0.55);
+}
+
+/* Scrollbar treatment for webkit */
+.nx-scroll::-webkit-scrollbar,
+[data-scroll]::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.nx-scroll::-webkit-scrollbar-thumb,
+[data-scroll]::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.nx-scroll::-webkit-scrollbar-thumb:hover,
+[data-scroll]::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-tertiary);
+}
+.nx-scroll::-webkit-scrollbar-track,
+[data-scroll]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Selection bg */
+::selection {
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+/* Skeleton shimmer fill */
+.nx-skeleton {
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+}
+:root .nx-skeleton {
+  background-color: rgba(15, 17, 21, 0.04);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(15, 17, 21, 0.08) 50%,
+    transparent 100%
+  );
+}
+
+/* Dockview overrides — restyle to NEXUS tokens */
+.dv-theme-nexus {
+  --dv-tabs-and-actions-container-height: 32px;
+  --dv-tabs-and-actions-container-background-color: var(--color-surface-1);
+  --dv-tabs-container-scrollbar-color: var(--color-border-strong);
+  --dv-group-view-background-color: var(--color-surface-1);
+  --dv-paneview-active-outline-color: var(--color-accent);
+  --dv-tab-divider-color: var(--color-border-subtle);
+  --dv-active-tab-background-color: var(--color-surface-2);
+  --dv-inactive-tab-background-color: transparent;
+  --dv-active-tab-color: var(--color-text-primary);
+  --dv-inactive-tab-color: var(--color-text-tertiary);
+  --dv-tab-close-icon: var(--color-text-tertiary);
+  --dv-separator-border: var(--color-border-subtle);
+  --dv-paneview-header-background-color: var(--color-surface-1);
+  --dv-icon-hover-background-color: var(--color-surface-3);
+  --dv-floating-box-shadow: var(--shadow-l3);
+  --dv-drag-over-background-color: var(--color-accent-soft);
+  --dv-drag-over-border-color: var(--color-accent);
+  --dv-background-color: var(--color-bg-canvas);
+}
+
+/* dockview tab header — match spec §4.4 */
+.dv-theme-nexus .tab {
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 12px;
+  min-width: 80px;
+  max-width: 200px;
+}
+.dv-theme-nexus .tab.active-tab {
+  border-bottom-color: var(--color-surface-2);
+  box-shadow: inset 0 2px 0 0 var(--color-accent);
+}
+.dv-theme-nexus .groupview {
+  background: var(--color-surface-1);
+}
+
+/* Sharp focus ring everywhere */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
