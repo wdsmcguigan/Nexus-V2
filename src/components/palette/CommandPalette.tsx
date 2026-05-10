@@ -46,14 +46,28 @@ export function CommandPalette() {
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
   const previousPanelId = useWorkspace((s) => s.previousPanelId);
 
-  // Restore focus on close — Focus Memory Stack §6.2
+  // Restore focus on close — Focus Memory Stack §6.2.
+  // Capture the previousPanelId at the moment the palette opens, then
+  // restore focus to it on the transition to closed. This avoids
+  // ping-ponging with Panel.onFocusCapture (which also updates
+  // previousPanelId, which would otherwise re-trigger this effect).
+  const wasOpenRef = React.useRef(false);
+  const restoreTargetRef = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!open && previousPanelId) {
-      const el = document.querySelector<HTMLElement>(
-        `[data-panel-id="${previousPanelId}"]`,
-      );
-      el?.focus();
+    if (open && !wasOpenRef.current) {
+      restoreTargetRef.current = previousPanelId;
     }
+    if (!open && wasOpenRef.current) {
+      const target = restoreTargetRef.current;
+      if (target) {
+        const el = document.querySelector<HTMLElement>(
+          `[data-panel-id="${target}"]`,
+        );
+        el?.focus();
+      }
+      restoreTargetRef.current = null;
+    }
+    wasOpenRef.current = open;
   }, [open, previousPanelId]);
 
   React.useEffect(() => {
