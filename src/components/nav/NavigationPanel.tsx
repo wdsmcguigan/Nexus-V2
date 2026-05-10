@@ -23,6 +23,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace } from "@/state/workspace";
 import { folders, customFolders, accounts } from "@/data/fixtures";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/useMediaQuery";
 
 const ICON_MAP: Record<string, LucideIcon> = {
   Inbox,
@@ -102,31 +103,40 @@ function FolderRow({
 export function NavigationPanel() {
   const folderId = useWorkspace((s) => s.selectedFolderId);
   const setFolder = useWorkspace((s) => s.setSelectedFolder);
+  const setMobileView = useWorkspace((s) => s.setMobileView);
   const [foldersExpanded, setFoldersExpanded] = React.useState(true);
+  const isMobile = useIsMobile();
+
+  function handleFolderClick(id: string) {
+    setFolder(id);
+    if (isMobile) setMobileView("list");
+  }
 
   return (
     <Panel
       panelId={PANEL_ID}
       type="navigation"
       header={
-        <PanelHeader
-          title="Mail"
-          hideHandle
-          actions={
-            <>
-              <Tooltip label="Settings" shortcut="⌘,">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Settings"
-                >
-                  <SettingsIcon />
-                </Button>
-              </Tooltip>
-            </>
-          }
-        />
+        isMobile ? undefined : (
+          <PanelHeader
+            title="Mail"
+            hideHandle
+            actions={
+              <>
+                <Tooltip label="Settings" shortcut="⌘,">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    aria-label="Settings"
+                  >
+                    <SettingsIcon />
+                  </Button>
+                </Tooltip>
+              </>
+            }
+          />
+        )
       }
     >
       <div data-scroll className="nx-scroll h-full overflow-auto">
@@ -165,7 +175,7 @@ export function NavigationPanel() {
               count={f.count}
               unreadCount={f.unreadCount}
               active={folderId === f.id}
-              onClick={() => setFolder(f.id)}
+              onClick={() => handleFolderClick(f.id)}
             />
           ))}
         </div>
@@ -205,7 +215,7 @@ export function NavigationPanel() {
                 count={f.count}
                 unreadCount={f.unreadCount}
                 active={folderId === f.id}
-                onClick={() => setFolder(f.id)}
+                onClick={() => handleFolderClick(f.id)}
               />
             ))}
         </div>

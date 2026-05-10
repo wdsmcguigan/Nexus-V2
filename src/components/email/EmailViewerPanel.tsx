@@ -18,16 +18,21 @@ import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useWorkspace } from "@/state/workspace";
-import { emailById } from "@/data/fixtures";
+import { useWorkspace, useEmail } from "@/state/workspace";
 import { formatAbsoluteTime } from "@/lib/utils";
+import { useIsMobile } from "@/lib/useMediaQuery";
 
 const PANEL_ID = "viewer";
 
 export function EmailViewerPanel() {
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
-  const email = emailById(selectedEmailId);
+  const setStarred = useWorkspace((s) => s.setStarred);
+  const archive = useWorkspace((s) => s.archive);
+  const snooze = useWorkspace((s) => s.snooze);
+  const deleteEmails = useWorkspace((s) => s.deleteEmails);
+  const email = useEmail(selectedEmailId);
+  const isMobile = useIsMobile();
   const [imagesShown, setImagesShown] = React.useState(false);
 
   if (!email) {
@@ -35,7 +40,7 @@ export function EmailViewerPanel() {
       <Panel
         panelId={PANEL_ID}
         type="stage"
-        header={<PanelHeader title="Reader" />}
+        header={isMobile ? undefined : <PanelHeader title="Reader" />}
       >
         <PanelEmpty
           icon={Mail}
@@ -54,27 +59,56 @@ export function EmailViewerPanel() {
       panelId={PANEL_ID}
       type="stage"
       header={
+        isMobile ? undefined : (
         <PanelHeader
           title={email.subject}
           actions={
             <>
-              <Tooltip label="Star">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Star">
-                  <Star />
+              <Tooltip label={email.starred ? "Unstar" : "Star"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={email.starred ? "Unstar" : "Star"}
+                  aria-pressed={email.starred}
+                  onClick={() => setStarred(email.id, !email.starred)}
+                >
+                  <Star
+                    fill={email.starred ? "var(--color-warning)" : "transparent"}
+                    color={email.starred ? "var(--color-warning)" : "currentColor"}
+                  />
                 </Button>
               </Tooltip>
               <Tooltip label="Snooze" shortcut="H">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Snooze">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Snooze"
+                  onClick={() => snooze([email.id])}
+                >
                   <AlarmClock />
                 </Button>
               </Tooltip>
               <Tooltip label="Archive" shortcut="E">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Archive">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Archive"
+                  onClick={() => archive([email.id])}
+                >
                   <Archive />
                 </Button>
               </Tooltip>
               <Tooltip label="Delete" shortcut="#">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Delete">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Delete"
+                  onClick={() => deleteEmails([email.id])}
+                >
                   <Trash2 />
                 </Button>
               </Tooltip>
@@ -87,6 +121,7 @@ export function EmailViewerPanel() {
             </>
           }
         />
+        )
       }
     >
       <div className="flex h-full flex-col">

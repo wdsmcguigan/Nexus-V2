@@ -121,5 +121,84 @@ await rows.nth(5).click({ modifiers: ["Shift"] });
 await page.waitForTimeout(160);
 await shot("12-dark-multi-select-range");
 
+// 13) Archive selection — toast appears
+await page.locator('[data-panel-id="inspector"] button:has-text("Archive")').click();
+await page.waitForTimeout(220);
+await shot("13-archive-toast");
+
+// 14) Click Undo on the toast
+await page.locator('[data-sonner-toast] button:has-text("Undo")').click();
+await page.waitForTimeout(220);
+await shot("14-archive-undone");
+
+// 15) Star toggle from inspector (star button shows starred state)
+await page.locator('[data-panel-id="list"] [role="row"]').nth(2).click();
+await page.waitForTimeout(120);
+await page.locator('[data-panel-id="inspector"] button:has-text("Star"), [data-panel-id="inspector"] button:has-text("Starred")').first().click();
+await page.waitForTimeout(160);
+await shot("15-star-toggled");
+
+await context.close();
+
+// === Mobile pass ===
+const mobileContext = await browser.newContext({
+  viewport: { width: 390, height: 844 },
+  deviceScaleFactor: 2,
+  reducedMotion: "reduce",
+  isMobile: true,
+  hasTouch: true,
+});
+const mPage = await mobileContext.newPage();
+mPage.on("pageerror", (err) => console.error("[mobile pageerror]", err.message));
+mPage.on("console", (msg) => {
+  if (msg.type() === "error") console.error("[mobile console error]", msg.text());
+});
+
+console.log("→ Loading mobile", URL);
+await mPage.goto(URL, { waitUntil: "networkidle", timeout: 30000 });
+await mPage.waitForSelector('[data-panel-id="nav"]', { timeout: 10000 });
+await mPage.waitForTimeout(800);
+
+async function mshot(name) {
+  const path = `${OUT}/${name}.png`;
+  await mPage.screenshot({ path, fullPage: false });
+  console.log("✓", path);
+}
+
+// m01: nav root
+await mshot("m01-mobile-nav");
+
+// m02: tap Inbox → list
+await mPage.locator('[data-folder-id="inbox"]').click();
+await mPage.waitForTimeout(220);
+await mshot("m02-mobile-list");
+
+// m03: tap a row → viewer
+await mPage.locator('[data-panel-id="list"] [role="row"]').nth(0).click();
+await mPage.waitForTimeout(220);
+await mshot("m03-mobile-viewer");
+
+// m04: tap inspector trailing in top bar
+await mPage.locator('header [aria-label="Inspector"]').click();
+await mPage.waitForTimeout(220);
+await mshot("m04-mobile-inspector");
+
+// m05: pop back to nav via tab bar Mail
+await mPage.locator('nav button:has-text("Mail")').click();
+await mPage.waitForTimeout(220);
+await mshot("m05-mobile-nav-via-tabbar");
+
+// m06: tap Compose tab → composer dialog
+await mPage.locator('nav button:has-text("Compose")').click();
+await mPage.waitForTimeout(260);
+await mshot("m06-mobile-composer");
+
+// m07: dismiss composer, tap Search → bottom-sheet palette
+await mPage.locator('[aria-label="Close composer"]').click();
+await mPage.waitForTimeout(160);
+await mPage.locator('nav button:has-text("Search")').click();
+await mPage.waitForTimeout(220);
+await mshot("m07-mobile-palette-bottom-sheet");
+
 await browser.close();
 console.log("\nAll screenshots written to", OUT);

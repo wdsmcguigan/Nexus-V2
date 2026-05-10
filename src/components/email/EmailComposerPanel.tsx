@@ -24,6 +24,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
+import { useIsMobile } from "@/lib/useMediaQuery";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
@@ -63,6 +64,7 @@ function ToolbarButton({
 
 export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
+  const isMobile = useIsMobile();
   const [recipients, setRecipients] = React.useState<string[]>([
     "alice@axiomlabs.io",
   ]);
@@ -128,6 +130,7 @@ export function EmailComposerPanel() {
         <PanelHeader
           title="Compose"
           meta={recipients[0] ?? "draft"}
+          hideHandle={isMobile}
           actions={
             <>
               <Tooltip label="Discard">

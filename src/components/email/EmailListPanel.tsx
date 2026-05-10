@@ -14,9 +14,10 @@ import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
-import { useWorkspace } from "@/state/workspace";
-import { emailsByFolder, folders } from "@/data/fixtures";
+import { useWorkspace, useVisibleEmails } from "@/state/workspace";
+import { folders } from "@/data/fixtures";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/useMediaQuery";
 import type { Density } from "@/design-system/tokens";
 
 const HEIGHT_BY_DENSITY: Record<Density, number> = {
@@ -46,9 +47,12 @@ export function EmailListPanel() {
   const setSelectionRange = useWorkspace((s) => s.setSelectionRange);
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
   const selectionAnchorId = useWorkspace((s) => s.selectionAnchorId);
+  const setStarred = useWorkspace((s) => s.setStarred);
+  const setMobileView = useWorkspace((s) => s.setMobileView);
+  const isMobile = useIsMobile();
 
   const folder = folders.find((f) => f.id === folderId);
-  const list = React.useMemo(() => emailsByFolder(folderId), [folderId]);
+  const list = useVisibleEmails(folderId);
 
   const parentRef = React.useRef<HTMLDivElement>(null);
   const rowSize = HEIGHT_BY_DENSITY[density];
@@ -119,6 +123,7 @@ export function EmailListPanel() {
       return;
     }
     setSelectedEmail(emailId);
+    if (isMobile) setMobileView("viewer");
   }
 
   if (list.length === 0) {
@@ -127,16 +132,18 @@ export function EmailListPanel() {
         panelId={PANEL_ID}
         type="stage"
         header={
-          <PanelHeader
-            title={folder?.name ?? "Mail"}
-            actions={
-              <Tooltip label="Refresh" shortcut="⌘R">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
-                  <RefreshCw />
-                </Button>
-              </Tooltip>
-            }
-          />
+          isMobile ? undefined : (
+            <PanelHeader
+              title={folder?.name ?? "Mail"}
+              actions={
+                <Tooltip label="Refresh" shortcut="⌘R">
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
+                    <RefreshCw />
+                  </Button>
+                </Tooltip>
+              }
+            />
+          )
         }
       >
         <PanelEmpty
@@ -158,45 +165,47 @@ export function EmailListPanel() {
       panelId={PANEL_ID}
       type="stage"
       header={
-        <PanelHeader
-          title={folder?.name ?? "Mail"}
-          meta={`${list.length}${selectedEmailIds.size > 1 ? ` · ${selectedEmailIds.size} selected` : ""}`}
-          actions={
-            <>
-              <Tooltip label={`Density: ${DENSITY_LABEL[density]}`} shortcut="D">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Cycle density"
-                  onClick={cycleDensity}
-                >
-                  <Settings2 />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Filter">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Filter">
-                  <ListFilter />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Refresh" shortcut="⌘R">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
-                  <RefreshCw />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Collapse panel">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Collapse"
-                >
-                  <PanelRightClose />
-                </Button>
-              </Tooltip>
-            </>
-          }
-        />
+        isMobile ? undefined : (
+          <PanelHeader
+            title={folder?.name ?? "Mail"}
+            meta={`${list.length}${selectedEmailIds.size > 1 ? ` · ${selectedEmailIds.size} selected` : ""}`}
+            actions={
+              <>
+                <Tooltip label={`Density: ${DENSITY_LABEL[density]}`} shortcut="D">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    aria-label="Cycle density"
+                    onClick={cycleDensity}
+                  >
+                    <Settings2 />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Filter">
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Filter">
+                    <ListFilter />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Refresh" shortcut="⌘R">
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
+                    <RefreshCw />
+                  </Button>
+                </Tooltip>
+                <Tooltip label="Collapse panel">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    aria-label="Collapse"
+                  >
+                    <PanelRightClose />
+                  </Button>
+                </Tooltip>
+              </>
+            }
+          />
+        )
       }
     >
       {/* Sub-toolbar */}
@@ -265,9 +274,7 @@ export function EmailListPanel() {
                   inSelectionSet={isSelected}
                   onFocus={() => setFocusedRow(email.id)}
                   onSelect={(e) => handleRowClick(email.id, e)}
-                  onToggleStar={() => {
-                    /* stub */
-                  }}
+                  onToggleStar={() => setStarred(email.id, !email.starred)}
                   onToggleCheck={(c) => {
                     if (c && !isSelected) toggleEmailSelection(email.id);
                     if (!c && isSelected) toggleEmailSelection(email.id);

@@ -59,8 +59,10 @@ export function Panel({
       onMouseDownCapture={handleMouseDownCapture}
       className={cn(
         "group relative flex h-full flex-col overflow-hidden bg-surface-1",
-        "rounded-md",
-        floating ? "shadow-l2 border border-border-default" : "shadow-l1",
+        "md:rounded-md",
+        floating
+          ? "md:shadow-l2 md:border md:border-border-default"
+          : "md:shadow-l1",
         // contain helps Container Queries scope cleanly
         "[contain:layout_paint] [container-type:inline-size]",
         className,

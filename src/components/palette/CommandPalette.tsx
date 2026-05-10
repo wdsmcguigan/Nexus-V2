@@ -45,6 +45,9 @@ export function CommandPalette() {
   const setDensity = useWorkspace((s) => s.setDensity);
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
   const previousPanelId = useWorkspace((s) => s.previousPanelId);
+  const archive = useWorkspace((s) => s.archive);
+  const snooze = useWorkspace((s) => s.snooze);
+  const deleteEmails = useWorkspace((s) => s.deleteEmails);
 
   // Restore focus on close — Focus Memory Stack §6.2.
   // Capture the previousPanelId at the moment the palette opens, then
@@ -120,7 +123,7 @@ export function CommandPalette() {
         group: "Mail",
         icon: Archive,
         shortcut: "E",
-        perform: () => {},
+        perform: () => archive(useWorkspace.getState().resolveActionTargets()),
       },
       {
         id: "snooze",
@@ -128,14 +131,14 @@ export function CommandPalette() {
         group: "Mail",
         icon: AlarmClock,
         shortcut: "H",
-        perform: () => {},
+        perform: () => snooze(useWorkspace.getState().resolveActionTargets()),
       },
       {
         id: "delete",
         label: "Delete selected",
         group: "Mail",
         icon: Trash2,
-        perform: () => {},
+        perform: () => deleteEmails(useWorkspace.getState().resolveActionTargets()),
       },
       {
         id: "go-inbox",
@@ -214,7 +217,7 @@ export function CommandPalette() {
         perform: () => {},
       },
     ],
-    [setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity],
+    [setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity, archive, snooze, deleteEmails],
   );
 
   const grouped = React.useMemo(() => {
@@ -238,9 +241,14 @@ export function CommandPalette() {
         <RadixDialog.Content
           aria-label="Command palette"
           className={cn(
-            "fixed left-1/2 top-[20vh] z-50 w-[640px] max-w-[92vw] -translate-x-1/2",
-            "rounded-xl border border-border-default bg-surface-4 shadow-l3",
-            "animate-cmdk-in",
+            "fixed z-50 bg-surface-4 shadow-l3 border border-border-default",
+            // Mobile: bottom sheet
+            "inset-x-0 bottom-0 max-h-[80vh] rounded-t-xl",
+            "data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom-4",
+            // Desktop: top-anchored dialog
+            "md:inset-x-auto md:bottom-auto md:left-1/2 md:top-[20vh] md:-translate-x-1/2",
+            "md:w-[640px] md:max-w-[92vw] md:rounded-xl md:max-h-none",
+            "md:animate-cmdk-in md:data-[state=open]:slide-in-from-bottom-0",
           )}
         >
           <Command label="Command palette" loop>

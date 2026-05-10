@@ -21,8 +21,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useInspectorEmailId, useWorkspace } from "@/state/workspace";
-import { emailById } from "@/data/fixtures";
+import { useInspectorEmailId, useWorkspace, useEmail } from "@/state/workspace";
+import { useIsMobile } from "@/lib/useMediaQuery";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 
 const PANEL_ID = "inspector";
@@ -51,10 +51,17 @@ function Section({
 export function InspectorPanel() {
   const pinned = useWorkspace((s) => s.inspectorPinned);
   const togglePin = useWorkspace((s) => s.togglePin);
+  const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
+  const setStarred = useWorkspace((s) => s.setStarred);
+  const archive = useWorkspace((s) => s.archive);
+  const snooze = useWorkspace((s) => s.snooze);
+  const deleteEmails = useWorkspace((s) => s.deleteEmails);
+  const removeLabelFromEmail = useWorkspace((s) => s.removeLabelFromEmail);
   const inspectorEmailId = useInspectorEmailId();
-  const email = emailById(inspectorEmailId);
+  const email = useEmail(inspectorEmailId);
+  const isMobile = useIsMobile();
 
-  const headerActions = (
+  const headerActions = isMobile ? null : (
     <>
       <Tooltip
         label={pinned ? "Unpin inspector" : "Pin inspector to current"}
@@ -86,7 +93,9 @@ export function InspectorPanel() {
         panelId={PANEL_ID}
         type="inspector"
         header={
-          <PanelHeader title="Inspector" actions={headerActions} />
+          isMobile ? undefined : (
+            <PanelHeader title="Inspector" actions={headerActions} />
+          )
         }
         data-pinned={pinned}
       >
@@ -104,10 +113,12 @@ export function InspectorPanel() {
       panelId={PANEL_ID}
       type="inspector"
       header={
-        <PanelHeader
-          title={pinned ? "Inspector (pinned)" : "Inspector"}
-          actions={headerActions}
-        />
+        isMobile ? undefined : (
+          <PanelHeader
+            title={pinned ? "Inspector (pinned)" : "Inspector"}
+            actions={headerActions}
+          />
+        )
       }
       data-pinned={pinned}
     >
@@ -179,27 +190,35 @@ export function InspectorPanel() {
         {/* Quick actions */}
         <Section label="Actions">
           <div className="grid grid-cols-2 gap-1">
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => setComposerOpen(true)}>
               <Reply />
               Reply
             </Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => setComposerOpen(true)}>
               <Forward />
               Forward
             </Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => archive([email.id])}>
               <Archive />
               Archive
             </Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => snooze([email.id])}>
               <AlarmClock />
               Snooze
             </Button>
-            <Button variant="secondary" size="sm">
-              <Star />
-              Star
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setStarred(email.id, !email.starred)}
+              aria-pressed={email.starred}
+            >
+              <Star
+                fill={email.starred ? "var(--color-warning)" : "transparent"}
+                color={email.starred ? "var(--color-warning)" : "currentColor"}
+              />
+              {email.starred ? "Starred" : "Star"}
             </Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => deleteEmails([email.id])}>
               <Trash2 />
               Delete
             </Button>
@@ -218,7 +237,7 @@ export function InspectorPanel() {
                 color={l.color}
                 size="md"
                 removable
-                onRemove={() => {}}
+                onRemove={() => removeLabelFromEmail(email.id, l.id)}
               >
                 {l.name}
               </Tag>
