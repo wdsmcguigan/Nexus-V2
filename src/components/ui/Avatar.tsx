@@ -1,0 +1,63 @@
+import * as React from "react";
+import { cn, initials } from "@/lib/utils";
+import type { PanelLink } from "@/design-system/tokens";
+
+interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
+  name: string;
+  size?: number;
+  colorSeed?: PanelLink;
+  src?: string;
+}
+
+const COLOR_VAR: Record<PanelLink, string> = {
+  1: "var(--color-link-1)",
+  2: "var(--color-link-2)",
+  3: "var(--color-link-3)",
+  4: "var(--color-link-4)",
+  5: "var(--color-link-5)",
+  6: "var(--color-link-6)",
+  7: "var(--color-link-7)",
+  8: "var(--color-link-8)",
+};
+
+export function Avatar({
+  name,
+  size = 20,
+  colorSeed = 8,
+  src,
+  className,
+  style,
+  ...props
+}: AvatarProps) {
+  const inits = initials(name);
+  const single = size <= 20;
+  const hue = COLOR_VAR[colorSeed];
+  return (
+    <div
+      role="img"
+      aria-label={name}
+      className={cn(
+        "shrink-0 rounded-full overflow-hidden flex items-center justify-center font-sans font-semibold",
+        "text-text-on-accent",
+        className,
+      )}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.max(9, Math.floor(size * 0.42)),
+        backgroundColor: src ? "var(--color-surface-3)" : hue,
+        ...style,
+      }}
+      {...props}
+    >
+      {src ? (
+        // eslint-disable-next-line jsx-a11y/img-redundant-alt
+        <img src={src} alt={name} className="w-full h-full object-cover" />
+      ) : single ? (
+        inits[0]
+      ) : (
+        inits
+      )}
+    </div>
+  );
+}
