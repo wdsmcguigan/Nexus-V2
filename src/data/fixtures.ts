@@ -1,4 +1,31 @@
+/**
+ * EP-0 fixture data — seeds the local store with the full metadata-axis schema.
+ *
+ * Exports two layers:
+ *   1. EP-0 typed seed data (Folder, Label, Status, Message, etc.) → fed into LocalStore
+ *   2. Backward-compat shim (old Email / Folder types) → keeps existing UI compiling
+ *      while Phase 0c–0e migrate components to Message directly.
+ *
+ * System label IDs intentionally match the old "folder" IDs ("inbox", "starred", …)
+ * so that `workspace.selectedFolderId = "inbox"` continues to select the Inbox label.
+ */
+
 import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
+import { localStore } from "@/storage/local";
+import { queryMessages } from "@/storage/query";
+import type {
+  Account as EPAccount,
+  Folder as EPFolder,
+  Label as EPLabel,
+  Message,
+  Status,
+  CustomFieldDef,
+  AttachmentRef,
+  MessageFlags,
+  Address as EPAddress,
+} from "@/data/types";
+
+// ─── backward-compat types (still used by UI in Phase 0b) ───────────────────
 
 export interface Address {
   name: string;
@@ -51,64 +78,211 @@ export interface Account {
   unread: number;
 }
 
-const now = new Date();
-function ago(minutes: number): Date {
-  return new Date(now.getTime() - minutes * 60_000);
+// ─── EP-0 seed data IDs ──────────────────────────────────────────────────────
+
+const VAULT_ID = "local";
+
+// FLD ids — physical disk folders
+const F = {
+  inbox: "fld-inbox-physical",
+  personal: "fld-personal",
+  receipts: "fld-personal-receipts",
+  receipts26: "fld-personal-receipts-2026",
+  clients: "fld-clients",
+  projects: "fld-projects",
+  newsletters: "fld-newsletters",
+} as const;
+
+// LBL ids — system labels match old folder IDs so nav still works unchanged
+const L = {
+  inbox: "inbox",       // system
+  starred: "starred",   // system
+  drafts: "drafts",     // system
+  sent: "sent",         // system
+  snoozed: "snoozed",   // system
+  archive: "archive",   // system
+  spam: "spam",         // system
+  trash: "trash",       // system
+  work: "lbl-work",
+  personal: "lbl-personal",
+  followup: "lbl-followup",
+  newsletter: "lbl-newsletter",
+  receipts: "lbl-receipts",
+  travel: "lbl-travel",
+} as const;
+
+// STA ids
+const S = {
+  triage: "sta-triage",
+  reading: "sta-reading",
+  awaiting: "sta-awaiting",
+  action: "sta-action",
+  done: "sta-done",
+} as const;
+
+// CFD ids
+const CFD = {
+  project: "cfd-project",
+  dealStage: "cfd-deal-stage",
+  notesUrl: "cfd-notes-url",
+} as const;
+
+// ACT ids
+const A_IDS = { main: "act-main", gmail: "act-gmail" } as const;
+
+// ─── Seed definitions ─────────────────────────────────────────────────────────
+
+const seedFolders: EPFolder[] = [
+  {
+    id: F.inbox,
+    vaultId: VAULT_ID,
+    parentId: null,
+    name: "Inbox items",
+    diskSlug: "Inbox-items",
+    diskPath: "Inbox-items",
+  },
+  {
+    id: F.personal,
+    vaultId: VAULT_ID,
+    parentId: null,
+    name: "Personal",
+    diskSlug: "Personal",
+    diskPath: "Personal",
+  },
+  {
+    id: F.receipts,
+    vaultId: VAULT_ID,
+    parentId: F.personal,
+    name: "Receipts",
+    diskSlug: "Receipts",
+    diskPath: "Personal/Receipts",
+  },
+  {
+    id: F.receipts26,
+    vaultId: VAULT_ID,
+    parentId: F.receipts,
+    name: "2026",
+    diskSlug: "2026",
+    diskPath: "Personal/Receipts/2026",
+  },
+  {
+    id: F.clients,
+    vaultId: VAULT_ID,
+    parentId: null,
+    name: "Clients",
+    diskSlug: "Clients",
+    diskPath: "Clients",
+  },
+  {
+    id: F.projects,
+    vaultId: VAULT_ID,
+    parentId: null,
+    name: "Projects",
+    diskSlug: "Projects",
+    diskPath: "Projects",
+  },
+  {
+    id: F.newsletters,
+    vaultId: VAULT_ID,
+    parentId: null,
+    name: "Newsletters",
+    diskSlug: "Newsletters",
+    diskPath: "Newsletters",
+  },
+];
+
+const seedLabels: EPLabel[] = [
+  { id: L.inbox, vaultId: VAULT_ID, name: "Inbox", color: 5, kind: "system", systemKind: "inbox", position: 0 },
+  { id: L.starred, vaultId: VAULT_ID, name: "Starred", color: 2, kind: "system", systemKind: "starred", position: 1 },
+  { id: L.drafts, vaultId: VAULT_ID, name: "Drafts", color: 8, kind: "system", systemKind: "drafts", position: 2 },
+  { id: L.sent, vaultId: VAULT_ID, name: "Sent", color: 1, kind: "system", systemKind: "sent", position: 3 },
+  { id: L.snoozed, vaultId: VAULT_ID, name: "Snoozed", color: 3, kind: "system", systemKind: "snoozed", position: 4 },
+  { id: L.archive, vaultId: VAULT_ID, name: "Archive", color: 7, kind: "system", systemKind: "archive", position: 5 },
+  { id: L.spam, vaultId: VAULT_ID, name: "Spam", color: 4, kind: "system", systemKind: "important", position: 6 },
+  { id: L.trash, vaultId: VAULT_ID, name: "Trash", color: 6, kind: "system", systemKind: "trash", position: 7 },
+  { id: L.work, vaultId: VAULT_ID, name: "Work", color: 5, kind: "user", position: 0 },
+  { id: L.personal, vaultId: VAULT_ID, name: "Personal", color: 6, kind: "user", position: 1 },
+  { id: L.followup, vaultId: VAULT_ID, name: "Follow-up", color: 2, kind: "user", parentId: L.work, position: 2 },
+  { id: L.newsletter, vaultId: VAULT_ID, name: "Newsletter", color: 8, kind: "user", position: 3 },
+  { id: L.receipts, vaultId: VAULT_ID, name: "Receipts", color: 3, kind: "user", position: 4 },
+  { id: L.travel, vaultId: VAULT_ID, name: "Travel", color: 4, kind: "user", position: 5 },
+];
+
+const seedStatuses: Status[] = [
+  { id: S.triage, vaultId: VAULT_ID, name: "Triage", color: 1, position: 0, isDefault: true },
+  { id: S.reading, vaultId: VAULT_ID, name: "Reading", color: 2, position: 1 },
+  { id: S.awaiting, vaultId: VAULT_ID, name: "Awaiting Reply", color: 3, position: 2 },
+  { id: S.action, vaultId: VAULT_ID, name: "Action", color: 4, position: 3 },
+  { id: S.done, vaultId: VAULT_ID, name: "Done", color: 5, position: 4, isTerminal: true },
+];
+
+const seedCustomFieldDefs: CustomFieldDef[] = [
+  {
+    id: CFD.project,
+    vaultId: VAULT_ID,
+    name: "Project",
+    type: "select",
+    options: [
+      { id: "cfd-proj-opt-nexus", label: "Nexus", color: 5, position: 0 },
+      { id: "cfd-proj-opt-acme", label: "Acme", color: 2, position: 1 },
+      { id: "cfd-proj-opt-horizon", label: "Horizon", color: 4, position: 2 },
+    ],
+    position: 0,
+    isPinned: true,
+  },
+  {
+    id: CFD.dealStage,
+    vaultId: VAULT_ID,
+    name: "Deal Stage",
+    type: "select",
+    options: [
+      { id: "ds-prospect", label: "Prospect", color: 8, position: 0 },
+      { id: "ds-negotiating", label: "Negotiating", color: 3, position: 1 },
+      { id: "ds-closed", label: "Closed", color: 5, position: 2 },
+    ],
+    position: 1,
+  },
+  {
+    id: CFD.notesUrl,
+    vaultId: VAULT_ID,
+    name: "Notes URL",
+    type: "url",
+    position: 2,
+  },
+];
+
+const seedAccounts: EPAccount[] = [
+  { id: A_IDS.main, vaultId: VAULT_ID, email: "will@nexus.app", provider: "jmap", syncStatus: "idle" },
+  { id: A_IDS.gmail, vaultId: VAULT_ID, email: "will.mcguigan@gmail.com", provider: "gmail", syncStatus: "syncing" },
+];
+
+// ─── Message generator ───────────────────────────────────────────────────────
+
+const now = Date.now();
+function ago(minutes: number): number {
+  return now - minutes * 60_000;
 }
 
-function addr(name: string, email: string): Address {
-  return { name, email, colorSeed: pickPanelLink(email) };
+function epAddr(name: string, email: string): EPAddress {
+  return { name, email };
 }
 
-export const labels: Record<string, Label> = {
-  important: { id: "important", name: "Important", color: 1 },
-  work: { id: "work", name: "Work", color: 5 },
-  personal: { id: "personal", name: "Personal", color: 6 },
-  followup: { id: "followup", name: "Follow-up", color: 2 },
-  newsletter: { id: "newsletter", name: "Newsletter", color: 8 },
-  receipts: { id: "receipts", name: "Receipts", color: 3 },
-  travel: { id: "travel", name: "Travel", color: 4 },
-};
-
-export const folders: Folder[] = [
-  { id: "inbox", name: "Inbox", icon: "Inbox", count: 247, unreadCount: 12, system: true },
-  { id: "starred", name: "Starred", icon: "Star", count: 38, unreadCount: 0, system: true },
-  { id: "drafts", name: "Drafts", icon: "FileText", count: 4, unreadCount: 0, system: true },
-  { id: "sent", name: "Sent", icon: "Send", count: 1452, unreadCount: 0, system: true },
-  { id: "snoozed", name: "Snoozed", icon: "AlarmClock", count: 7, unreadCount: 3, system: true },
-  { id: "archive", name: "Archive", icon: "Archive", count: 8421, unreadCount: 0, system: true },
-  { id: "spam", name: "Spam", icon: "ShieldAlert", count: 19, unreadCount: 0, system: true },
-  { id: "trash", name: "Trash", icon: "Trash2", count: 142, unreadCount: 0, system: true },
-];
-
-export const customFolders: Folder[] = [
-  { id: "f-clients", name: "Clients", icon: "Folder", count: 84, unreadCount: 2 },
-  { id: "f-projects", name: "Projects", icon: "Folder", count: 156, unreadCount: 0 },
-  { id: "f-receipts", name: "Receipts", icon: "Folder", count: 312, unreadCount: 0 },
-  { id: "f-newsletters", name: "Newsletters", icon: "Folder", count: 482, unreadCount: 5 },
-];
-
-export const accounts: Account[] = [
-  { id: "a1", email: "will@nexus.app", syncStatus: "idle", unread: 12 },
-  { id: "a2", email: "will.mcguigan@gmail.com", syncStatus: "syncing", unread: 8 },
-];
-
-const senders = [
-  addr("Alice Chen", "alice@axiomlabs.io"),
-  addr("Bob Marcus", "bob.marcus@northroot.com"),
-  addr("Priya Subramanian", "priya@palomar.dev"),
-  addr("Diego Hernández", "diego.h@cobaltworks.io"),
-  addr("Yuki Tanaka", "yuki@brightpath.studio"),
-  addr("GitHub", "noreply@github.com"),
-  addr("Stripe", "receipts@stripe.com"),
-  addr("Linear", "notifications@linear.app"),
-  addr("Mae Patel", "mae@harborline.co"),
-  addr("Henry Vasquez", "henry@stagepoint.studio"),
-  addr("Cassidy Yong", "cy@meridian.fund"),
-  addr("Rohit Sharma", "rohit.sharma@northpath.dev"),
-  addr("AWS Billing", "no-reply-aws@amazon.com"),
-  addr("Vercel", "support@vercel.com"),
-  addr("Substack — Stratechery", "stratechery@substack.com"),
+const senders: EPAddress[] = [
+  epAddr("Alice Chen", "alice@axiomlabs.io"),
+  epAddr("Bob Marcus", "bob.marcus@northroot.com"),
+  epAddr("Priya Subramanian", "priya@palomar.dev"),
+  epAddr("Diego Hernández", "diego.h@cobaltworks.io"),
+  epAddr("Yuki Tanaka", "yuki@brightpath.studio"),
+  epAddr("GitHub", "noreply@github.com"),
+  epAddr("Stripe", "receipts@stripe.com"),
+  epAddr("Linear", "notifications@linear.app"),
+  epAddr("Mae Patel", "mae@harborline.co"),
+  epAddr("Henry Vasquez", "henry@stagepoint.studio"),
+  epAddr("Cassidy Yong", "cy@meridian.fund"),
+  epAddr("Rohit Sharma", "rohit.sharma@northpath.dev"),
+  epAddr("AWS Billing", "no-reply-aws@amazon.com"),
+  epAddr("Vercel", "support@vercel.com"),
+  epAddr("Substack — Stratechery", "stratechery@substack.com"),
 ];
 
 const subjects = [
@@ -167,80 +341,271 @@ const snippets = [
   "Heads up — we're migrating away from the old vendor on Friday between 10pm and 2am. Expect a brief read-only window. Sending follow-ups daily",
 ];
 
-const bodies = [
-  `<p>Hi team,</p><p>Wanted to share a few updates from this morning's planning session.</p><ul><li>Timeline shifted to mid-June</li><li>Design tokens locked</li><li>Inspector panel scope reduced</li></ul><p>Let me know if anything looks off.</p><p>— Alice</p>`,
-  `<p>Hey,</p><p>I've gone through the spec and have a couple of questions about the panel-link palette behavior when a user has more than 8 paired panels.</p><ol><li>Do they recycle?</li><li>Do we surface a warning?</li></ol><p>Open to either approach but want to flag.</p><p>Thanks!</p>`,
-  `<p>Please find attached the September invoice for services rendered.</p><p><strong>Net-30 terms apply.</strong></p><p>Wire details haven't changed — let me know if you need them resent.</p>`,
+type LabelSet = string[];
+
+const labelOptions: LabelSet[] = [
+  [L.inbox, L.work],
+  [L.inbox, L.work],
+  [L.inbox, L.personal],
+  [L.inbox, L.followup, L.work],
+  [L.inbox, L.newsletter],
+  [L.inbox, L.receipts],
+  [L.inbox, L.travel, L.personal],
+  [L.inbox],
+  [L.inbox, L.work, L.followup],
+  [L.inbox, L.newsletter, L.followup],
 ];
 
 function rand<T>(arr: readonly T[], i: number): T {
   return arr[i % arr.length] as T;
 }
 
-const labelOptions: Label[][] = [
-  [labels.work!, labels.important!],
-  [labels.work!],
-  [labels.personal!],
-  [labels.followup!, labels.work!],
-  [labels.newsletter!],
-  [labels.receipts!],
-  [labels.travel!, labels.personal!],
-  [],
-  [labels.work!, labels.followup!, labels.important!],
-  [labels.newsletter!, labels.followup!],
-];
-
-function generateEmails(): Email[] {
-  const out: Email[] = [];
+function generateMessages(): Message[] {
+  const out: Message[] = [];
   let threadCount = 0;
+
   for (let i = 0; i < 60; i++) {
     const sender = rand(senders, i);
     const subject = rand(subjects, i);
     const snippet = rand(snippets, i);
-    const body = rand(bodies, i);
     const minutesAgo = i * 27 + (i % 5) * 13;
-    const labelSet = rand(labelOptions, i);
-    const hasAttachment = i % 6 === 0;
     const isThread = i % 7 === 3;
-    const threadId = isThread
-      ? `thread-${threadCount}`
-      : `thread-${++threadCount}`;
+    const threadId = isThread ? `thread-${threadCount}` : `thread-${++threadCount}`;
     if (isThread) threadCount++;
+
+    const isSnoozed = i % 17 === 0;
+    const labelSet: string[] = isSnoozed
+      ? [L.snoozed]
+      : (rand(labelOptions, i) as string[]);
+    const hasAttachment = i % 6 === 0;
+    const hasStatus = i % 5 === 0;
+    const hasPriority = i % 4 === 0;
+    const hasStar = i % 9 === 1;
+    const hasTags = i % 8 === 2;
+    const isPinned = i === 3;
+    const isMuted = i === 11;
+    const hasNote = i === 7;
+    const hasCFV = i === 2 || i === 5;
+
+    const flags: MessageFlags = {
+      read: i > 4 && i % 3 !== 0,
+      answered: i % 15 === 0,
+      draft: false,
+      flagged: i % 13 === 0,
+    };
+
+    const attachmentRefs: AttachmentRef[] = hasAttachment
+      ? [
+          {
+            name: i % 12 === 0 ? "Q2-deck.pdf" : "screenshot.png",
+            size: i % 12 === 0 ? 4_212_000 : 482_000,
+            type: i % 12 === 0 ? "pdf" : "image",
+          },
+        ]
+      : [];
+
+    const statuses = [S.triage, S.reading, S.awaiting, S.action, S.done];
+    const priorities: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
+    const stars = [
+      "yellow", "red", "orange", "green", "blue",
+      "check-green", "bang-red", "question-purple",
+    ] as const;
+
     out.push({
       id: `email-${i.toString().padStart(3, "0")}`,
+      vaultId: VAULT_ID,
+      folderId: F.inbox,
       threadId,
-      from: sender,
-      to: [addr("Will McGuigan", "will@nexus.app")],
-      cc: i % 11 === 0 ? [addr("Mae Patel", "mae@harborline.co")] : undefined,
+      providerIds: { messageId: `<msg-${i}@nexus.app>` },
+      labelIds: labelSet,
+      tags: hasTags ? [`project-${i % 4}`, "follow-up"] : [],
+      statusId: hasStatus ? (rand(statuses, i) ?? null) : null,
+      priority: hasPriority ? (rand(priorities, i) ?? null) : null,
+      star: hasStar ? (rand(stars, i) ?? null) : null,
+      flag: flags.flagged ? { setAt: ago(minutesAgo + 5) } : null,
+      pinned: isPinned,
+      muted: isMuted,
+      notes: hasNote ? "Check this one carefully before replying." : null,
+      customFields: hasCFV
+        ? { [CFD.project]: i === 2 ? "cfd-proj-opt-nexus" : "cfd-proj-opt-acme" }
+        : {},
+      flags,
+      receivedAt: ago(minutesAgo),
+      sentAt: ago(minutesAgo + 1),
+      fromAddr: sender,
+      toAddrs: [epAddr("Will McGuigan", "will@nexus.app")],
+      ccAddrs: i % 11 === 0 ? [epAddr("Mae Patel", "mae@harborline.co")] : [],
+      bccAddrs: [],
       subject,
       snippet,
-      body,
-      receivedAt: ago(minutesAgo),
-      read: i > 4 && i % 3 !== 0,
-      starred: i % 9 === 1,
-      labels: labelSet,
-      attachments: hasAttachment
-        ? [
-            {
-              name: i % 12 === 0 ? "Q2-deck.pdf" : "screenshot.png",
-              size: i % 12 === 0 ? 4_212_000 : 482_000,
-              type: i % 12 === 0 ? "pdf" : "image",
-            },
-          ]
-        : [],
-      folderId: i % 17 === 0 ? "snoozed" : "inbox",
+      bodyRef: `hash-${i}`,
+      attachmentRefs,
+    });
+  }
+
+  return out;
+}
+
+// ─── 100k synthetic message generator (dev-only, Gate 0g benchmark) ──────────
+
+export function generateSyntheticMessages(count: number): Message[] {
+  const statuses = Object.values(S);
+  const labelGroups = [L.inbox, L.work, L.personal, L.newsletter, L.receipts, L.travel];
+  const tags = ["urgent", "follow-up", "review", "blocked", "done"];
+  const priorities: Array<1 | 2 | 3 | 4> = [1, 2, 3, 4];
+  const out: Message[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      id: `synth-${i}`,
+      vaultId: VAULT_ID,
+      folderId: F.inbox,
+      threadId: `synth-thread-${Math.floor(i / 3)}`,
+      providerIds: {},
+      labelIds: [labelGroups[i % labelGroups.length]!],
+      tags: i % 7 === 0 ? [tags[i % tags.length]!] : [],
+      statusId: i % 5 === 0 ? (statuses[i % statuses.length] ?? null) : null,
+      priority: i % 4 === 0 ? (priorities[i % priorities.length] ?? null) : null,
+      star: null,
+      flag: null,
+      pinned: false,
+      muted: false,
+      notes: null,
+      customFields: i % 11 === 0 ? { [CFD.project]: "cfd-proj-opt-acme" } : {},
+      flags: { read: i % 2 === 0, answered: false, draft: false, flagged: false },
+      receivedAt: now - i * 60_000,
+      sentAt: now - i * 60_000 - 30_000,
+      fromAddr: { name: `Sender ${i}`, email: `sender${i}@example.com` },
+      toAddrs: [{ name: "Will", email: "will@nexus.app" }],
+      ccAddrs: [],
+      bccAddrs: [],
+      subject: `Synthetic message ${i}`,
+      snippet: `Snippet for synthetic message ${i} with some text`,
+      bodyRef: `synth-hash-${i}`,
+      attachmentRefs: [],
     });
   }
   return out;
 }
 
-export const emails: Email[] = generateEmails();
+// ─── Store initialization ─────────────────────────────────────────────────────
+
+let _initialized = false;
+
+export function initStore(): void {
+  if (_initialized) return;
+  _initialized = true;
+  localStore.hydrate({
+    vault: { id: VAULT_ID, path: "/nexus-vault", createdAt: now },
+    accounts: seedAccounts,
+    folders: seedFolders,
+    labels: seedLabels,
+    statuses: seedStatuses,
+    customFieldDefs: seedCustomFieldDefs,
+    messages: generateMessages(),
+    tagUsage: [],
+    mutations: [],
+  });
+}
+
+// Auto-initialize when module is imported
+initStore();
+
+// ─── Bridge: Message → old Email shape (used until Phase 0c–0e migrate UI) ───
+
+function addrBridge(a: EPAddress): Address {
+  return { name: a.name, email: a.email, colorSeed: pickPanelLink(a.email) };
+}
+
+function messagesToEmail(msg: Message): Email {
+  const lbls: Label[] = msg.labelIds
+    .map((id) => localStore.labels.get(id))
+    .filter((l): l is EPLabel => l !== undefined && l.kind === "user")
+    .map((l) => ({ id: l.id, name: l.name, color: l.color as PanelLink }));
+
+  return {
+    id: msg.id,
+    threadId: msg.threadId,
+    from: addrBridge(msg.fromAddr),
+    to: msg.toAddrs.map(addrBridge),
+    cc: msg.ccAddrs.length > 0 ? msg.ccAddrs.map(addrBridge) : undefined,
+    subject: msg.subject,
+    snippet: msg.snippet,
+    body: "",
+    receivedAt: new Date(msg.receivedAt),
+    read: msg.flags.read,
+    starred: msg.star !== null,
+    labels: lbls,
+    attachments: msg.attachmentRefs.map((r) => ({
+      name: r.name,
+      size: r.size,
+      type: r.type,
+    })),
+    folderId: msg.folderId,
+  };
+}
+
+// ─── Backward-compat exports (Phase 0b — kept for existing UI components) ────
+
+/** System folder nav items — IDs match system label IDs. */
+export const folders: Folder[] = [
+  { id: "inbox", name: "Inbox", icon: "Inbox", count: 247, unreadCount: 12, system: true },
+  { id: "starred", name: "Starred", icon: "Star", count: 38, unreadCount: 0, system: true },
+  { id: "drafts", name: "Drafts", icon: "FileText", count: 4, unreadCount: 0, system: true },
+  { id: "sent", name: "Sent", icon: "Send", count: 1452, unreadCount: 0, system: true },
+  { id: "snoozed", name: "Snoozed", icon: "AlarmClock", count: 7, unreadCount: 3, system: true },
+  { id: "archive", name: "Archive", icon: "Archive", count: 8421, unreadCount: 0, system: true },
+  { id: "spam", name: "Spam", icon: "ShieldAlert", count: 19, unreadCount: 0, system: true },
+  { id: "trash", name: "Trash", icon: "Trash2", count: 142, unreadCount: 0, system: true },
+];
+
+export const customFolders: Folder[] = [
+  { id: F.clients, name: "Clients", icon: "Folder", count: 84, unreadCount: 2 },
+  { id: F.projects, name: "Projects", icon: "Folder", count: 156, unreadCount: 0 },
+  { id: F.receipts, name: "Receipts", icon: "Folder", count: 312, unreadCount: 0 },
+  { id: F.newsletters, name: "Newsletters", icon: "Folder", count: 482, unreadCount: 5 },
+];
+
+export const accounts: Account[] = [
+  { id: A_IDS.main, email: "will@nexus.app", syncStatus: "idle", unread: 12 },
+  { id: A_IDS.gmail, email: "will.mcguigan@gmail.com", syncStatus: "syncing", unread: 8 },
+];
+
+/** Old label map — kept for any direct references in existing UI. */
+export const labels: Record<string, Label> = {
+  work: { id: L.work, name: "Work", color: 5 },
+  personal: { id: L.personal, name: "Personal", color: 6 },
+  followup: { id: L.followup, name: "Follow-up", color: 2 },
+  newsletter: { id: L.newsletter, name: "Newsletter", color: 8 },
+  receipts: { id: L.receipts, name: "Receipts", color: 3 },
+  travel: { id: L.travel, name: "Travel", color: 4 },
+};
+
+/**
+ * Return emails for a given selection ID (system label, user label, or physical folder).
+ * This is the backward-compat version; Phase 0c+ components will query the store directly.
+ */
+export function emailsByFolder(selectionId: string): Email[] {
+  const isSystemLabel = localStore.labels.has(selectionId) &&
+    localStore.labels.get(selectionId)?.kind === "system";
+  const isUserLabel = localStore.labels.has(selectionId) &&
+    localStore.labels.get(selectionId)?.kind === "user";
+  const isFolder = localStore.folders.has(selectionId);
+
+  let messages: Message[];
+  if (isSystemLabel || isUserLabel) {
+    const { items } = queryMessages({ labelIds: [selectionId], limit: 500 }, localStore);
+    messages = items;
+  } else if (isFolder) {
+    const { items } = queryMessages({ folderId: selectionId, limit: 500 }, localStore);
+    messages = items;
+  } else {
+    messages = [];
+  }
+  return messages.map(messagesToEmail);
+}
 
 export function emailById(id: string | null): Email | null {
   if (!id) return null;
-  return emails.find((e) => e.id === id) ?? null;
-}
-
-export function emailsByFolder(folderId: string): Email[] {
-  return emails.filter((e) => e.folderId === folderId);
+  const msg = localStore.messages.get(id);
+  return msg ? messagesToEmail(msg) : null;
 }
