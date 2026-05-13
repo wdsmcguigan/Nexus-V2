@@ -5,7 +5,9 @@
 
 import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
-import type { Folder, Label, Status, Account, Message } from "@/data/types";
+import { queryMessages } from "@/storage/query";
+import { useWorkspace } from "@/state/workspace";
+import type { Folder, Label, Status, Account, Message, MetadataFilter } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -103,4 +105,36 @@ export function useMessage(id: string | null): Message | null {
   return useSyncExternalStore(subscribe, () =>
     id ? (localStore.messages.get(id) ?? null) : null,
   );
+}
+
+/** Returns messages for the currently selected folder/label, reactive. */
+export function useVisibleMessages(
+  sortBy: MetadataFilter["sortBy"] = "receivedAt",
+  sortDir: MetadataFilter["sortDir"] = "desc",
+): Message[] {
+  const folderId = useWorkspace((s) => s.selectedFolderId);
+  return useSyncExternalStore(subscribe, () => {
+    const filter: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    const lbl = localStore.labels.get(folderId);
+    if (lbl) {
+      filter.labelIds = [folderId];
+    } else if (localStore.folders.has(folderId)) {
+      filter.folderId = folderId;
+    } else {
+      return [];
+    }
+    return queryMessages(filter, localStore).items;
+  });
+}
+
+/** Returns display name of the currently selected folder/label, reactive. */
+export function useSelectionTitle(): string {
+  const folderId = useWorkspace((s) => s.selectedFolderId);
+  return useSyncExternalStore(subscribe, () => {
+    const lbl = localStore.labels.get(folderId);
+    if (lbl) return lbl.name;
+    const folder = localStore.folders.get(folderId);
+    if (folder) return folder.name;
+    return "Mail";
+  });
 }

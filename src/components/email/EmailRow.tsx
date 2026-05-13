@@ -1,23 +1,78 @@
+/**
+ * LST-EMAIL-ROW — renders Message directly with all metadata axes.
+ * STR icon at chosen color, PRI indicator, LBL chips, TAG chips, STA chip,
+ * PIN/MUT indicators.
+ */
 import * as React from "react";
-import { Star, Paperclip } from "lucide-react";
+import {
+  Star,
+  Paperclip,
+  Pin,
+  BellOff,
+  CheckCircle2,
+  AlertOctagon,
+  HelpCircle,
+  ChevronRight,
+  Info,
+  AlertTriangle,
+  type LucideIcon,
+} from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
-import type { Email } from "@/data/fixtures";
+import { pickPanelLink } from "@/design-system/tokens";
+import type { Message, StarStyle, Label, Status } from "@/data/types";
 import type { Density } from "@/design-system/tokens";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface EmailRowProps {
-  email: Email;
+  message: Message;
   density: Density;
   selected: boolean;
   focused: boolean;
   ghosted: boolean;
+  inSelectionSet: boolean;
+  /** Pre-resolved labels for this message (looked up by parent). */
+  labels: Label[];
+  /** Pre-resolved status (null if not set). */
+  status: Status | null;
   onSelect: (e: React.MouseEvent) => void;
   onFocus: () => void;
   onToggleStar: () => void;
   onToggleCheck: (checked: boolean) => void;
-  inSelectionSet: boolean;
 }
+
+// ─── Star icon mapping ────────────────────────────────────────────────────────
+
+interface StarEntry {
+  icon: LucideIcon;
+  color: string;
+}
+
+const STAR_MAP: Record<StarStyle, StarEntry> = {
+  yellow: { icon: Star, color: "var(--color-link-2)" },
+  red: { icon: Star, color: "var(--color-link-1)" },
+  orange: { icon: Star, color: "oklch(0.66 0.16 55)" },
+  green: { icon: Star, color: "var(--color-link-3)" },
+  blue: { icon: Star, color: "var(--color-link-5)" },
+  purple: { icon: Star, color: "var(--color-link-6)" },
+  "check-green": { icon: CheckCircle2, color: "var(--color-link-3)" },
+  "bang-red": { icon: AlertOctagon, color: "var(--color-link-1)" },
+  "question-purple": { icon: HelpCircle, color: "var(--color-link-6)" },
+  "guillemet-orange": { icon: ChevronRight, color: "oklch(0.66 0.16 55)" },
+  "info-blue": { icon: Info, color: "var(--color-link-5)" },
+  "bang-yellow": { icon: AlertTriangle, color: "var(--color-link-2)" },
+};
+
+// ─── Priority indicator ───────────────────────────────────────────────────────
+
+const PRI_COLORS: Record<number, string> = {
+  1: "var(--color-link-1)", // urgent red
+  2: "oklch(0.66 0.16 55)", // high orange
+  3: "var(--color-link-5)", // normal blue
+  4: "var(--color-text-tertiary)", // low grey
+};
 
 const HEIGHT_BY_DENSITY: Record<Density, number> = {
   compact: 28,
@@ -25,36 +80,41 @@ const HEIGHT_BY_DENSITY: Record<Density, number> = {
   cozy: 48,
 };
 
-/**
- * Email list row — see spec §5.1, §3.1.
- * Visual states layered as data attributes so a single CSS layer per state.
- */
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export const EmailRow = React.memo(function EmailRow({
-  email,
+  message: msg,
   density,
   selected,
   focused,
   ghosted,
+  inSelectionSet,
+  labels,
+  status,
   onSelect,
   onFocus,
   onToggleStar,
   onToggleCheck,
-  inSelectionSet,
 }: EmailRowProps) {
   const showAvatar = density !== "compact";
   const showSnippet = density !== "compact";
-  const showLabels = density === "comfortable" || density === "cozy";
+  const showMeta = density === "comfortable" || density === "cozy";
   const cozy = density === "cozy";
   const height = HEIGHT_BY_DENSITY[density];
+
+  const fromColorSeed = pickPanelLink(msg.fromAddr.email);
+  const isRead = msg.flags.read;
+  const isStarred = !!msg.star;
+
+  // Priority: only show P1/P2 as badges (P3/P4/null are suppressed)
+  const showPriBadge = msg.priority !== null && msg.priority <= 2;
 
   return (
     <div
       role="row"
       aria-selected={inSelectionSet}
       data-density={density}
-      data-state={
-        selected ? "selected" : focused ? "focused" : "default"
-      }
+      data-state={selected ? "selected" : focused ? "focused" : "default"}
       onClick={onSelect}
       onMouseEnter={onFocus}
       tabIndex={focused ? 0 : -1}
@@ -62,25 +122,31 @@ export const EmailRow = React.memo(function EmailRow({
         "group/row relative flex w-full items-stretch px-2",
         "border-b border-border-subtle cursor-default outline-none",
         "transition-colors duration-fast ease-out",
-        // Hover
         "hover:bg-[rgba(255,255,255,0.03)]",
-        // Focused (kbd cursor)
         focused &&
           !selected &&
           "bg-[rgba(255,255,255,0.045)] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-accent before:opacity-60",
-        // Selected (panel focused)
         selected &&
           !ghosted &&
           "bg-accent-soft before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-accent",
-        // Ghosted selection (panel unfocused)
         selected &&
           ghosted &&
           "before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-border-ghost",
+        msg.muted && "opacity-60",
         "focus-visible:shadow-focus",
       )}
       style={{ minHeight: height }}
     >
-      {/* Checkbox (always at cozy, hover/select otherwise) */}
+      {/* Priority left-stripe (behind selection indicator) */}
+      {msg.priority !== null && !selected && !focused && (
+        <span
+          aria-hidden
+          className="absolute inset-y-0 left-0 w-[3px]"
+          style={{ backgroundColor: PRI_COLORS[msg.priority] ?? "transparent", opacity: 0.5 }}
+        />
+      )}
+
+      {/* Checkbox */}
       <div
         className={cn(
           "flex w-6 items-center justify-center self-start pt-1.5",
@@ -96,7 +162,7 @@ export const EmailRow = React.memo(function EmailRow({
             onToggleCheck(e.target.checked);
           }}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select email from ${email.from.name}`}
+          aria-label={`Select from ${msg.fromAddr.name}`}
           className="size-3.5 cursor-pointer accent-accent"
         />
       </div>
@@ -104,61 +170,65 @@ export const EmailRow = React.memo(function EmailRow({
       {/* Star */}
       <button
         type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleStar();
-        }}
-        aria-label={email.starred ? "Unstar" : "Star"}
+        onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
+        aria-label={isStarred ? "Unstar" : "Star"}
         className={cn(
           "flex w-5 shrink-0 items-center justify-center self-start pt-1.5",
-          "text-text-tertiary transition-opacity duration-fast",
-          email.starred ? "opacity-full" : "opacity-dim hover:opacity-full",
+          "transition-opacity duration-fast",
+          isStarred ? "opacity-full" : "opacity-dim hover:opacity-full",
           "focus-visible:opacity-full focus-visible:shadow-focus rounded-xs",
         )}
       >
-        <Star
-          size={12}
-          fill={email.starred ? "var(--color-warning)" : "transparent"}
-          color={email.starred ? "var(--color-warning)" : "currentColor"}
-        />
+        {msg.star && STAR_MAP[msg.star] ? (() => {
+          const { icon: Icon, color } = STAR_MAP[msg.star!]!;
+          return <Icon size={12} fill={color} style={{ color }} />;
+        })() : (
+          <Star size={12} className="text-text-tertiary" />
+        )}
       </button>
 
       {/* Avatar */}
       {showAvatar && (
         <div className="flex shrink-0 items-start self-start pt-1 pr-2">
-          <Avatar
-            name={email.from.name}
-            size={cozy ? 28 : 20}
-            colorSeed={email.from.colorSeed}
-          />
+          <Avatar name={msg.fromAddr.name} size={cozy ? 28 : 20} colorSeed={fromColorSeed} />
         </div>
       )}
 
-      {/* From + Subject + Snippet */}
+      {/* From + Subject + Snippet + meta chips */}
       <div className="min-w-0 flex-1 self-stretch py-1.5">
         <div className="flex min-w-0 items-baseline gap-2">
+          {/* Priority badge (P1/P2 only) */}
+          {showPriBadge && (
+            <span
+              className="shrink-0 font-mono text-mono-xs font-bold leading-none"
+              style={{ color: PRI_COLORS[msg.priority!] }}
+            >
+              {"!".repeat(msg.priority === 1 ? 3 : 2)}
+            </span>
+          )}
           <span
             className={cn(
               "shrink-0 truncate font-sans text-body",
               cozy ? "max-w-[160px]" : "max-w-[120px]",
-              email.read
-                ? "font-normal text-text-secondary"
-                : "font-semibold text-text-primary",
+              isRead ? "font-normal text-text-secondary" : "font-semibold text-text-primary",
             )}
           >
-            {email.from.name}
+            {msg.fromAddr.name}
           </span>
+          {/* PIN indicator */}
+          {msg.pinned && (
+            <Pin size={10} className="shrink-0 text-text-tertiary" />
+          )}
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-body",
-              email.read
-                ? "font-normal text-text-secondary"
-                : "font-semibold text-text-primary",
+              isRead ? "font-normal text-text-secondary" : "font-semibold text-text-primary",
             )}
           >
-            {email.subject}
+            {msg.subject}
           </span>
         </div>
+
         {showSnippet && (
           <div
             className={cn(
@@ -168,28 +238,54 @@ export const EmailRow = React.memo(function EmailRow({
               cozy ? "line-clamp-2" : "truncate",
             )}
           >
-            {email.snippet}
+            {msg.snippet}
+          </div>
+        )}
+
+        {/* Meta chips (labels, status, tags) */}
+        {showMeta && (labels.length > 0 || status || msg.tags.length > 0) && (
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            {status && (
+              <span
+                className="inline-flex h-[18px] items-center gap-1 rounded-xs px-1.5 font-mono text-mono-xs uppercase"
+                style={{
+                  color: `var(--color-link-${status.color})`,
+                  backgroundColor: `color-mix(in oklch, var(--color-link-${status.color}) 18%, transparent)`,
+                }}
+              >
+                <span
+                  className="size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: `var(--color-link-${status.color})` }}
+                />
+                {status.name}
+              </span>
+            )}
+            {labels.slice(0, cozy ? 5 : 3).map((l) => (
+              <Tag key={l.id} color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8} size="sm">
+                {l.name}
+              </Tag>
+            ))}
+            {msg.tags.slice(0, 2).map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex h-[18px] items-center rounded-xs bg-surface-3 px-1.5 font-mono text-mono-xs text-text-tertiary"
+              >
+                #{tag}
+              </span>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Attachment */}
-      {email.attachments.length > 0 && (
-        <div className="flex w-5 shrink-0 items-center justify-center self-start pt-1.5">
+      {/* Attachment + mute indicator */}
+      <div className="flex shrink-0 flex-col items-end gap-0.5 self-start pt-1.5">
+        {msg.attachmentRefs.length > 0 && (
           <Paperclip size={12} className="text-text-tertiary" />
-        </div>
-      )}
-
-      {/* Labels */}
-      {showLabels && email.labels.length > 0 && (
-        <div className="hidden @[640px]:flex shrink-0 items-center gap-1 self-start pt-1.5 pr-2">
-          {email.labels.slice(0, cozy ? 5 : 3).map((l) => (
-            <Tag key={l.id} color={l.color} size="sm">
-              {l.name}
-            </Tag>
-          ))}
-        </div>
-      )}
+        )}
+        {msg.muted && (
+          <BellOff size={10} className="text-text-tertiary opacity-dim" />
+        )}
+      </div>
 
       {/* Date */}
       <div
@@ -200,7 +296,7 @@ export const EmailRow = React.memo(function EmailRow({
           "transition-opacity duration-fast group-hover/row:opacity-dim",
         )}
       >
-        {formatRelativeTime(email.receivedAt)}
+        {formatRelativeTime(new Date(msg.receivedAt))}
       </div>
     </div>
   );
