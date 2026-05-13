@@ -268,8 +268,12 @@ kanban (`VW-KANBAN-BY-STATUS`) + table (`VW-TABLE-CUSTOM-FIELDS`) views.
 inbound location: `Inbox stuff/<year>/<month>/...`, but the user can
 move it anywhere; the label persists. JMAP model.
 
-**Web (Epic 0)** uses OPFS as the storage layer instead of disk; same
-logical schema, no Maildir, no FS watcher (yet).
+**Web (Epic 0)** uses an in-memory `LocalStore` (plain TypeScript class,
+`Map`-based inverted indexes) instead of OPFS/SQLite. OPFS persistence is
+deferred to EP-3/4. The logical schema is identical; `hydrate()` seeds from
+fixture data at startup and the mutation log is in-memory only.
+React components subscribe via `useSyncExternalStore` against
+`LocalStore.subscribe()` / `version`-increment pattern.
 
 ---
 

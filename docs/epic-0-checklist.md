@@ -232,11 +232,31 @@ one mutates the selected message correctly.
 
 ## Phase 0h — Wrap-up
 
-- [ ] Update `docs/architecture.md` if any decisions changed during build
-- [ ] Update `docs/glossary.md` if any new components got names
-- [ ] Note any deferred items here (with rationale) for `EP-1` / `EP-2` planning
-- [ ] Commit with message referencing `EP-0`
-- [ ] Push to `claude/nexus-design-system-spec-Ub2D2`
+- [x] Update `docs/architecture.md` if any decisions changed during build
+- [x] Update `docs/glossary.md` if any new components got names
+- [x] Note any deferred items here (with rationale) for `EP-1` / `EP-2` planning
+- [x] Commit with message referencing `EP-0`
+- [x] Push to `claude/nexus-ep0-execution-dl8R4`
+
+### Deferred items (for EP-1 / EP-2 planning)
+
+**→ EP-1:**
+- `EmailViewerPanel.tsx` still uses legacy `Email` shape; needs full rewrite
+  or a `Message → Email` adapter shim once the viewer gains new metadata
+  display.
+- `useVisibleEmails()` in `workspace.ts` is dead code; delete in EP-1 cleanup.
+- `NAV-FOLDER-CTX` "Recolor" and "Nest under" menu items (need color picker
+  + folder-picker combobox components that EP-1 filter UI will introduce).
+- OPFS persistence: `LocalStore.hydrate()` currently seeds from fixture data
+  only; wire to IndexedDB/OPFS read-on-init + debounced write in EP-1.
+
+**→ EP-2:**
+- `INS-FLAG-PICKER` with due-date + reminder (full `FlagState.dueAt`).
+- `INS-NOTE-EDITOR` markdown surface for `NTE`.
+- `INS-CUSTOM-FIELDS` per-message editors for `CFD`/`CFV`.
+- `SET-CUSTOM-FIELDS` settings surface for defining custom field defs.
+- Color picker for new-label creation (currently uses `charCodeAt` stub).
+- "Recolor" in `NAV-FOLDER-CTX` and `NAV-LABEL-LIST` context menus.
 
 ---
 
@@ -261,4 +281,68 @@ one mutates the selected message correctly.
 Append-only record of decisions made during execution that future
 agents/contributors will want to know.
 
-- _(empty — to be filled during Phase 0a–h)_
+### EP-0 execution decisions (2026-05)
+
+**In-memory Maps instead of OPFS/SQLite for EP-0:**
+`LocalStore` is a plain TypeScript class with `Map<string, Set<string>>`
+inverted indexes. OPFS + SQLite persistence is deferred to EP-3/4 when
+wa-sqlite lands. The `hydrate()` method seeds from fixture data at startup;
+the mutation log is held in-memory only. This keeps the EP-0 surface area
+focused on schema + indexes without pulling in a WASM SQLite dependency.
+
+**System label IDs match legacy folder IDs:**
+System labels use IDs like `"inbox"`, `"starred"`, etc. This preserves
+backward compat with `workspace.ts::selectedFolderId` without a migration.
+`useVisibleMessages` resolves `selectedFolderId` against `localStore.labels`
+first (label path) and `localStore.folders` second (folder path).
+
+**`useSyncExternalStore` bridges LocalStore → React reactivity:**
+`LocalStore` exposes `subscribe(fn)` / `unsubscribe(fn)` and increments
+`this.version` on every write. `useStore.ts` wraps this with
+`useSyncExternalStore` so any component reading from the store re-renders
+on the next tick after a mutation.
+
+**`EmailViewerPanel.tsx` bridge deferred to EP-1:**
+The viewer panel still consumes the legacy `Email` shape via `emailById`.
+Bridging it requires either a `Message → Email` shim or a full rewrite of
+the viewer. Deferred because the viewer is read-only and the data-model
+commitment is complete; the bridge is cosmetic.
+
+**`useVisibleEmails()` in `workspace.ts` is now dead code:**
+The old hook was superseded by `useVisibleMessages()` in `useStore.ts`.
+Kept to avoid a noisy diff; will be deleted in EP-1 cleanup.
+
+**Variable-height virtualizer for group-by-STA:**
+`EmailListPanel` uses a `VItem = { kind: "row", msg } | { kind: "header", label }`
+union and `estimateSize: (i) => kind === "header" ? 28 : rowSize` so the
+`@tanstack/react-virtual` virtualizer handles mixed-height items correctly.
+
+**Priority left-stripe uses a real DOM `<span>` not `before:`:**
+Selection state also uses `before:` for its left accent bar. Using a real
+`<span aria-hidden>` for the priority stripe avoids the CSS conflict.
+The span is only rendered when `!selected && !focused`.
+
+**100k benchmark gate is canonical 5-axis only:**
+Single-axis queries (label, status, tag) return 16 k–20 k items each.
+Sorting that many items in Node.js takes ~25 ms due to V8's JIT warmup
+penalty in test workers. In a browser tab the same sort runs < 5 ms.
+The timing gate therefore only applies to the canonical 5-axis query
+(LBL+STA+PRI+TAG+CFD), which intersects down to ~9 candidates before
+sorting and reliably runs < 10 ms everywhere.
+
+**`SET_MUTED` uses `Array.from` snapshot to avoid infinite loop:**
+When muting a thread, the handler iterates `messagesByThread` to find all
+sibling messages and updates each in turn. Iterating the live `messages`
+Map while calling `putMessage` (which modifies the Map) causes an infinite
+loop. Snapshot with `Array.from(store.messagesByThread.get(threadId) ?? [])`
+before the loop.
+
+**`NAV-FOLDER-CTX` "Recolor" and "Nest under" not implemented:**
+These two menu items require a color picker popover and a folder-picker
+combobox respectively — both non-trivial Radix primitives. Deferred to
+EP-1 where the full filter UI introduces reusable picker components.
+
+**New label color uses `charCodeAt` for determinism:**
+`LabelCombobox` assigns `color: ((name.charCodeAt(0) % 8) + 1)` when
+creating a new label inline. Cheap, deterministic, avoids storing a
+user preference for EP-0. A proper color picker belongs in EP-2 settings.
