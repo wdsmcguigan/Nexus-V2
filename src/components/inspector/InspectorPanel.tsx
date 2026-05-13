@@ -5,14 +5,16 @@ import {
   Reply,
   Forward,
   AlarmClock,
-  Star,
   Archive,
   Trash2,
-  Tags,
   Copy,
   ExternalLink,
   MoreHorizontal,
   MailQuestion,
+  BellOff,
+  Bell,
+  Flag,
+  FlagOff,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -22,7 +24,13 @@ import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useInspectorEmailId, useWorkspace } from "@/state/workspace";
-import { emailById } from "@/data/fixtures";
+import { useMessage, useLabels } from "@/storage/useStore";
+import { TagBar } from "@/components/inspector/TagBar";
+import { StatusPicker } from "@/components/inspector/StatusPicker";
+import { PriorityPicker } from "@/components/inspector/PriorityPicker";
+import { StarPalette } from "@/components/inspector/StarPalette";
+import { LabelCombobox } from "@/components/inspector/LabelCombobox";
+import { pickPanelLink } from "@/design-system/tokens";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 
 const PANEL_ID = "inspector";
@@ -37,12 +45,8 @@ function Section({
   className?: string;
 }) {
   return (
-    <section
-      className={cn("border-b border-border-subtle px-4 py-3", className)}
-    >
-      <div className="mb-2 text-overline uppercase text-text-tertiary">
-        {label}
-      </div>
+    <section className={cn("border-b border-border-subtle px-4 py-3", className)}>
+      <div className="mb-2 text-overline uppercase text-text-tertiary">{label}</div>
       {children}
     </section>
   );
@@ -51,15 +55,19 @@ function Section({
 export function InspectorPanel() {
   const pinned = useWorkspace((s) => s.inspectorPinned);
   const togglePin = useWorkspace((s) => s.togglePin);
+  const setPinned = useWorkspace((s) => s.setPinned);
+  const setMuted = useWorkspace((s) => s.setMuted);
+  const setFlag = useWorkspace((s) => s.setFlag);
+  const clearFlag = useWorkspace((s) => s.clearFlag);
+  const removeLabel = useWorkspace((s) => s.removeLabel);
+
   const inspectorEmailId = useInspectorEmailId();
-  const email = emailById(inspectorEmailId);
+  const msg = useMessage(inspectorEmailId);
+  const allLabels = useLabels();
 
   const headerActions = (
     <>
-      <Tooltip
-        label={pinned ? "Unpin inspector" : "Pin inspector to current"}
-        shortcut="P"
-      >
+      <Tooltip label={pinned ? "Unpin inspector" : "Pin inspector to current"} shortcut="P">
         <Button
           variant="ghost"
           size="sm"
@@ -80,14 +88,12 @@ export function InspectorPanel() {
     </>
   );
 
-  if (!email) {
+  if (!msg) {
     return (
       <Panel
         panelId={PANEL_ID}
         type="inspector"
-        header={
-          <PanelHeader title="Inspector" actions={headerActions} />
-        }
+        header={<PanelHeader title="Inspector" actions={headerActions} />}
         data-pinned={pinned}
       >
         <PanelEmpty
@@ -98,6 +104,9 @@ export function InspectorPanel() {
       </Panel>
     );
   }
+
+  const fromColorSeed = pickPanelLink(msg.fromAddr.email);
+  const msgLabels = allLabels.filter((l) => msg.labelIds.includes(l.id));
 
   return (
     <Panel
@@ -115,18 +124,14 @@ export function InspectorPanel() {
         {/* Sender card */}
         <Section label="From">
           <div className="flex items-start gap-3">
-            <Avatar
-              name={email.from.name}
-              size={40}
-              colorSeed={email.from.colorSeed}
-            />
+            <Avatar name={msg.fromAddr.name} size={40} colorSeed={fromColorSeed} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-body-strong text-text-primary">
-                {email.from.name}
+                {msg.fromAddr.name}
               </div>
               <div className="mt-0.5 flex items-center gap-1">
                 <span className="truncate font-mono text-mono-sm text-text-tertiary">
-                  {email.from.email}
+                  {msg.fromAddr.email}
                 </span>
                 <Tooltip label="Copy address">
                   <button
@@ -150,21 +155,17 @@ export function InspectorPanel() {
         {/* Recipients */}
         <Section label="To">
           <div className="space-y-1 text-small text-text-secondary">
-            {email.to.map((t) => (
+            {msg.toAddrs.map((t) => (
               <div key={t.email} className="flex items-baseline gap-2">
                 <span>{t.name}</span>
-                <span className="font-mono text-mono-xs text-text-tertiary">
-                  {t.email}
-                </span>
+                <span className="font-mono text-mono-xs text-text-tertiary">{t.email}</span>
               </div>
             ))}
-            {email.cc?.map((t) => (
+            {msg.ccAddrs.map((t) => (
               <div key={t.email} className="flex items-baseline gap-2">
                 <span className="text-text-tertiary">cc</span>
                 <span>{t.name}</span>
-                <span className="font-mono text-mono-xs text-text-tertiary">
-                  {t.email}
-                </span>
+                <span className="font-mono text-mono-xs text-text-tertiary">{t.email}</span>
               </div>
             ))}
           </div>
@@ -172,7 +173,7 @@ export function InspectorPanel() {
 
         <Section label="Date">
           <div className="font-mono text-mono-sm text-text-secondary">
-            {formatAbsoluteTime(email.receivedAt)}
+            {formatAbsoluteTime(new Date(msg.receivedAt))}
           </div>
         </Section>
 
@@ -187,17 +188,12 @@ export function InspectorPanel() {
               <Forward />
               Forward
             </Button>
-            <Button variant="secondary" size="sm">
-              <Archive />
-              Archive
+            <Button variant="secondary" size="sm" onClick={() => useWorkspace.getState().archive(msg.id)}>
+              <Archive />Archive
             </Button>
             <Button variant="secondary" size="sm">
               <AlarmClock />
               Snooze
-            </Button>
-            <Button variant="secondary" size="sm">
-              <Star />
-              Star
             </Button>
             <Button variant="secondary" size="sm">
               <Trash2 />
@@ -206,42 +202,110 @@ export function InspectorPanel() {
           </div>
         </Section>
 
-        {/* Labels */}
+        {/* INS-PIN-TOGGLE / INS-MUTE-TOGGLE / INS-FLAG-TOGGLE */}
+        <Section label="Flags">
+          <div className="flex flex-wrap gap-2">
+            <Tooltip label={msg.pinned ? "Unpin message" : "Pin message"}>
+              <Button
+                variant={msg.pinned ? "primary" : "secondary"}
+                size="sm"
+                aria-pressed={msg.pinned}
+                onClick={() => setPinned(msg.id, !msg.pinned)}
+              >
+                {msg.pinned ? <Pin /> : <PinOff />}
+                {msg.pinned ? "Pinned" : "Pin"}
+              </Button>
+            </Tooltip>
+            <Tooltip label={msg.muted ? "Unmute thread" : "Mute thread"}>
+              <Button
+                variant={msg.muted ? "primary" : "secondary"}
+                size="sm"
+                aria-pressed={msg.muted}
+                onClick={() => setMuted(msg.id, !msg.muted)}
+              >
+                {msg.muted ? <BellOff /> : <Bell />}
+                {msg.muted ? "Muted" : "Mute"}
+              </Button>
+            </Tooltip>
+            <Tooltip label={msg.flag ? "Remove flag" : "Flag for follow-up"}>
+              <Button
+                variant={msg.flag ? "primary" : "secondary"}
+                size="sm"
+                aria-pressed={!!msg.flag}
+                onClick={() => {
+                  if (msg.flag) clearFlag(msg.id);
+                  else setFlag(msg.id, { setAt: Date.now() });
+                }}
+              >
+                {msg.flag ? <Flag /> : <FlagOff />}
+                {msg.flag ? "Flagged" : "Flag"}
+              </Button>
+            </Tooltip>
+          </div>
+        </Section>
+
+        {/* Star */}
+        <Section label="Star">
+          <div className="flex items-center gap-2">
+            <StarPalette messageId={msg.id} star={msg.star} />
+            <span className="text-small text-text-tertiary">
+              {msg.star ? msg.star.replace(/-/g, " ") : "No star"}
+            </span>
+          </div>
+        </Section>
+
+        {/* Status + Priority */}
+        <Section label="Workflow">
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-small text-text-tertiary">Status</span>
+              <StatusPicker messageId={msg.id} statusId={msg.statusId} />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 text-small text-text-tertiary">Priority</span>
+              <PriorityPicker messageId={msg.id} priority={msg.priority} />
+            </div>
+          </div>
+        </Section>
+
+        {/* INS-TAG-BAR */}
+        <Section label="Tags">
+          <TagBar messageId={msg.id} tags={msg.tags} />
+        </Section>
+
+        {/* INS-LBL-COMBO */}
         <Section label="Labels">
           <div className="flex flex-wrap gap-1">
-            {email.labels.length === 0 && (
-              <span className="text-small text-text-tertiary">No labels</span>
-            )}
-            {email.labels.map((l) => (
+            {msgLabels.map((l) => (
               <Tag
                 key={l.id}
-                color={l.color}
+                color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}
                 size="md"
                 removable
-                onRemove={() => {}}
+                onRemove={() => removeLabel(msg.id, l.id)}
               >
                 {l.name}
               </Tag>
             ))}
-            <Button variant="ghost" size="xs">
-              <Tags />
-              Add
-            </Button>
+            {msgLabels.length === 0 && (
+              <span className="text-small text-text-tertiary">No labels</span>
+            )}
+          </div>
+          <div className="mt-2">
+            <LabelCombobox messageId={msg.id} activeLabelIds={msg.labelIds} />
           </div>
         </Section>
 
         {/* Attachments */}
-        {email.attachments.length > 0 && (
+        {msg.attachmentRefs.length > 0 && (
           <Section label="Attachments">
             <div className="space-y-1">
-              {email.attachments.map((a) => (
+              {msg.attachmentRefs.map((a) => (
                 <div
                   key={a.name}
                   className="flex items-center justify-between gap-2 rounded-xs bg-surface-2 px-2 py-1.5"
                 >
-                  <span className="truncate text-small text-text-primary">
-                    {a.name}
-                  </span>
+                  <span className="truncate text-small text-text-primary">{a.name}</span>
                   <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
                     {formatBytes(a.size)}
                   </span>
@@ -254,7 +318,7 @@ export function InspectorPanel() {
         {/* Thread info */}
         <Section label="Thread">
           <div className="text-small text-text-secondary">
-            1 message · in {email.folderId}
+            Thread {msg.threadId.slice(0, 12)}…
           </div>
         </Section>
       </div>

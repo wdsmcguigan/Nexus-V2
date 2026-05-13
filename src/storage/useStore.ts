@@ -5,7 +5,7 @@
 
 import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
-import type { Folder, Label, Status, Account } from "@/data/types";
+import type { Folder, Label, Status, Account, Message } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -95,5 +95,12 @@ export function useLabelCount(labelId: string): number {
 export function useFolderCount(folderId: string): number {
   return useSyncExternalStore(subscribe, () =>
     localStore.messagesByFolder.get(folderId)?.size ?? 0,
+  );
+}
+
+/** Returns a single message by id, or null. */
+export function useMessage(id: string | null): Message | null {
+  return useSyncExternalStore(subscribe, () =>
+    id ? (localStore.messages.get(id) ?? null) : null,
   );
 }
