@@ -39,6 +39,19 @@ interface StorageSnapshot {
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export class LocalStore {
+  // Subscription counter — increments on every write. Use with useSyncExternalStore.
+  version = 0;
+  private _listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this._listeners.add(listener);
+    return () => this._listeners.delete(listener);
+  }
+
+  private _notify(): void {
+    this.version += 1;
+    for (const l of this._listeners) l();
+  }
   // ── Primary tables ──────────────────────────────────────────────
   vault: Vault | null = null;
   accounts = new Map<string, Account>();
@@ -137,6 +150,7 @@ export class LocalStore {
     const existing = this.messages.get(msg.id);
     if (existing) this._removeMessageIndexes(existing);
     this._insertMessageIndexes(msg);
+    this._notify();
     this._schedulePersist();
   }
 
@@ -144,6 +158,7 @@ export class LocalStore {
     const msg = this.messages.get(id);
     if (msg) {
       this._removeMessageIndexes(msg);
+      this._notify();
       this._schedulePersist();
     }
   }
@@ -223,12 +238,12 @@ export class LocalStore {
 
   putLabel(label: Label): void {
     this.labels.set(label.id, label);
+    this._notify();
     this._schedulePersist();
   }
 
   deleteLabel(id: string): void {
     this.labels.delete(id);
-    // Cascade: remove label from all messages that reference it
     const affected = this.messagesByLabel.get(id);
     if (affected) {
       for (const msgId of affected) {
@@ -244,6 +259,7 @@ export class LocalStore {
       }
       this.messagesByLabel.delete(id);
     }
+    this._notify();
     this._schedulePersist();
   }
 
@@ -251,19 +267,17 @@ export class LocalStore {
 
   putFolder(folder: Folder): void {
     this.folders.set(folder.id, folder);
+    this._notify();
     this._schedulePersist();
   }
 
   deleteFolder(id: string): void {
     this.folders.delete(id);
-    // Cascade: messages in this folder lose their folderId reference
-    // In practice the UI should move them first; here we remove the index entry.
     const affected = this.messagesByFolder.get(id);
     if (affected) {
       for (const msgId of affected) {
         const msg = this.messages.get(msgId);
         if (msg) {
-          // Move to vault root sentinel — real reconciliation happens in EP-4
           const updated: Message = { ...msg, folderId: "" };
           this._removeMessageIndexes(msg);
           this._insertMessageIndexes(updated);
@@ -271,6 +285,7 @@ export class LocalStore {
       }
       this.messagesByFolder.delete(id);
     }
+    this._notify();
     this._schedulePersist();
   }
 
@@ -278,6 +293,7 @@ export class LocalStore {
 
   putStatus(status: Status): void {
     this.statuses.set(status.id, status);
+    this._notify();
     this._schedulePersist();
   }
 
@@ -295,6 +311,7 @@ export class LocalStore {
       }
       this.messagesByStatus.delete(id);
     }
+    this._notify();
     this._schedulePersist();
   }
 

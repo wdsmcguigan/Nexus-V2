@@ -85,6 +85,8 @@ interface WorkspaceState {
   addLabel: (messageId: string, labelId: string) => void;
   removeLabel: (messageId: string, labelId: string) => void;
   createLabel: (label: Label) => void;
+  renameLabel: (labelId: string, name: string) => void;
+  deleteLabel: (labelId: string) => void;
 
   // Tag ops
   addTag: (messageId: string, tag: string) => void;
@@ -223,6 +225,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   addLabel: (messageId, labelId) => { Mut.addLabel(localStore, messageId, labelId); },
   removeLabel: (messageId, labelId) => { Mut.removeLabel(localStore, messageId, labelId); },
   createLabel: (label) => { Mut.createLabel(localStore, label); },
+  renameLabel: (labelId, name) => { Mut.renameLabel(localStore, labelId, name); },
+  deleteLabel: (labelId) => { Mut.deleteLabel(localStore, labelId); },
 
   addTag: (messageId, tag) => { Mut.addTag(localStore, messageId, tag); },
   removeTag: (messageId, tag) => { Mut.removeTag(localStore, messageId, tag); },
