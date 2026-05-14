@@ -37,23 +37,24 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // Called once when dockview mounts. Sets up the 4-column layout with
 // proportional initial widths. Users can resize and rearrange from here.
 
-// Panel sizing targets a 1440 px screen (sum = 1420 px).
+// Panel sizing targets a 1440 px screen (sum = 1440 px).
+// Mail list is intentionally wider than the viewer — scan-first layout.
 // minimumWidth prevents accidental squishing below usable sizes.
 function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   const nav = api.addPanel({
     id: "nav",
     component: "nav",
     title: "Navigation",
-    initialWidth: 220,
-    minimumWidth: 160,
+    initialWidth: 275,
+    minimumWidth: 180,
   });
 
   const list = api.addPanel({
     id: "list",
     component: "list",
     title: "Mail",
-    initialWidth: 320,
-    minimumWidth: 260,
+    initialWidth: 520,
+    minimumWidth: 280,
     position: { direction: "right", referencePanel: nav },
   });
 
@@ -61,8 +62,8 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "viewer",
     component: "viewer",
     title: "Message",
-    initialWidth: 620,
-    minimumWidth: 360,
+    initialWidth: 400,
+    minimumWidth: 300,
     position: { direction: "right", referencePanel: list },
   });
 
@@ -70,7 +71,7 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "inspector",
     component: "inspector",
     title: "Inspector",
-    initialWidth: 260,
+    initialWidth: 245,
     minimumWidth: 200,
     position: { direction: "right", referencePanel: viewer },
   });
