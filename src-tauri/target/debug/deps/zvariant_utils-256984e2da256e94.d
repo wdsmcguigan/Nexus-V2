@@ -1,0 +1,12 @@
+/home/user/Nexus-V2/src-tauri/target/debug/deps/zvariant_utils-256984e2da256e94.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/case.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/macros.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/serialized.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/child.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/fields.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/error.rs
+
+/home/user/Nexus-V2/src-tauri/target/debug/deps/libzvariant_utils-256984e2da256e94.rmeta: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/case.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/macros.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/serialized.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/mod.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/child.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/fields.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/error.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/case.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/macros.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/serialized.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/mod.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/child.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/fields.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/zvariant_utils-3.3.1/src/signature/error.rs:

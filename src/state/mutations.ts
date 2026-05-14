@@ -26,6 +26,7 @@ import {
   type Status,
 } from "@/data/types";
 import { LocalStore, localStore as _defaultStore } from "@/storage/local";
+import { isTauri, applyMutationIpc } from "@/storage/tauri";
 
 // ─── Lamport clock + device id ───────────────────────────────────────────────
 
@@ -59,6 +60,14 @@ export function recordMutation(
   };
   store.appendMutation(mutation);
   applyMutation(mutation, store);
+
+  // Fire-and-forget persistence to SQLite in Tauri mode
+  if (isTauri()) {
+    applyMutationIpc(kind, payload).catch((e) =>
+      console.warn("IPC mutation persist failed:", e),
+    );
+  }
+
   return mutation;
 }
 

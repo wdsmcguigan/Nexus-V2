@@ -1,5 +1,7 @@
-import { Component, type ReactNode } from "react";
+import { Component, useState, useEffect, type ReactNode } from "react";
 import { Workspace } from "@/components/Workspace";
+import { VaultSetup } from "@/components/onboarding/VaultSetup";
+import { isTauri, getVaultPath } from "@/storage/tauri";
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -36,6 +38,33 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 }
 
 export default function App() {
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      setShowOnboarding(false);
+      return;
+    }
+    getVaultPath().then((path) => {
+      setShowOnboarding(!path);
+    });
+  }, []);
+
+  // Loading state while we check for an existing vault
+  if (showOnboarding === null) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-neutral-950" />
+    );
+  }
+
+  if (showOnboarding) {
+    return (
+      <ErrorBoundary>
+        <VaultSetup onComplete={() => setShowOnboarding(false)} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <Workspace />

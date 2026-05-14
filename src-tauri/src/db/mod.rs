@@ -1,0 +1,43 @@
+pub mod queries;
+pub mod schema;
+
+use anyhow::{Context, Result};
+use rusqlite::Connection;
+use std::path::Path;
+
+/// Encrypted SQLite vault database.
+pub struct VaultDb {
+    pub conn: Connection,
+}
+
+impl VaultDb {
+    /// Open (or create) the encrypted vault DB at `<vault_path>/.nexus/db.sqlite`.
+    pub fn open(vault_path: &str, key: &str) -> Result<Self> {
+        let db_dir = Path::new(vault_path).join(".nexus");
+        std::fs::create_dir_all(&db_dir)
+            .with_context(|| format!("creating .nexus dir at {}", db_dir.display()))?;
+
+        let db_path = db_dir.join("db.sqlite");
+        let conn = Connection::open(&db_path)
+            .with_context(|| format!("opening DB at {}", db_path.display()))?;
+
+        // Set SQLCipher encryption key
+        conn.execute_batch(&format!("PRAGMA key = '{}';", key.replace('\'', "''")))
+            .context("setting SQLCipher key")?;
+
+        // WAL mode for concurrent reads
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
+            .context("enabling WAL mode")?;
+
+        let db = Self { conn };
+        db.run_migrations()?;
+        Ok(db)
+    }
+
+    fn run_migrations(&self) -> Result<()> {
+        self.conn
+            .execute_batch(schema::SCHEMA_SQL)
+            .context("running migrations")?;
+        Ok(())
+    }
+}
