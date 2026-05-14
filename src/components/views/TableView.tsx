@@ -50,8 +50,6 @@ const CORE_COLS: ColDef[] = [
   { key: "date",     label: "Date",    sortKey: "receivedAt", defaultWidth: 88,  minWidth: 70  },
 ];
 
-const CORE_COL_MAP = new Map(CORE_COLS.map((c) => [c.key, c]));
-
 const ROW_HEIGHT = 36;
 
 // ─── Inline status editor ─────────────────────────────────────────────────────
