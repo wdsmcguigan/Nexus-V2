@@ -28,6 +28,10 @@ export interface WorkspaceSnapshot {
   density: "compact" | "comfortable" | "cozy";
   viewMode: "list" | "kanban" | "table";
   theme: "dark" | "light";
+  /** Ordered list of column keys for the table view (empty = default order). */
+  tableColumnOrder: string[];
+  /** Per-column width overrides for the table view (key → px width). */
+  tableColumnWidths: Record<string, number>;
 }
 
 export interface WorkspacesData {
@@ -71,5 +75,7 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     density: "comfortable",
     viewMode: "list",
     theme: "dark",
+    tableColumnOrder: [],
+    tableColumnWidths: {},
   };
 }

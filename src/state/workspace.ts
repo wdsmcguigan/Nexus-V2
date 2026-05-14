@@ -138,6 +138,12 @@ interface WorkspaceState {
   viewMode: "list" | "kanban" | "table";
   setViewMode: (mode: "list" | "kanban" | "table") => void;
 
+  // Table view column configuration (order + widths, persisted per workspace)
+  tableColumnOrder: string[];
+  tableColumnWidths: Record<string, number>;
+  setTableColumnOrder: (order: string[]) => void;
+  setTableColumnWidths: (widths: Record<string, number>) => void;
+
   // Email selection
   selectedEmailId: string | null;
   selectedEmailIds: Set<string>;
@@ -270,6 +276,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       density: s.density,
       viewMode: s.viewMode,
       theme: s.theme,
+      tableColumnOrder: s.tableColumnOrder,
+      tableColumnWidths: s.tableColumnWidths,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -303,6 +311,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       density: mode === "clone" ? s.density : "comfortable",
       viewMode: mode === "clone" ? s.viewMode : "list",
       theme: s.theme,
+      tableColumnOrder: mode === "clone" ? [...s.tableColumnOrder] : [],
+      tableColumnWidths: mode === "clone" ? { ...s.tableColumnWidths } : {},
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -337,6 +347,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       density: ws.density,
       viewMode: ws.viewMode,
       theme: ws.theme,
+      tableColumnOrder: ws.tableColumnOrder ?? [],
+      tableColumnWidths: ws.tableColumnWidths ?? {},
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -477,6 +489,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   viewMode: _activeWs.viewMode,
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  tableColumnOrder: _activeWs.tableColumnOrder ?? [],
+  tableColumnWidths: _activeWs.tableColumnWidths ?? {},
+  setTableColumnOrder: (order) => set({ tableColumnOrder: order }),
+  setTableColumnWidths: (widths) => set({ tableColumnWidths: widths }),
 
   // ── Email selection ────────────────────────────────────────────────────────
 
