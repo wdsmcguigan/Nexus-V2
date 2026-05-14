@@ -20,6 +20,8 @@ import {
   type Message,
   type Mutation,
   type MutationKind,
+  type MetadataFilter,
+  type SavedView,
   type StarStyle,
   type Status,
 } from "@/data/types";
@@ -546,4 +548,35 @@ function _systemLabelId(store: LocalStore, systemKind: string): string | null {
     if (label.kind === "system" && label.systemKind === systemKind) return label.id;
   }
   return null;
+}
+
+// ── Saved view ops (EP-1) ────────────────────────────────────────────────────
+
+export function saveView(
+  store: LocalStore,
+  name: string,
+  filter: MetadataFilter,
+  vaultId = "local",
+): SavedView {
+  const view: SavedView = {
+    id: `sv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    vaultId,
+    name,
+    filter,
+    position: store.savedViews.size,
+    createdAt: Date.now(),
+  };
+  recordMutation("SAVE_VIEW", { viewId: view.id, name, filter }, store);
+  store.putSavedView(view);
+  return view;
+}
+
+export function deleteView(store: LocalStore, viewId: string): void {
+  recordMutation("DELETE_VIEW", { viewId }, store);
+  store.deleteSavedView(viewId);
+}
+
+export function renameView(store: LocalStore, viewId: string, name: string): void {
+  recordMutation("RENAME_VIEW", { viewId, name }, store);
+  store.renameSavedView(viewId, name);
 }

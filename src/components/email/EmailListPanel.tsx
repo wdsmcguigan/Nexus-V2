@@ -4,15 +4,20 @@ import {
   ChevronDown,
   Inbox,
   Layers,
+  List,
+  Trello,
+  Table2,
   RefreshCw,
   Settings2,
-  ListFilter,
   PanelRightClose,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
+import { FilterBar } from "@/components/filter/FilterBar";
+import { KanbanView } from "@/components/views/KanbanView";
+import { TableView } from "@/components/views/TableView";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
@@ -61,6 +66,8 @@ export function EmailListPanel() {
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
   const selectionAnchorId = useWorkspace((s) => s.selectionAnchorId);
   const setStarred = useWorkspace((s) => s.setStarred);
+  const viewMode = useWorkspace((s) => s.viewMode);
+  const setViewMode = useWorkspace((s) => s.setViewMode);
 
   const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
   const [groupBySta, setGroupBySta] = React.useState(false);
@@ -199,14 +206,52 @@ export function EmailListPanel() {
       meta={`${msgList.length}${selectedEmailIds.size > 1 ? ` · ${selectedEmailIds.size} selected` : ""}`}
       actions={
         <>
+          {/* View mode switcher */}
+          <div className="flex items-center rounded-xs border border-border-subtle bg-surface-2 p-0.5">
+            <Tooltip label="List view">
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                aria-pressed={viewMode === "list"}
+                className={cn(
+                  "flex size-5 items-center justify-center rounded-xs transition-colors",
+                  viewMode === "list" ? "bg-surface-3 text-text-primary" : "text-text-tertiary hover:text-text-secondary",
+                )}
+              >
+                <List size={11} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Kanban view">
+              <button
+                type="button"
+                onClick={() => setViewMode("kanban")}
+                aria-pressed={viewMode === "kanban"}
+                className={cn(
+                  "flex size-5 items-center justify-center rounded-xs transition-colors",
+                  viewMode === "kanban" ? "bg-surface-3 text-text-primary" : "text-text-tertiary hover:text-text-secondary",
+                )}
+              >
+                <Trello size={11} />
+              </button>
+            </Tooltip>
+            <Tooltip label="Table view">
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                aria-pressed={viewMode === "table"}
+                className={cn(
+                  "flex size-5 items-center justify-center rounded-xs transition-colors",
+                  viewMode === "table" ? "bg-surface-3 text-text-primary" : "text-text-tertiary hover:text-text-secondary",
+                )}
+              >
+                <Table2 size={11} />
+              </button>
+            </Tooltip>
+          </div>
+
           <Tooltip label={`Density: ${density}`} shortcut="D">
             <Button variant="ghost" size="sm" iconOnly aria-label="Cycle density" onClick={cycleDensity}>
               <Settings2 />
-            </Button>
-          </Tooltip>
-          <Tooltip label="Filter">
-            <Button variant="ghost" size="sm" iconOnly aria-label="Filter">
-              <ListFilter />
             </Button>
           </Tooltip>
           <Tooltip label="Refresh" shortcut="⌘R">
@@ -224,9 +269,29 @@ export function EmailListPanel() {
     />
   );
 
+  // Non-list views bypass the virtualizer entirely
+  if (viewMode === "kanban") {
+    return (
+      <Panel panelId={PANEL_ID} type="stage" header={header}>
+        <FilterBar />
+        <KanbanView />
+      </Panel>
+    );
+  }
+
+  if (viewMode === "table") {
+    return (
+      <Panel panelId={PANEL_ID} type="stage" header={header}>
+        <FilterBar />
+        <TableView />
+      </Panel>
+    );
+  }
+
   if (msgList.length === 0) {
     return (
       <Panel panelId={PANEL_ID} type="stage" header={header}>
+        <FilterBar />
         <PanelEmpty
           icon={Inbox}
           title="No emails in this view"
@@ -239,6 +304,9 @@ export function EmailListPanel() {
 
   return (
     <Panel panelId={PANEL_ID} type="stage" header={header}>
+      {/* Filter pills bar */}
+      <FilterBar />
+
       {/* Sub-toolbar: sort + group-by */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 px-2">
         {/* Sort picker */}

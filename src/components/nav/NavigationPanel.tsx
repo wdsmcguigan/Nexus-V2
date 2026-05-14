@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   Pencil,
   Trash,
+  Bookmark,
   type LucideIcon,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
@@ -31,6 +32,7 @@ import {
   useLabelUnreadCount,
   useLabelCount,
   useFolderCount,
+  useSavedViews,
 } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
@@ -475,11 +477,18 @@ export function NavigationPanel() {
   const userLabels = useUserLabels();
   const rootFolders = useRootFolders();
   const accounts = useAccounts();
+  const savedViews = useSavedViews();
   const createFolder = useWorkspace((s) => s.createFolder);
+  const loadSavedView = useWorkspace((s) => s.loadSavedView);
+  const deleteSavedView = useWorkspace((s) => s.deleteSavedView);
+  const renameSavedView = useWorkspace((s) => s.renameSavedView);
+  const selectedSavedViewId = useWorkspace((s) => s.selectedSavedViewId);
 
   const [foldersExpanded, setFoldersExpanded] = React.useState(true);
   const [labelsExpanded, setLabelsExpanded] = React.useState(true);
+  const [viewsExpanded, setViewsExpanded] = React.useState(true);
   const [creatingFolder, setCreatingFolder] = React.useState(false);
+  const [renamingViewId, setRenamingViewId] = React.useState<string | null>(null);
 
   // Flat list of all folders for child lookups inside FolderTreeNode
   const allFolders = React.useMemo(
@@ -550,6 +559,57 @@ export function NavigationPanel() {
             <SystemLabelRow key={label.id} label={label} />
           ))}
         </div>
+
+        {/* VW-SAVED — Saved views section */}
+        {savedViews.length > 0 && (
+          <div className="border-b border-border-subtle p-1">
+            <button
+              type="button"
+              className="flex w-full items-center gap-1 px-2 py-1 text-overline uppercase text-text-tertiary hover:text-text-secondary"
+              onClick={() => setViewsExpanded((v) => !v)}
+            >
+              {viewsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              Saved views
+            </button>
+            {viewsExpanded && savedViews.map((view) => {
+              const isSelected = selectedSavedViewId === view.id;
+              if (renamingViewId === view.id) {
+                return (
+                  <InlineRename
+                    key={view.id}
+                    initial={view.name}
+                    onCommit={(name) => { renameSavedView(view.id, name); setRenamingViewId(null); }}
+                    onCancel={() => setRenamingViewId(null)}
+                  />
+                );
+              }
+              return (
+                <ContextMenu
+                  key={view.id}
+                  items={[
+                    { label: "Rename", icon: Pencil, onSelect: () => setRenamingViewId(view.id) },
+                    { label: "Delete", icon: Trash, destructive: true, onSelect: () => deleteSavedView(view.id) },
+                  ]}
+                >
+                  <button
+                    type="button"
+                    onClick={() => loadSavedView(view.id)}
+                    className={cn(
+                      "flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left text-body",
+                      "transition-colors duration-fast hover:bg-surface-2",
+                      isSelected
+                        ? "bg-accent-soft font-medium text-text-primary"
+                        : "text-text-secondary",
+                    )}
+                  >
+                    <Bookmark size={12} className="shrink-0 text-text-tertiary" />
+                    <span className="min-w-0 flex-1 truncate">{view.name}</span>
+                  </button>
+                </ContextMenu>
+              );
+            })}
+          </div>
+        )}
 
         {/* NAV-FOLDER-TREE */}
         <div className="border-b border-border-subtle p-1">

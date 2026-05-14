@@ -251,6 +251,20 @@ export interface Message {
   attachmentRefs: AttachmentRef[];
 }
 
+// ─── VW-SAVED — Saved view ───────────────────────────────────────────────────
+// A named, persisted MetadataFilter. Surfaces in nav + palette (EP-1).
+
+export interface SavedView {
+  id: string;
+  vaultId: string;
+  name: string;
+  filter: MetadataFilter;
+  /** Lucide icon name for display in nav. */
+  icon?: string;
+  position: number;
+  createdAt: number;
+}
+
 // ─── MUTN — Mutation ─────────────────────────────────────────────────────────
 // Structured user intent. Unit of replication.
 // Is NOT a direct DB write.
@@ -305,7 +319,11 @@ export type MutationKind =
   | "SNOOZE"
   | "DELETE_MESSAGE"
   | "SEND_MESSAGE"
-  | "RECEIVE_FROM_PROVIDER";
+  | "RECEIVE_FROM_PROVIDER"
+  // Saved view ops (EP-1)
+  | "SAVE_VIEW"
+  | "DELETE_VIEW"
+  | "RENAME_VIEW";
 
 export interface Mutation {
   id: string;
