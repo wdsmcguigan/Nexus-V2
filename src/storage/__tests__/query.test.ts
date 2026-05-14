@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { queryMessages } from "@/storage/query";
 import { LocalStore } from "@/storage/local";
+import { FTSIndex } from "@/storage/fts";
+import { BodyStore } from "@/storage/bodyStore";
 import {
   makeSeedStore,
   LABEL_IDS,
@@ -10,9 +12,14 @@ import {
 } from "./seed";
 
 let store: LocalStore;
+let seedFts: FTSIndex;
 
 beforeEach(() => {
   store = makeSeedStore();
+  // Build an FTS index from the seed messages so textQuery tests work
+  const bs = new BodyStore();
+  seedFts = new FTSIndex();
+  seedFts.indexMessages(Array.from(store.messages.values()), bs);
 });
 
 describe("queryMessages — label filter", () => {
@@ -129,14 +136,14 @@ describe("queryMessages — sort", () => {
   });
 });
 
-describe("queryMessages — text query (pre-FTS5)", () => {
-  it("matches by subject substring", () => {
-    const { items } = queryMessages({ textQuery: "Subject m1" }, store);
+describe("queryMessages — text query (FTS via MiniSearch, EP-3)", () => {
+  it("matches by subject term", () => {
+    const { items } = queryMessages({ textQuery: "Subject" }, store, seedFts);
     expect(items.map((m) => m.id)).toContain("m1");
   });
 
-  it("matches by snippet substring", () => {
-    const { items } = queryMessages({ textQuery: "Snippet for m3" }, store);
+  it("matches by snippet term", () => {
+    const { items } = queryMessages({ textQuery: "Snippet" }, store, seedFts);
     expect(items.map((m) => m.id)).toContain("m3");
   });
 });

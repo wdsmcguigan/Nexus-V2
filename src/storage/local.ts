@@ -362,21 +362,28 @@ export class LocalStore {
 
   // ── OPFS persistence ─────────────────────────────────────────────
 
-  async initOpfs(fileName = "nexus-store.json"): Promise<void> {
-    if (typeof window === "undefined") return;
+  /**
+   * Initialize OPFS persistence.
+   * Returns true if a saved snapshot was loaded (subsequent sessions),
+   * false if starting fresh (first visit or OPFS unavailable).
+   */
+  async initOpfs(fileName = "nexus-store.json"): Promise<boolean> {
+    if (typeof window === "undefined") return false;
     try {
       const root = await navigator.storage.getDirectory();
       this._opfsFile = await root.getFileHandle(fileName, { create: true });
-      // Try to load existing snapshot
       const file = await this._opfsFile.getFile();
       const text = await file.text();
       if (text.trim().length > 0) {
         const snap = JSON.parse(text) as StorageSnapshot;
         this.hydrate(snap);
+        this._notify();
+        return true;
       }
     } catch {
-      // OPFS not available or parse error — start fresh
+      // OPFS not available or parse error — continue with in-memory store
     }
+    return false;
   }
 
   private _schedulePersist(): void {

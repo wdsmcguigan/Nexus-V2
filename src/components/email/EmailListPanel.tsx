@@ -10,6 +10,8 @@ import {
   RefreshCw,
   Settings2,
   PanelRightClose,
+  Search,
+  X,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
@@ -68,6 +70,42 @@ export function EmailListPanel() {
   const setStarred = useWorkspace((s) => s.setStarred);
   const viewMode = useWorkspace((s) => s.viewMode);
   const setViewMode = useWorkspace((s) => s.setViewMode);
+  const setFilterAxis = useWorkspace((s) => s.setFilterAxis);
+  const removeFilterAxis = useWorkspace((s) => s.removeFilterAxis);
+  const activeFilter = useWorkspace((s) => s.activeFilter);
+
+  const [searchValue, setSearchValue] = React.useState(activeFilter.textQuery ?? "");
+  const searchRef = React.useRef<HTMLInputElement>(null);
+
+  // Sync search input when filter is cleared externally (e.g. via FilterBar pill removal)
+  React.useEffect(() => {
+    if (!activeFilter.textQuery && searchValue !== "") setSearchValue("");
+  }, [activeFilter.textQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Debounced FTS — 200ms after last keystroke
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = searchValue.trim();
+      if (trimmed) {
+        setFilterAxis({ textQuery: trimmed });
+      } else {
+        removeFilterAxis("textQuery");
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [searchValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "/" shortcut focuses search when panel has keyboard focus
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
   const [groupBySta, setGroupBySta] = React.useState(false);
@@ -269,10 +307,40 @@ export function EmailListPanel() {
     />
   );
 
+  const searchBar = (
+    <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2">
+      <Search size={12} className="shrink-0 text-text-tertiary" />
+      <input
+        ref={searchRef}
+        type="search"
+        value={searchValue}
+        onChange={(e) => setSearchValue(e.target.value)}
+        placeholder="Search subject, body, notes… (/)"
+        aria-label="Search messages"
+        className={cn(
+          "min-w-0 flex-1 bg-transparent font-mono text-mono-sm text-text-primary outline-none",
+          "placeholder:text-text-tertiary",
+        )}
+        onKeyDown={(e) => { if (e.key === "Escape") { setSearchValue(""); searchRef.current?.blur(); } }}
+      />
+      {searchValue && (
+        <button
+          type="button"
+          aria-label="Clear search"
+          onClick={() => { setSearchValue(""); searchRef.current?.focus(); }}
+          className="shrink-0 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+        >
+          <X size={11} />
+        </button>
+      )}
+    </div>
+  );
+
   // Non-list views bypass the virtualizer entirely
   if (viewMode === "kanban") {
     return (
       <Panel panelId={PANEL_ID} type="stage" header={header}>
+        {searchBar}
         <FilterBar />
         <KanbanView />
       </Panel>
@@ -282,6 +350,7 @@ export function EmailListPanel() {
   if (viewMode === "table") {
     return (
       <Panel panelId={PANEL_ID} type="stage" header={header}>
+        {searchBar}
         <FilterBar />
         <TableView />
       </Panel>
@@ -291,12 +360,13 @@ export function EmailListPanel() {
   if (msgList.length === 0) {
     return (
       <Panel panelId={PANEL_ID} type="stage" header={header}>
+        {searchBar}
         <FilterBar />
         <PanelEmpty
           icon={Inbox}
-          title="No emails in this view"
-          body="Try clearing filters or selecting a different folder."
-          action={<Button variant="secondary" size="md">Clear filters</Button>}
+          title="No messages match"
+          body="Try a different search or clear the filters."
+          action={<Button variant="secondary" size="md" onClick={() => { setSearchValue(""); removeFilterAxis("textQuery"); }}>Clear search</Button>}
         />
       </Panel>
     );
@@ -304,6 +374,8 @@ export function EmailListPanel() {
 
   return (
     <Panel panelId={PANEL_ID} type="stage" header={header}>
+      {/* Search bar (EP-3 FTS) */}
+      {searchBar}
       {/* Filter pills bar */}
       <FilterBar />
 
