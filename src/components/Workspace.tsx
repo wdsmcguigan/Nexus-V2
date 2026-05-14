@@ -1,3 +1,6 @@
+import * as React from "react";
+import { DockviewReact } from "dockview";
+import type { DockviewReadyEvent, IDockviewPanelProps } from "dockview";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
@@ -11,26 +14,78 @@ import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
 import { useWorkspace } from "@/state/workspace";
 
+// ─── Panel wrapper components ─────────────────────────────────────────────────
+// dockview renders panel content by string key — wrap our panels so they
+// accept IDockviewPanelProps but use hooks internally as before.
+
+const NavPanel = (_: IDockviewPanelProps) => <NavigationPanel />;
+const ListPanel = (_: IDockviewPanelProps) => <EmailListPanel />;
+const ViewerPanel = (_: IDockviewPanelProps) => {
+  const composerOpen = useWorkspace((s) => s.composerOpen);
+  return composerOpen ? <EmailComposerPanel /> : <EmailViewerPanel />;
+};
+const InspPanel = (_: IDockviewPanelProps) => <InspectorPanel />;
+
+const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
+  nav: NavPanel,
+  list: ListPanel,
+  viewer: ViewerPanel,
+  inspector: InspPanel,
+};
+
+// ─── Initial layout ───────────────────────────────────────────────────────────
+// Called once when dockview mounts. Sets up the 4-column layout with
+// proportional initial widths. Users can resize and rearrange from here.
+
+function initLayout(event: DockviewReadyEvent) {
+  const { api } = event;
+
+  const nav = api.addPanel({
+    id: "nav",
+    component: "nav",
+    title: "Navigation",
+    initialWidth: 240,
+  });
+
+  const list = api.addPanel({
+    id: "list",
+    component: "list",
+    title: "Mail",
+    initialWidth: 380,
+    position: { direction: "right", referencePanel: nav },
+  });
+
+  const viewer = api.addPanel({
+    id: "viewer",
+    component: "viewer",
+    title: "Message",
+    initialWidth: 580,
+    position: { direction: "right", referencePanel: list },
+  });
+
+  api.addPanel({
+    id: "inspector",
+    component: "inspector",
+    title: "Inspector",
+    initialWidth: 320,
+    position: { direction: "right", referencePanel: viewer },
+  });
+}
+
+// ─── Workspace ────────────────────────────────────────────────────────────────
+
 /**
- * Workspace shell.
- *
- * Note: dockview is wired into the project (CSS imported, theme overrides
- * applied) and will own the layout once the panel-orchestration layer is
- * in. For the design-system shell we render a CSS-Grid layout that
- * mirrors the planned dockview "default workspace" so we can validate the
- * design tokens, panel chrome, focus model, and interactions on real
- * data. Swapping in dockview is a structural change, not a token change.
+ * Workspace shell — dockview owns the panel layout.
+ * Panels are resizable by dragging the sash between groups, and
+ * rearrangeable by dragging panel tabs to new positions.
  */
 export function Workspace() {
-  const composerOpen = useWorkspace((s) => s.composerOpen);
-
   return (
     <TooltipProvider delayDuration={600}>
       <div
         className="dv-theme-nexus flex h-screen w-screen flex-col bg-canvas text-text-primary"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
-            // clear selection at panel rest — see spec §6.2
             const tag = (document.activeElement as HTMLElement)?.tagName;
             if (tag !== "INPUT" && tag !== "TEXTAREA") {
               useWorkspace.getState().clearSelection();
@@ -40,16 +95,19 @@ export function Workspace() {
       >
         <WorkspaceChrome />
 
-        <div className="relative grid min-h-0 flex-1 grid-cols-[240px_minmax(360px,1fr)_minmax(420px,1.4fr)_320px] gap-1.5 p-1.5">
-          <NavigationPanel />
-          <EmailListPanel />
-          {composerOpen ? <EmailComposerPanel /> : <EmailViewerPanel />}
-          <InspectorPanel />
+        <div className="relative min-h-0 flex-1">
+          <DockviewReact
+            className="h-full w-full"
+            components={DV_COMPONENTS}
+            onReady={initLayout}
+            singleTabMode="fullwidth"
+            disableFloatingGroups={false}
+            gap={4}
+          />
           <HudStrip />
         </div>
 
         <StatusBar />
-
         <CommandPalette />
 
         <Toaster
