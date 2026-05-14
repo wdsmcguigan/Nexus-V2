@@ -17,6 +17,7 @@ import type {
   Label,
   Message,
   Mutation,
+  SavedView,
   Status,
   TagUsage,
   Vault,
@@ -32,6 +33,7 @@ interface StorageSnapshot {
   statuses: Status[];
   customFieldDefs: CustomFieldDef[];
   messages: Message[];
+  savedViews?: SavedView[];
   tagUsage: TagUsage[];
   mutations: Mutation[];
 }
@@ -61,6 +63,7 @@ export class LocalStore {
   customFieldDefs = new Map<string, CustomFieldDef>();
   messages = new Map<string, Message>();
   tagUsage = new Map<string, TagUsage>(); // key: tag string
+  savedViews = new Map<string, SavedView>();
   mutations: Mutation[] = [];
 
   // ── Indexes (architecture.md §5) ────────────────────────────────
@@ -108,6 +111,7 @@ export class LocalStore {
     this.customFieldDefs.clear();
     this.messages.clear();
     this.tagUsage.clear();
+    this.savedViews.clear();
     this.mutations = [];
 
     // Clear indexes
@@ -128,6 +132,7 @@ export class LocalStore {
     for (const t of snap.tagUsage) this.tagUsage.set(t.tag, t);
     for (const m of snap.mutations) this.mutations.push(m);
     for (const msg of snap.messages) this._insertMessageIndexes(msg);
+    for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
   }
 
   toSnapshot(): StorageSnapshot {
@@ -140,6 +145,7 @@ export class LocalStore {
       customFieldDefs: Array.from(this.customFieldDefs.values()),
       messages: Array.from(this.messages.values()),
       tagUsage: Array.from(this.tagUsage.values()),
+      savedViews: Array.from(this.savedViews.values()),
       mutations: this.mutations,
     };
   }
@@ -431,6 +437,30 @@ export class LocalStore {
     const key = this._cfvSerialize(value);
     const s = fieldMap.get(key);
     if (s) s.delete(msgId);
+  }
+
+  // ── SavedView CRUD (EP-1) ────────────────────────────────────────
+
+  putSavedView(view: SavedView): void {
+    this.savedViews.set(view.id, view);
+    this._notify();
+  }
+
+  deleteSavedView(id: string): void {
+    this.savedViews.delete(id);
+    this._notify();
+  }
+
+  renameSavedView(id: string, name: string): void {
+    const v = this.savedViews.get(id);
+    if (!v) return;
+    this.savedViews.set(id, { ...v, name });
+    this._notify();
+  }
+
+  /** Sorted list of all saved views by position. */
+  getSavedViewsSorted(): SavedView[] {
+    return Array.from(this.savedViews.values()).sort((a, b) => a.position - b.position);
   }
 }
 

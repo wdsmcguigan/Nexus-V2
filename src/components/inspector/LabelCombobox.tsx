@@ -54,11 +54,12 @@ export function LabelCombobox({ messageId, activeLabelIds }: LabelComboboxProps)
     const name = query.trim();
     if (!name) return;
     const newId = `lbl-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
+    const autoColor = ((userLabels.length % 8) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
     createLabel({
       id: newId,
       vaultId: "local",
       name,
-      color: ((name.charCodeAt(0) % 8) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+      color: autoColor,
       kind: "user",
       position: 999,
     });

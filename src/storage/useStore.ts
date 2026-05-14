@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
-import type { Folder, Label, Status, Account, Message, MetadataFilter } from "@/data/types";
+import type { Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -107,34 +107,64 @@ export function useMessage(id: string | null): Message | null {
   );
 }
 
-/** Returns messages for the currently selected folder/label, reactive. */
+/**
+ * Returns messages for the current view — combining nav selection and
+ * any active filter pills (EP-1). When a saved view is loaded, the
+ * activeFilter IS the complete filter.
+ */
 export function useVisibleMessages(
   sortBy: MetadataFilter["sortBy"] = "receivedAt",
   sortDir: MetadataFilter["sortDir"] = "desc",
 ): Message[] {
   const folderId = useWorkspace((s) => s.selectedFolderId);
+  const activeFilter = useWorkspace((s) => s.activeFilter);
+  const savedViewId = useWorkspace((s) => s.selectedSavedViewId);
+
   return useSyncExternalStore(subscribe, () => {
-    const filter: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    // Saved view: its filter is complete — use directly.
+    if (savedViewId) {
+      return queryMessages({ ...activeFilter, sortBy, sortDir, limit: 500 }, localStore).items;
+    }
+
+    // Nav selection + overlay filter pills.
+    const base: MetadataFilter = { sortBy, sortDir, limit: 500 };
     const lbl = localStore.labels.get(folderId);
     if (lbl) {
-      filter.labelIds = [folderId];
+      base.labelIds = [folderId];
     } else if (localStore.folders.has(folderId)) {
-      filter.folderId = folderId;
+      base.folderId = folderId;
     } else {
       return [];
     }
-    return queryMessages(filter, localStore).items;
+    // Merge active filter pills on top (pills win for shared keys).
+    return queryMessages({ ...base, ...activeFilter }, localStore).items;
   });
 }
 
-/** Returns display name of the currently selected folder/label, reactive. */
+/** Returns display title of the current view (nav selection or saved view name). */
 export function useSelectionTitle(): string {
   const folderId = useWorkspace((s) => s.selectedFolderId);
+  const savedViewId = useWorkspace((s) => s.selectedSavedViewId);
   return useSyncExternalStore(subscribe, () => {
+    if (savedViewId) {
+      return localStore.savedViews.get(savedViewId)?.name ?? "Saved view";
+    }
     const lbl = localStore.labels.get(folderId);
     if (lbl) return lbl.name;
     const folder = localStore.folders.get(folderId);
     if (folder) return folder.name;
     return "Mail";
   });
+}
+
+/** Returns all saved views sorted by position. */
+export function useSavedViews(): SavedView[] {
+  return useSyncExternalStore(subscribe, () => localStore.getSavedViewsSorted());
+}
+
+/** Returns custom field definitions sorted by position. */
+export function useCustomFieldDefs(): CustomFieldDef[] {
+  return useSyncExternalStore(subscribe, () =>
+    Array.from(localStore.customFieldDefs.values()).sort((a, b) => a.position - b.position),
+  );
 }

@@ -1,32 +1,25 @@
 /**
- * Workspace state — EP-0 refactor.
+ * Workspace UI state — EP-1.
  *
- * UI state (theme, density, panel focus, selection) is still managed here
- * directly. Email data is now backed by LocalStore + queryMessages
+ * UI state (theme, density, panel focus, selection, filter pills, view mode)
+ * lives here. Email data is backed by LocalStore + queryMessages
  * (WF-SEARCH-QUERY). All user mutations route through recordMutation
  * (WF-OUTBOUND-MUTATION).
- *
- * Backward-compat: `useVisibleEmails()` returns the old Email shape so
- * existing EmailRow / EmailListPanel components don't need to change in 0b.
- * Phase 0c–0e will migrate to Message directly.
  */
 
 import { create } from "zustand";
 import type { Density, Theme } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
-import { queryMessages } from "@/storage/query";
-import type { Email } from "@/data/fixtures";
-import { emailsByFolder } from "@/data/fixtures";
 import * as Mut from "@/state/mutations";
 import type {
   CustomFieldValue,
   FlagState,
   Label,
   Folder,
+  MetadataFilter,
   Status,
   StarStyle,
   CustomFieldDef,
-  Message,
 } from "@/data/types";
 
 // ─── Workspace state ──────────────────────────────────────────────────────────
@@ -45,6 +38,25 @@ interface WorkspaceState {
   // Folder / label selection (the "current view" selection in the nav)
   selectedFolderId: string;
   setSelectedFolder: (id: string) => void;
+
+  // EP-1: active filter (pills overlay on top of nav selection)
+  activeFilter: MetadataFilter;
+  /** Merge additional axis predicates into the active filter. */
+  setFilterAxis: (axis: Partial<MetadataFilter>) => void;
+  /** Remove a specific axis key from the active filter. */
+  removeFilterAxis: (key: keyof MetadataFilter) => void;
+  clearFilter: () => void;
+  /** Save the current activeFilter as a named saved view. */
+  saveCurrentFilter: (name: string) => void;
+  deleteSavedView: (id: string) => void;
+  renameSavedView: (id: string, name: string) => void;
+  /** Load a saved view: replaces activeFilter, sets selectedSavedViewId. */
+  loadSavedView: (id: string) => void;
+  selectedSavedViewId: string | null;
+
+  // EP-1: view mode (list / kanban / table)
+  viewMode: "list" | "kanban" | "table";
+  setViewMode: (mode: "list" | "kanban" | "table") => void;
 
   // Email selection
   selectedEmailId: string | null;
@@ -86,6 +98,7 @@ interface WorkspaceState {
   removeLabel: (messageId: string, labelId: string) => void;
   createLabel: (label: Label) => void;
   renameLabel: (labelId: string, name: string) => void;
+  recolorLabel: (labelId: string, color: number) => void;
   deleteLabel: (labelId: string) => void;
 
   // Tag ops
@@ -103,6 +116,8 @@ interface WorkspaceState {
   setStar: (messageId: string, star: StarStyle) => void;
   clearStar: (messageId: string) => void;
   setFlag: (messageId: string, flag: FlagState) => void;
+  updateFlag: (messageId: string, updates: Partial<FlagState>) => void;
+  completeFlag: (messageId: string) => void;
   clearFlag: (messageId: string) => void;
   setPinned: (messageId: string, pinned: boolean) => void;
   setMuted: (messageId: string, muted: boolean) => void;
@@ -110,6 +125,8 @@ interface WorkspaceState {
 
   // Custom fields
   createCustomField: (def: CustomFieldDef) => void;
+  updateCustomField: (fieldId: string, updates: Partial<CustomFieldDef>) => void;
+  deleteCustomField: (fieldId: string) => void;
   setCustomFieldValue: (messageId: string, fieldId: string, value: CustomFieldValue) => void;
   clearCustomFieldValue: (messageId: string, fieldId: string) => void;
 
@@ -122,6 +139,7 @@ interface WorkspaceState {
   // Folder ops
   createFolder: (folder: Folder) => void;
   renameFolder: (folderId: string, name: string, diskSlug: string) => void;
+  recolorFolder: (folderId: string, color: number) => void;
   deleteFolder: (folderId: string) => void;
   moveToFolder: (messageId: string, folderId: string) => void;
 }
@@ -154,7 +172,40 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       selectedEmailId: null,
       selectedEmailIds: new Set(),
       focusedRowId: null,
+      activeFilter: {},
+      selectedSavedViewId: null,
     }),
+
+  activeFilter: {},
+  setFilterAxis: (axis) => set((s) => ({ activeFilter: { ...s.activeFilter, ...axis } })),
+  removeFilterAxis: (key) =>
+    set((s) => {
+      const next = { ...s.activeFilter };
+      delete next[key];
+      return { activeFilter: next };
+    }),
+  clearFilter: () => set({ activeFilter: {} }),
+  saveCurrentFilter: (name) => {
+    const filter = get().activeFilter;
+    Mut.saveView(localStore, name, filter);
+  },
+  deleteSavedView: (id) => { Mut.deleteView(localStore, id); },
+  renameSavedView: (id, name) => { Mut.renameView(localStore, id, name); },
+  loadSavedView: (id) => {
+    const view = localStore.savedViews.get(id);
+    if (!view) return;
+    set({
+      activeFilter: view.filter,
+      selectedSavedViewId: id,
+      selectedEmailId: null,
+      selectedEmailIds: new Set(),
+      focusedRowId: null,
+    });
+  },
+  selectedSavedViewId: null,
+
+  viewMode: "list",
+  setViewMode: (mode) => set({ viewMode: mode }),
 
   selectedEmailId: null,
   selectedEmailIds: new Set(),
@@ -226,6 +277,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   removeLabel: (messageId, labelId) => { Mut.removeLabel(localStore, messageId, labelId); },
   createLabel: (label) => { Mut.createLabel(localStore, label); },
   renameLabel: (labelId, name) => { Mut.renameLabel(localStore, labelId, name); },
+  recolorLabel: (labelId, color) => { Mut.recolorLabel(localStore, labelId, color); },
   deleteLabel: (labelId) => { Mut.deleteLabel(localStore, labelId); },
 
   addTag: (messageId, tag) => { Mut.addTag(localStore, messageId, tag); },
@@ -240,12 +292,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setStar: (messageId, star) => { Mut.setStar(localStore, messageId, star); },
   clearStar: (messageId) => { Mut.clearStar(localStore, messageId); },
   setFlag: (messageId, flag) => { Mut.setFlag(localStore, messageId, flag); },
+  updateFlag: (messageId, updates) => { Mut.updateFlag(localStore, messageId, updates); },
+  completeFlag: (messageId) => { Mut.completeFlag(localStore, messageId); },
   clearFlag: (messageId) => { Mut.clearFlag(localStore, messageId); },
   setPinned: (messageId, pinned) => { Mut.setPinned(localStore, messageId, pinned); },
   setMuted: (messageId, muted) => { Mut.setMuted(localStore, messageId, muted); },
   setNote: (messageId, notes) => { Mut.setNote(localStore, messageId, notes); },
 
   createCustomField: (def) => { Mut.createCustomField(localStore, def); },
+  updateCustomField: (fieldId, updates) => { Mut.updateCustomField(localStore, fieldId, updates); },
+  deleteCustomField: (fieldId) => { Mut.deleteCustomField(localStore, fieldId); },
   setCustomFieldValue: (messageId, fieldId, value) => {
     Mut.setCustomFieldValue(localStore, messageId, fieldId, value);
   },
@@ -268,6 +324,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   renameFolder: (folderId, name, diskSlug) => {
     Mut.renameFolder(localStore, folderId, name, diskSlug);
   },
+  recolorFolder: (folderId, color) => { Mut.recolorFolder(localStore, folderId, color); },
   deleteFolder: (folderId) => { Mut.deleteFolder(localStore, folderId); },
   moveToFolder: (messageId, folderId) => {
     Mut.moveToFolder(localStore, messageId, folderId);
@@ -283,27 +340,3 @@ export function useInspectorEmailId(): string | null {
   );
 }
 
-/**
- * Returns emails for the currently selected folder/label as the old Email shape.
- * Used by EmailListPanel until Phase 0c migrates to Message directly.
- */
-export function useVisibleEmails(): Email[] {
-  const folderId = useWorkspace((s) => s.selectedFolderId);
-  return emailsByFolder(folderId);
-}
-
-/**
- * Returns Message objects directly from the store for the current selection.
- * Used by Phase 0c+ components that are Message-aware.
- */
-export function useVisibleMessages(): Message[] {
-  const folderId = useWorkspace((s) => s.selectedFolderId);
-  const label = localStore.labels.get(folderId);
-  if (label) {
-    return queryMessages({ labelIds: [folderId], limit: 500 }, localStore).items;
-  }
-  if (localStore.folders.has(folderId)) {
-    return queryMessages({ folderId, limit: 500 }, localStore).items;
-  }
-  return [];
-}
