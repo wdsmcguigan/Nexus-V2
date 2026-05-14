@@ -33,8 +33,11 @@ import {
   ChevronRight,
   Info,
   AlertTriangle,
+  LayoutPanelLeft,
+  LayoutPanelTop,
+  Columns2,
 } from "lucide-react";
-import { useWorkspace } from "@/state/workspace";
+import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/ui/Kbd";
@@ -384,6 +387,54 @@ export function CommandPalette() {
     all.push({ id: "density-comfortable", label: "Density: Comfortable", group: "Workspace", icon: Rows3, perform: () => setDensity("comfortable" as Density) });
     all.push({ id: "density-cozy", label: "Density: Cozy", group: "Workspace", icon: Rows2, perform: () => setDensity("cozy" as Density) });
     all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => {} });
+
+    // ── Panels ──────────────────────────────────────────────────────
+    all.push({
+      id: "panel-add-viewer",
+      label: "Add message viewer panel",
+      group: "Panels",
+      icon: Columns2,
+      perform: () => {
+        const api = getDockviewApi();
+        if (!api) return;
+        api.addPanel({ id: newPanelId("viewer"), component: "viewer", title: "Message", initialWidth: 500 });
+      },
+    });
+    all.push({
+      id: "panel-add-list",
+      label: "Add email list panel",
+      group: "Panels",
+      icon: LayoutPanelLeft,
+      perform: () => {
+        const api = getDockviewApi();
+        if (!api) return;
+        api.addPanel({ id: newPanelId("list"), component: "list", title: "Mail", initialWidth: 380 });
+      },
+    });
+    all.push({
+      id: "panel-restore-nav",
+      label: "Restore navigation panel",
+      group: "Panels",
+      icon: LayoutPanelTop,
+      perform: () => {
+        const api = getDockviewApi();
+        if (!api) return;
+        if (api.getPanel("nav")) return; // already open
+        api.addPanel({ id: "nav", component: "nav", title: "Navigation", initialWidth: 240 });
+      },
+    });
+    all.push({
+      id: "panel-restore-inspector",
+      label: "Restore inspector panel",
+      group: "Panels",
+      icon: LayoutPanelTop,
+      perform: () => {
+        const api = getDockviewApi();
+        if (!api) return;
+        if (api.getPanel("inspector")) return;
+        api.addPanel({ id: "inspector", component: "inspector", title: "Inspector", initialWidth: 320 });
+      },
+    });
 
     return all;
   }, [

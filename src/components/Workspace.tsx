@@ -12,17 +12,17 @@ import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
 import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
-import { useWorkspace } from "@/state/workspace";
+import { useWorkspace, setDockviewApi } from "@/state/workspace";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
 // accept IDockviewPanelProps but use hooks internally as before.
 
 const NavPanel = (_: IDockviewPanelProps) => <NavigationPanel />;
-const ListPanel = (_: IDockviewPanelProps) => <EmailListPanel />;
-const ViewerPanel = (_: IDockviewPanelProps) => {
+const ListPanel = (props: IDockviewPanelProps) => <EmailListPanel panelId={props.api.id} />;
+const ViewerPanel = (props: IDockviewPanelProps) => {
   const composerOpen = useWorkspace((s) => s.composerOpen);
-  return composerOpen ? <EmailComposerPanel /> : <EmailViewerPanel />;
+  return composerOpen ? <EmailComposerPanel /> : <EmailViewerPanel panelId={props.api.id} />;
 };
 const InspPanel = (_: IDockviewPanelProps) => <InspectorPanel />;
 
@@ -38,6 +38,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // proportional initial widths. Users can resize and rearrange from here.
 
 function initLayout(event: DockviewReadyEvent) {
+  setDockviewApi(event.api);
   const { api } = event;
 
   const nav = api.addPanel({

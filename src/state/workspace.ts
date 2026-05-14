@@ -21,6 +21,22 @@ import type {
   StarStyle,
   CustomFieldDef,
 } from "@/data/types";
+import type { DockviewApi } from "dockview";
+
+// Module-level dockview API reference — not in Zustand (non-serializable).
+let _dockviewApi: DockviewApi | null = null;
+export function setDockviewApi(api: DockviewApi): void { _dockviewApi = api; }
+export function getDockviewApi(): DockviewApi | null { return _dockviewApi; }
+
+let _panelSeq = 0;
+export function newPanelId(type: string): string { return `${type}-${++_panelSeq}`; }
+
+/** Per-panel state for list panels when "detached" (own filter, not following global). */
+export interface ListPanelLocalState {
+  filter: MetadataFilter;
+  selectedFolderId: string;
+  selectedSavedViewId: string | null;
+}
 
 // ─── Workspace state ──────────────────────────────────────────────────────────
 
@@ -78,6 +94,19 @@ interface WorkspaceState {
   inspectorPinned: boolean;
   pinnedEmailId: string | null;
   togglePin: () => void;
+
+  // Per-viewer pin state (each viewer can pin to a specific email)
+  viewerPinState: Record<string, string | null>; // panelId → pinnedEmailId (null = follow global)
+  pinViewerToEmail: (panelId: string, emailId: string) => void;
+  unpinViewer: (panelId: string) => void;
+
+  // Per-list filter override (when detached, list has its own filter independent of global)
+  listPanelState: Record<string, ListPanelLocalState | null>;
+  detachListPanel: (panelId: string) => void;
+  attachListPanel: (panelId: string) => void;
+  setListPanelAxis: (panelId: string, axis: Partial<MetadataFilter>) => void;
+  removeListPanelAxis: (panelId: string, key: keyof MetadataFilter) => void;
+  clearListPanelFilter: (panelId: string) => void;
 
   // Composer
   composerOpen: boolean;
@@ -261,6 +290,49 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set({ inspectorPinned: true, pinnedEmailId: selectedEmailId });
     }
   },
+
+  viewerPinState: {},
+  pinViewerToEmail: (panelId, emailId) =>
+    set((s) => ({ viewerPinState: { ...s.viewerPinState, [panelId]: emailId } })),
+  unpinViewer: (panelId) =>
+    set((s) => ({ viewerPinState: { ...s.viewerPinState, [panelId]: null } })),
+
+  listPanelState: {},
+  detachListPanel: (panelId) => {
+    const { selectedFolderId, activeFilter, selectedSavedViewId } = get();
+    set((s) => ({
+      listPanelState: {
+        ...s.listPanelState,
+        [panelId]: { filter: { ...activeFilter }, selectedFolderId, selectedSavedViewId },
+      },
+    }));
+  },
+  attachListPanel: (panelId) =>
+    set((s) => {
+      const next = { ...s.listPanelState };
+      delete next[panelId];
+      return { listPanelState: next };
+    }),
+  setListPanelAxis: (panelId, axis) =>
+    set((s) => {
+      const cur = s.listPanelState[panelId];
+      if (!cur) return {};
+      return { listPanelState: { ...s.listPanelState, [panelId]: { ...cur, filter: { ...cur.filter, ...axis } } } };
+    }),
+  removeListPanelAxis: (panelId, key) =>
+    set((s) => {
+      const cur = s.listPanelState[panelId];
+      if (!cur) return {};
+      const f = { ...cur.filter };
+      delete f[key];
+      return { listPanelState: { ...s.listPanelState, [panelId]: { ...cur, filter: f } } };
+    }),
+  clearListPanelFilter: (panelId) =>
+    set((s) => {
+      const cur = s.listPanelState[panelId];
+      if (!cur) return {};
+      return { listPanelState: { ...s.listPanelState, [panelId]: { ...cur, filter: {} } } };
+    }),
 
   composerOpen: false,
   setComposerOpen: (open) => set({ composerOpen: open }),

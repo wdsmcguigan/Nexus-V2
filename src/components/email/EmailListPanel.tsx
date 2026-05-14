@@ -12,6 +12,8 @@ import {
   PanelRightClose,
   Search,
   X,
+  Link,
+  Unlink,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
@@ -24,7 +26,7 @@ import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
 import { useWorkspace } from "@/state/workspace";
-import { useVisibleMessages, useSelectionTitle } from "@/storage/useStore";
+import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
@@ -35,8 +37,6 @@ const HEIGHT_BY_DENSITY: Record<Density, number> = {
   comfortable: 36,
   cozy: 48,
 };
-
-const PANEL_ID = "list";
 
 // Group header row height is always 28px
 const GROUP_HEADER_HEIGHT = 28;
@@ -55,7 +55,7 @@ type VItem =
   | { kind: "row"; msg: Message }
   | { kind: "header"; label: string };
 
-export function EmailListPanel() {
+export function EmailListPanel({ panelId }: { panelId: string }) {
   const density = useWorkspace((s) => s.density);
   const cycleDensity = useWorkspace((s) => s.cycleDensity);
   const selectedEmailIds = useWorkspace((s) => s.selectedEmailIds);
@@ -70,9 +70,27 @@ export function EmailListPanel() {
   const setStarred = useWorkspace((s) => s.setStarred);
   const viewMode = useWorkspace((s) => s.viewMode);
   const setViewMode = useWorkspace((s) => s.setViewMode);
-  const setFilterAxis = useWorkspace((s) => s.setFilterAxis);
-  const removeFilterAxis = useWorkspace((s) => s.removeFilterAxis);
-  const activeFilter = useWorkspace((s) => s.activeFilter);
+  const globalSetFilterAxis = useWorkspace((s) => s.setFilterAxis);
+  const globalRemoveFilterAxis = useWorkspace((s) => s.removeFilterAxis);
+  const globalActiveFilter = useWorkspace((s) => s.activeFilter);
+  const panelLocalState = useWorkspace((s) => s.listPanelState[panelId] ?? null);
+  const isDetached = panelLocalState !== null;
+  const detachListPanel = useWorkspace((s) => s.detachListPanel);
+  const attachListPanel = useWorkspace((s) => s.attachListPanel);
+  const _setListPanelAxis = useWorkspace((s) => s.setListPanelAxis);
+  const _removeListPanelAxis = useWorkspace((s) => s.removeListPanelAxis);
+
+  const activeFilter = panelLocalState?.filter ?? globalActiveFilter;
+  const setFilterAxis = React.useCallback(
+    (axis: Partial<MetadataFilter>) =>
+      isDetached ? _setListPanelAxis(panelId, axis) : globalSetFilterAxis(axis),
+    [isDetached, panelId, _setListPanelAxis, globalSetFilterAxis],
+  );
+  const removeFilterAxis = React.useCallback(
+    (key: keyof MetadataFilter) =>
+      isDetached ? _removeListPanelAxis(panelId, key) : globalRemoveFilterAxis(key),
+    [isDetached, panelId, _removeListPanelAxis, globalRemoveFilterAxis],
+  );
 
   const [searchValue, setSearchValue] = React.useState(activeFilter.textQuery ?? "");
   const searchRef = React.useRef<HTMLInputElement>(null);
@@ -111,7 +129,7 @@ export function EmailListPanel() {
   const [groupBySta, setGroupBySta] = React.useState(false);
 
   const title = useSelectionTitle();
-  const messages = useVisibleMessages(sortBy);
+  const messages = useVisibleMessagesForPanel(panelId, sortBy);
 
   // Resolve label/status for each message (looked up from localStore at render time)
   const resolvedLabels = React.useMemo((): Map<string, Label[]> => {
@@ -180,7 +198,7 @@ export function EmailListPanel() {
     measureElement: (el) => el.getBoundingClientRect().height,
   });
 
-  const isPanelFocused = activePanelId === PANEL_ID;
+  const isPanelFocused = activePanelId === panelId;
 
   // Keyboard navigation
   React.useEffect(() => {
@@ -303,6 +321,18 @@ export function EmailListPanel() {
               <PanelRightClose />
             </Button>
           </Tooltip>
+          <Tooltip label={isDetached ? "Re-attach to navigation" : "Detach — independent filter"}>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label={isDetached ? "Attach list panel" : "Detach list panel"}
+              className={isDetached ? "text-accent" : ""}
+              onClick={() => isDetached ? attachListPanel(panelId) : detachListPanel(panelId)}
+            >
+              {isDetached ? <Unlink size={11} /> : <Link size={11} />}
+            </Button>
+          </Tooltip>
         </>
       }
     />
@@ -340,7 +370,7 @@ export function EmailListPanel() {
   // Non-list views bypass the virtualizer entirely
   if (viewMode === "kanban") {
     return (
-      <Panel panelId={PANEL_ID} type="stage" header={header}>
+      <Panel panelId={panelId} type="stage" header={header}>
         {searchBar}
         <FilterBar />
         <KanbanView />
@@ -350,7 +380,7 @@ export function EmailListPanel() {
 
   if (viewMode === "table") {
     return (
-      <Panel panelId={PANEL_ID} type="stage" header={header}>
+      <Panel panelId={panelId} type="stage" header={header}>
         {searchBar}
         <FilterBar />
         <TableView />
@@ -360,7 +390,7 @@ export function EmailListPanel() {
 
   if (msgList.length === 0) {
     return (
-      <Panel panelId={PANEL_ID} type="stage" header={header}>
+      <Panel panelId={panelId} type="stage" header={header}>
         {searchBar}
         <FilterBar />
         <PanelEmpty
@@ -374,7 +404,7 @@ export function EmailListPanel() {
   }
 
   return (
-    <Panel panelId={PANEL_ID} type="stage" header={header}>
+    <Panel panelId={panelId} type="stage" header={header}>
       {/* Search bar (EP-3 FTS) */}
       {searchBar}
       {/* Filter pills bar */}

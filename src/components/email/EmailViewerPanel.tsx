@@ -11,6 +11,8 @@ import {
   Archive,
   Trash2,
   AlarmClock,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -24,18 +26,22 @@ import { bodyStore } from "@/storage/bodyStore";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 
-const PANEL_ID = "viewer";
-
-export function EmailViewerPanel() {
-  const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
+export function EmailViewerPanel({ panelId }: { panelId: string }) {
+  const globalSelectedEmailId = useWorkspace((s) => s.selectedEmailId);
+  const pinnedEmailId = useWorkspace((s) => s.viewerPinState[panelId] ?? null);
+  const isPinned = pinnedEmailId !== null;
+  const pinViewerToEmail = useWorkspace((s) => s.pinViewerToEmail);
+  const unpinViewer = useWorkspace((s) => s.unpinViewer);
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
-  const msg = useMessage(selectedEmailId);
+
+  const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
+  const msg = useMessage(effectiveEmailId);
   const [imagesShown, setImagesShown] = React.useState(false);
 
   if (!msg) {
     return (
       <Panel
-        panelId={PANEL_ID}
+        panelId={panelId}
         type="stage"
         header={<PanelHeader title="Reader" />}
       >
@@ -58,13 +64,25 @@ export function EmailViewerPanel() {
 
   return (
     <Panel
-      panelId={PANEL_ID}
+      panelId={panelId}
       type="stage"
       header={
         <PanelHeader
           title={msg.subject}
           actions={
             <>
+              <Tooltip label={isPinned ? "Unpin — follow navigation" : "Pin this message"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={isPinned ? "Unpin viewer" : "Pin viewer to this message"}
+                  className={isPinned ? "text-accent" : ""}
+                  onClick={() => isPinned ? unpinViewer(panelId) : pinViewerToEmail(panelId, msg.id)}
+                >
+                  {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
+                </Button>
+              </Tooltip>
               <Tooltip label="Star">
                 <Button variant="ghost" size="sm" iconOnly aria-label="Star">
                   <Star />

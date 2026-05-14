@@ -199,3 +199,39 @@ export function useCustomFieldDefs(): CustomFieldDef[] {
     [v],
   );
 }
+
+/**
+ * Like useVisibleMessages but panel-aware. When the list panel is detached
+ * (has its own filter state), uses that instead of the global filter.
+ */
+export function useVisibleMessagesForPanel(
+  panelId: string,
+  sortBy: MetadataFilter["sortBy"] = "receivedAt",
+  sortDir: MetadataFilter["sortDir"] = "desc",
+): Message[] {
+  const globalFolderId = useWorkspace((s) => s.selectedFolderId);
+  const globalFilter = useWorkspace((s) => s.activeFilter);
+  const globalSavedViewId = useWorkspace((s) => s.selectedSavedViewId);
+  const panelState = useWorkspace((s) => s.listPanelState[panelId] ?? null);
+  const v = useStoreVersion();
+
+  return useMemo(() => {
+    const folderId = panelState?.selectedFolderId ?? globalFolderId;
+    const filter = panelState?.filter ?? globalFilter;
+    const savedViewId = panelState?.selectedSavedViewId ?? globalSavedViewId;
+
+    if (savedViewId) {
+      return queryMessages({ ...filter, sortBy, sortDir, limit: 500 }, localStore).items;
+    }
+    const base: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    const lbl = localStore.labels.get(folderId);
+    if (lbl) {
+      base.labelIds = [folderId];
+    } else if (localStore.folders.has(folderId)) {
+      base.folderId = folderId;
+    } else {
+      return [];
+    }
+    return queryMessages({ ...base, ...filter }, localStore).items;
+  }, [v, panelId, panelState, globalFolderId, globalFilter, globalSavedViewId, sortBy, sortDir]);
+}
