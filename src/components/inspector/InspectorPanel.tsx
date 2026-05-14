@@ -35,8 +35,6 @@ import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
 import { pickPanelLink } from "@/design-system/tokens";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 
-const PANEL_ID = "inspector";
-
 function Section({
   label,
   children,
@@ -54,32 +52,50 @@ function Section({
   );
 }
 
-export function InspectorPanel() {
+export function InspectorPanel({ panelId }: { panelId?: string }) {
   const pinned = useWorkspace((s) => s.inspectorPinned);
   const togglePin = useWorkspace((s) => s.togglePin);
   const setPinned = useWorkspace((s) => s.setPinned);
   const setMuted = useWorkspace((s) => s.setMuted);
   const removeLabel = useWorkspace((s) => s.removeLabel);
 
-  const inspectorEmailId = useInspectorEmailId();
+  // When this inspector panel was opened from a specific viewer, show that
+  // viewer's effective email rather than the globally-selected one.
+  const viewerInspectorMap = useWorkspace((s) => s.viewerInspectorMap);
+  const viewerPinState = useWorkspace((s) => s.viewerPinState);
+  const globalSelectedEmailId = useWorkspace((s) => s.selectedEmailId);
+  const globalInspectorEmailId = useInspectorEmailId();
+
+  const associatedViewerId = panelId
+    ? (Object.entries(viewerInspectorMap).find(([, iid]) => iid === panelId)?.[0] ?? null)
+    : null;
+
+  const inspectorEmailId = associatedViewerId
+    ? (viewerPinState[associatedViewerId] ?? globalSelectedEmailId)
+    : globalInspectorEmailId;
+
   const msg = useMessage(inspectorEmailId);
   const allLabels = useLabels();
 
+  // Per-viewer inspector panels don't show the global pin toggle — the
+  // associated viewer already has its own pin button.
   const headerActions = (
     <>
-      <Tooltip label={pinned ? "Unpin inspector" : "Pin inspector to current"} shortcut="P">
-        <Button
-          variant="ghost"
-          size="sm"
-          iconOnly
-          aria-pressed={pinned}
-          aria-label={pinned ? "Unpin" : "Pin"}
-          onClick={togglePin}
-          className={cn(pinned && "text-accent hover:text-accent")}
-        >
-          {pinned ? <Pin /> : <PinOff />}
-        </Button>
-      </Tooltip>
+      {!associatedViewerId && (
+        <Tooltip label={pinned ? "Unpin inspector" : "Pin inspector to current"} shortcut="P">
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-pressed={pinned}
+            aria-label={pinned ? "Unpin" : "Pin"}
+            onClick={togglePin}
+            className={cn(pinned && "text-accent hover:text-accent")}
+          >
+            {pinned ? <Pin /> : <PinOff />}
+          </Button>
+        </Tooltip>
+      )}
       <Tooltip label="More">
         <Button variant="ghost" size="sm" iconOnly aria-label="More">
           <MoreHorizontal />
@@ -88,10 +104,12 @@ export function InspectorPanel() {
     </>
   );
 
+  const effectivePanelId = panelId ?? "inspector";
+
   if (!msg) {
     return (
       <Panel
-        panelId={PANEL_ID}
+        panelId={effectivePanelId}
         type="inspector"
         header={<PanelHeader title="Inspector" actions={headerActions} />}
         data-pinned={pinned}
@@ -110,7 +128,7 @@ export function InspectorPanel() {
 
   return (
     <Panel
-      panelId={PANEL_ID}
+      panelId={effectivePanelId}
       type="inspector"
       header={
         <PanelHeader

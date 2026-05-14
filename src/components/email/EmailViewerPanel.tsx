@@ -13,6 +13,8 @@ import {
   AlarmClock,
   Pin,
   PinOff,
+  PanelRight,
+  PanelRightClose,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -20,7 +22,7 @@ import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useWorkspace } from "@/state/workspace";
+import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useMessage } from "@/storage/useStore";
 import { bodyStore } from "@/storage/bodyStore";
 import { pickPanelLink } from "@/design-system/tokens";
@@ -37,6 +39,49 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
   const [imagesShown, setImagesShown] = React.useState(false);
+
+  // Inspector toggle — opens/closes an inspector panel associated with this viewer.
+  const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
+  const setViewerInspector = useWorkspace((s) => s.setViewerInspector);
+  const clearViewerInspector = useWorkspace((s) => s.clearViewerInspector);
+
+  function toggleInspector() {
+    const api = getDockviewApi();
+    if (!api) return;
+
+    // Case 1: this viewer already owns an inspector — close it.
+    if (ownedInspectorId) {
+      const owned = api.getPanel(ownedInspectorId);
+      if (owned) api.removePanel(owned);
+      clearViewerInspector(panelId);
+      return;
+    }
+
+    // Case 2: find any inspector panel not yet owned by any viewer.
+    const ownedIds = new Set(Object.values(useWorkspace.getState().viewerInspectorMap));
+    const free = api.panels.find(
+      (p) => (p.id === "inspector" || p.id.startsWith("inspector-")) && !ownedIds.has(p.id),
+    );
+
+    if (free) {
+      // Adopt the free inspector (it will now reflect this viewer's email).
+      setViewerInspector(panelId, free.id);
+    } else {
+      // No free inspector — spawn one to the immediate right of this viewer.
+      const newId = newPanelId("inspector");
+      api.addPanel({
+        id: newId,
+        component: "inspector",
+        title: "Inspector",
+        initialWidth: 260,
+        minimumWidth: 200,
+        position: { direction: "right", referencePanel: panelId },
+      });
+      setViewerInspector(panelId, newId);
+    }
+  }
+
+  const inspectorOpen = ownedInspectorId !== null && !!getDockviewApi()?.getPanel(ownedInspectorId);
 
   if (!msg) {
     return (
@@ -81,6 +126,18 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   onClick={() => isPinned ? unpinViewer(panelId) : pinViewerToEmail(panelId, msg.id)}
                 >
                   {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
+                </Button>
+              </Tooltip>
+              <Tooltip label={inspectorOpen ? "Close inspector" : "Open inspector"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={inspectorOpen ? "Close inspector panel" : "Open inspector panel"}
+                  className={inspectorOpen ? "text-accent" : ""}
+                  onClick={toggleInspector}
+                >
+                  {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
                 </Button>
               </Tooltip>
               <Tooltip label="Star">

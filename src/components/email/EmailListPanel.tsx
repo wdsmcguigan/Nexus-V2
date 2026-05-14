@@ -25,7 +25,7 @@ import { TableView } from "@/components/views/TableView";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
-import { useWorkspace } from "@/state/workspace";
+import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
@@ -200,6 +200,30 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   const isPanelFocused = activePanelId === panelId;
 
+  // Opens an email, auto-spawning a new viewer to the right of this list panel
+  // when every existing viewer panel is pinned to a specific message.
+  const openEmail = React.useCallback((emailId: string) => {
+    const api = getDockviewApi();
+    if (api) {
+      const viewerPinState = useWorkspace.getState().viewerPinState;
+      const viewerPanels = api.panels.filter((p) => p.id.startsWith("viewer"));
+      const allPinned =
+        viewerPanels.length > 0 &&
+        viewerPanels.every((p) => !!viewerPinState[p.id]);
+      if (allPinned) {
+        api.addPanel({
+          id: newPanelId("viewer"),
+          component: "viewer",
+          title: "Message",
+          initialWidth: 400,
+          minimumWidth: 300,
+          position: { direction: "right", referencePanel: panelId },
+        });
+      }
+    }
+    setSelectedEmail(emailId);
+  }, [panelId, setSelectedEmail]);
+
   // Keyboard navigation
   React.useEffect(() => {
     if (!isPanelFocused) return;
@@ -230,14 +254,14 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       } else if (e.key === "Enter" || e.key === " ") {
         if (focusedRowId) {
           e.preventDefault();
-          setSelectedEmail(focusedRowId);
+          openEmail(focusedRowId);
         }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelFocused, msgList, vItems, focusedRowId, setFocusedRow, setSelectedEmail]);
+  }, [isPanelFocused, msgList, vItems, focusedRowId, setFocusedRow, openEmail]);
 
   function handleRowClick(emailId: string, e: React.MouseEvent) {
     if (e.shiftKey && selectionAnchorId) {
@@ -254,7 +278,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       toggleEmailSelection(emailId);
       return;
     }
-    setSelectedEmail(emailId);
+    openEmail(emailId);
   }
 
   const header = (

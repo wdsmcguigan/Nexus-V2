@@ -24,7 +24,7 @@ const ViewerPanel = (props: IDockviewPanelProps) => {
   const composerOpen = useWorkspace((s) => s.composerOpen);
   return composerOpen ? <EmailComposerPanel /> : <EmailViewerPanel panelId={props.api.id} />;
 };
-const InspPanel = (_: IDockviewPanelProps) => <InspectorPanel />;
+const InspPanel = (props: IDockviewPanelProps) => <InspectorPanel panelId={props.api.id} />;
 
 const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   nav: NavPanel,

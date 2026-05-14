@@ -163,13 +163,20 @@ interface WorkspaceState {
   pinViewerToEmail: (panelId: string, emailId: string) => void;
   unpinViewer: (panelId: string) => void;
 
-  // Per-list filter override (when detached, list has its own filter independent of global)
+  // Per-list panel state (when detached, list has its own filter independent of global)
   listPanelState: Record<string, ListPanelLocalState | null>;
   detachListPanel: (panelId: string) => void;
   attachListPanel: (panelId: string) => void;
   setListPanelAxis: (panelId: string, axis: Partial<MetadataFilter>) => void;
   removeListPanelAxis: (panelId: string, key: keyof MetadataFilter) => void;
   clearListPanelFilter: (panelId: string) => void;
+
+  // Per-viewer inspector association
+  // viewerPanelId → inspectorPanelId that was opened from that viewer.
+  // Absence of key means the viewer has no associated inspector open.
+  viewerInspectorMap: Record<string, string>;
+  setViewerInspector: (viewerPanelId: string, inspectorPanelId: string) => void;
+  clearViewerInspector: (viewerPanelId: string) => void;
 
   // Composer
   composerOpen: boolean;
@@ -554,6 +561,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const cur = s.listPanelState[panelId];
       if (!cur) return {};
       return { listPanelState: { ...s.listPanelState, [panelId]: { ...cur, filter: {} } } };
+    }),
+
+  viewerInspectorMap: {},
+  setViewerInspector: (viewerPanelId, inspectorPanelId) =>
+    set((s) => ({ viewerInspectorMap: { ...s.viewerInspectorMap, [viewerPanelId]: inspectorPanelId } })),
+  clearViewerInspector: (viewerPanelId) =>
+    set((s) => {
+      const next = { ...s.viewerInspectorMap };
+      delete next[viewerPanelId];
+      return { viewerInspectorMap: next };
     }),
 
   // ── Composer ───────────────────────────────────────────────────────────────
