@@ -337,6 +337,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       density: ws.density,
       viewMode: ws.viewMode,
       theme: ws.theme,
+      // Panel associations from the old layout are invalid after fromJSON —
+      // clear so no stale ownership blocks the new layout's inspector panels.
+      viewerInspectorMap: {},
       // Reset ephemeral selection state on workspace switch
       selectedEmailId: null,
       selectedEmailIds: new Set(),

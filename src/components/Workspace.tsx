@@ -45,7 +45,6 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "nav",
     component: "nav",
     title: "Navigation",
-    initialWidth: 275,
     minimumWidth: 180,
   });
 
@@ -53,7 +52,6 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "list",
     component: "list",
     title: "Mail",
-    initialWidth: 520,
     minimumWidth: 280,
     position: { direction: "right", referencePanel: nav },
   });
@@ -62,19 +60,24 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "viewer",
     component: "viewer",
     title: "Message",
-    initialWidth: 400,
     minimumWidth: 300,
     position: { direction: "right", referencePanel: list },
   });
 
-  api.addPanel({
+  const inspector = api.addPanel({
     id: "inspector",
     component: "inspector",
     title: "Inspector",
-    initialWidth: 245,
     minimumWidth: 200,
     position: { direction: "right", referencePanel: viewer },
   });
+
+  // Sequential addPanel calls skew proportions — force correct widths after all panels exist.
+  // Right-to-left order lets the SplitView settle correctly before each resize.
+  inspector.api.setSize({ width: 245 });
+  viewer.api.setSize({ width: 400 });
+  list.api.setSize({ width: 520 });
+  nav.api.setSize({ width: 275 });
 }
 
 function initLayout(event: DockviewReadyEvent) {
@@ -99,6 +102,22 @@ function initLayout(event: DockviewReadyEvent) {
   // Trigger auto-save on any dockview layout change (resize, rearrange, float).
   api.onDidLayoutChange(() => {
     scheduleAutoSave();
+  });
+
+  // Clean up viewerInspectorMap when panels are removed via their X button,
+  // preventing orphaned ownership that blocks other viewers from opening inspectors.
+  api.onDidRemovePanel((panel) => {
+    const id = panel.id;
+    const { viewerInspectorMap, clearViewerInspector } = useWorkspace.getState();
+
+    if (id.startsWith("viewer")) {
+      // Viewer removed — release its inspector so the inspector becomes free again.
+      clearViewerInspector(id);
+    } else if (id === "inspector" || id.startsWith("inspector-")) {
+      // Inspector removed — clear its owner's association so the owner's toggle resets.
+      const ownerViewerId = Object.entries(viewerInspectorMap).find(([, iid]) => iid === id)?.[0];
+      if (ownerViewerId) clearViewerInspector(ownerViewerId);
+    }
   });
 }
 

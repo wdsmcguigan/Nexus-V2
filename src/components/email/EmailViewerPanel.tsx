@@ -49,25 +49,31 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     const api = getDockviewApi();
     if (!api) return;
 
-    // Case 1: this viewer already owns an inspector — close it.
+    // Case 1: this viewer already owns an inspector.
     if (ownedInspectorId) {
       const owned = api.getPanel(ownedInspectorId);
-      if (owned) api.removePanel(owned);
+      if (owned) {
+        // Panel still exists — close it.
+        api.removePanel(owned);
+        clearViewerInspector(panelId);
+        return;
+      }
+      // Panel was closed externally (via X button). Clear the stale entry and
+      // fall through to open a fresh one.
       clearViewerInspector(panelId);
-      return;
     }
 
     // Case 2: find any inspector panel not yet owned by any viewer.
+    // Never adopt an already-owned inspector — only pick up truly free panels.
     const ownedIds = new Set(Object.values(useWorkspace.getState().viewerInspectorMap));
     const free = api.panels.find(
       (p) => (p.id === "inspector" || p.id.startsWith("inspector-")) && !ownedIds.has(p.id),
     );
 
     if (free) {
-      // Adopt the free inspector (it will now reflect this viewer's email).
       setViewerInspector(panelId, free.id);
     } else {
-      // No free inspector — spawn one to the immediate right of this viewer.
+      // All existing inspectors are owned — spawn a new one to the right.
       const newId = newPanelId("inspector");
       api.addPanel({
         id: newId,
