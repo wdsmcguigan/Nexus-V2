@@ -2,8 +2,9 @@
  * WF-SEARCH-QUERY — queryMessages(filter)
  *
  * Composes indexed predicates across any combination of metadata axes.
- * Pre-FTS5: textQuery does a simple in-memory substring check on subject +
- * snippet. FTS5 full-text search is EP-3.
+ * EP-3: textQuery routes through the FTS index (MiniSearch BM25) which
+ * indexes subject + body + notes. EP-4 (Tauri) will swap the FTS backend
+ * for SQLite-FTS5 once real .eml bodies are available at scale.
  *
  * Performance guarantee: every axis resolved via an index (Set intersection),
  * not a full table scan. The canonical multi-axis query must run <10ms on
@@ -12,6 +13,7 @@
 
 import type { Message, MetadataFilter, QueryResult } from "@/data/types";
 import { localStore } from "@/storage/local";
+import { ftsIndex, FTSIndex } from "@/storage/fts";
 
 const DEFAULT_LIMIT = 100;
 
@@ -34,6 +36,7 @@ function intersect(a: Set<string> | null, b: Set<string> | null): Set<string> | 
 export function queryMessages(
   filter: MetadataFilter = {},
   store = localStore,
+  fts: FTSIndex = ftsIndex,
 ): QueryResult {
   const t0 = performance.now();
 
@@ -83,6 +86,11 @@ export function queryMessages(
   // Thread
   if (filter.threadId !== undefined) {
     candidates = intersect(candidates, store.messagesByThread.get(filter.threadId) ?? new Set());
+  }
+
+  // FTS (EP-3) — intersect before resolving Message objects
+  if (filter.textQuery && filter.textQuery.trim().length > 0) {
+    candidates = intersect(candidates, fts.searchIds(filter.textQuery));
   }
 
   // Custom field equality
@@ -137,14 +145,6 @@ export function queryMessages(
   }
   if (filter.flagged !== undefined) {
     result = result.filter((m) => (m.flag !== null) === filter.flagged);
-  }
-  if (filter.textQuery && filter.textQuery.trim().length > 0) {
-    const q = filter.textQuery.toLowerCase();
-    result = result.filter(
-      (m) =>
-        m.subject.toLowerCase().includes(q) ||
-        m.snippet.toLowerCase().includes(q),
-    );
   }
 
   const total = result.length;

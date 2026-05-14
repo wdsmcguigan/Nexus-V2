@@ -12,6 +12,8 @@
 
 import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
+import { bodyStore } from "@/storage/bodyStore";
+import { ftsIndex } from "@/storage/fts";
 import { queryMessages } from "@/storage/query";
 import type {
   Account as EPAccount,
@@ -487,6 +489,37 @@ export function generateSyntheticMessages(count: number): Message[] {
   return out;
 }
 
+// ─── Body generator (EP-3) ───────────────────────────────────────────────────
+
+const bodyParagraphs: string[][] = [
+  // 0 — Q2 review notes
+  ["Hey — wanted to share a few updates from the planning session. The big item is that we shifted the timeline to mid-June, and the team is comfortable with that pace as long as we lock the design by Friday.", "Key decisions from Tuesday: panel taxonomy stays as-is (Stage + Inspector + Nav + List), density modes ship in the next sprint, and the command palette gate moves to EP-0 final.", "I've attached the full notes doc but wanted to flag the three action items that landed on us: (1) finalize the color token naming convention, (2) confirm whether FTS goes in EP-3 or EP-4, and (3) close the OPFS strategy.", "Let me know if any of these are mis-attributed — happy to adjust. Ping me if you want to sync before Tuesday."],
+  // 1 — dock-view milestone
+  ["I've gone through the spec and have a couple of questions about the panel-link palette behavior when a user has more than 8 paired panels. Do they recycle, or do we surface a warning?", "Also noticed that the resize handle in the current build loses its hover state after a double-click. This might be a dockview event propagation issue — I'll dig in today.", "For the milestone itself, I think we're close. The remaining blockers are: (a) keyboard focus order in the inspector, (b) scroll preservation on panel switch, and (c) the ghosting animation on close.", "Will create Linear tickets for each — should be able to get them all done before the Thursday cut."],
+  // 2 — Invoice
+  ["Please find attached the September invoice for services rendered. Net-30 terms apply. Wire details haven't changed — let me know if you need them resent.", "Line items: design consultation (18h at $180/hr = $3,240), prototyping sessions (6h at $200/hr = $1,200), and a one-time project setup fee of $500.", "Total due: $4,940. Bank details on file; remittance to the usual account. PO number: NXS-2024-09.", "Happy to issue a revised invoice if anything needs adjusting. Thanks for the ongoing work — really enjoying the collaboration."],
+  // 3 — Build succeeded
+  ["Build #4218 completed successfully on `main` in 4m 12s. Tests: 1,247 passed. No regressions detected. Artifact published to the staging registry.", "Changed files: src/components/panel/Panel.tsx, src/design-system/tokens.ts, src/storage/query.ts (47 files total, +2,103 −418).", "Deployment preview: https://nexus-v2-preview.vercel.app/pr/312", "This build is ready for QA sign-off before the production deploy. Ping #releases when you're green."],
+  // 4 — Welcome
+  ["Welcome aboard — really excited to have you on the team. Below is the onboarding doc with everything you need for week one. Reach out anytime.", "First week checklist: (1) read the architecture doc in /docs, (2) run pnpm dev and break something, (3) ship one small PR to get familiar with the review process, (4) join the Friday design sync.", "Tools you'll need access to: Linear (ask Mae), Vercel (ask Diego), and the design file in Figma (ask Yuki). Slack channels: #engineering, #design, #infra, #random.", "Your manager will do a 1:1 on Thursday to go through the 30-60-90 plan. Don't stress — we move fast but we're also patient with ramp-up."],
+  // 5 — Weekly digest
+  ["Your weekly digest is ready. There were 14 mentions of you across 6 conversations this week. Top thread: 'Q2 review notes' (5 replies).", "Other highlights: PR #309 received 3 approvals and is queued to merge, the DESIGN-118 ticket moved to In Review, and the offsite recap doc has 12 views.", "Unread: 8 messages in Inbox. Flagged for follow-up: 2 messages (see the Follow-up label). Snoozed: 1 message waking up Monday.", "No urgent items requiring attention today. Have a great weekend."],
+  // 6 — Customer call
+  ["Got it — sounds great. I'll put together a call summary by EOD and circulate to the wider group. Let me know if you want anything else covered.", "From my notes: the customer wants faster search (mentioned Soundminer twice), better keyboard navigation, and a way to bulk-apply labels. All three are on the roadmap.", "I mentioned that EP-1 handles saved views (which covers part of the bulk-label use case) and that FTS is EP-3. They seemed satisfied with the timeline.", "Next steps: I'll draft a follow-up email to them with the roadmap summary, and schedule a check-in for 6 weeks out."],
+  // 7 — 2FA
+  ["We've detected a sign-in to your account from a new device. If this was you, you can ignore this email. If not, please review your account security immediately.", "Device: MacBook Pro (macOS 15.1), Location: San Francisco, CA, Time: 2026-05-08 09:14 UTC.", "If you didn't authorize this sign-in, click 'Review account' below and change your password immediately. We recommend enabling 2FA if you haven't already.", "Your recovery codes are attached to this message. Store them somewhere safe — you'll need them if you ever lose access to your authenticator app."],
+  // 8 — PR merged
+  ["Pull request #312 (`feat(panels): contextual ghosting`) was merged into `main` by alice-chen. 47 files changed, +2,103 −418.", "This PR implements the contextual ghosting behavior described in DESIGN-112. Panels fade to 40% opacity when they lose focus and a sibling panel is being resized.", "Related tickets closed by this merge: DESIGN-112, ENG-44, ENG-61. The ghosting animation uses CSS transitions with `duration-fast` (120ms ease-out).", "Next: the follow-up PR #313 (`feat(panels): resize handle hover state`) is already in review and should land tomorrow."],
+  // 9 — Vercel receipt
+  ["Thanks for your payment of $20.00 for Vercel Pro — May 2026. This receipt is for your records. Your next billing date is June 8, 2026.", "Account: will@nexus.app | Plan: Pro | Billing cycle: Monthly | Amount: $20.00 (USD).", "Projects on this account: nexus-v2 (5 deployments this month), nexus-landing (2 deployments). Bandwidth used: 4.2 GB of 1 TB included.", "Questions? Visit vercel.com/support or reply to this email."],
+];
+
+function generateBodyHtml(i: number, subject: string, snippet: string): string {
+  const paragraphs = bodyParagraphs[i % bodyParagraphs.length] ?? [snippet];
+  const paras = paragraphs.map((p) => `<p>${p}</p>`).join("\n");
+  return `<h2 style="margin:0 0 16px;font-size:16px;font-weight:600">${subject}</h2>\n${paras}`;
+}
+
 // ─── Store initialization ─────────────────────────────────────────────────────
 
 let _initialized = false;
@@ -494,6 +527,8 @@ let _initialized = false;
 export function initStore(): void {
   if (_initialized) return;
   _initialized = true;
+  const messages = generateMessages();
+
   localStore.hydrate({
     vault: { id: VAULT_ID, path: "/nexus-vault", createdAt: now },
     accounts: seedAccounts,
@@ -501,10 +536,18 @@ export function initStore(): void {
     labels: seedLabels,
     statuses: seedStatuses,
     customFieldDefs: seedCustomFieldDefs,
-    messages: generateMessages(),
+    messages,
     tagUsage: [],
     mutations: [],
   });
+
+  // Populate body store (EP-3)
+  for (const msg of messages) {
+    bodyStore.set(msg.bodyRef, generateBodyHtml(parseInt(msg.id.replace("email-", ""), 10), msg.subject, msg.snippet));
+  }
+
+  // Build FTS index (EP-3)
+  ftsIndex.indexMessages(messages, bodyStore);
 }
 
 // Auto-initialize when module is imported

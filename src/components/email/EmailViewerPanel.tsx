@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace } from "@/state/workspace";
 import { useMessage } from "@/storage/useStore";
+import { bodyStore } from "@/storage/bodyStore";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 
@@ -50,9 +51,10 @@ export function EmailViewerPanel() {
   const colorSeed = pickPanelLink(msg.fromAddr.email);
   const hasRemoteImages = msg.id.endsWith("0") || msg.id.endsWith("5");
 
-  // Body: stored in bodyRef (content hash pointing to disk/OPFS cache).
-  // Until EP-3 (FTS + body retrieval), render the snippet as a placeholder.
-  const bodyHtml = `<p>${msg.snippet}</p><p style="color:#6b7280;font-size:12px;margin-top:24px">[Full body retrieval via bodyRef is deferred to EP-3.]</p>`;
+  // EP-3: retrieve full body from bodyStore. Falls back to snippet if not cached
+  // (e.g. messages arrived via sync before EP-4 body retrieval pipeline exists).
+  const storedBody = bodyStore.get(msg.bodyRef);
+  const bodyHtml = storedBody ?? `<p>${msg.snippet}</p>`;
 
   return (
     <Panel
