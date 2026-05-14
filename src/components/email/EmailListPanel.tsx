@@ -3,11 +3,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
   Inbox,
-  ListFilter,
+  Layers,
   RefreshCw,
   Settings2,
+  ListFilter,
   PanelRightClose,
 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -15,9 +17,11 @@ import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
 import { useWorkspace } from "@/state/workspace";
-import { emailsByFolder, folders } from "@/data/fixtures";
+import { useVisibleMessages, useSelectionTitle } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
+import type { Message, MetadataFilter, Status, Label } from "@/data/types";
 
 const HEIGHT_BY_DENSITY: Record<Density, number> = {
   compact: 28,
@@ -25,18 +29,28 @@ const HEIGHT_BY_DENSITY: Record<Density, number> = {
   cozy: 48,
 };
 
-const DENSITY_LABEL: Record<Density, string> = {
-  compact: "Compact",
-  comfortable: "Comfortable",
-  cozy: "Cozy",
+const PANEL_ID = "list";
+
+// Group header row height is always 28px
+const GROUP_HEADER_HEIGHT = 28;
+
+type SortBy = NonNullable<MetadataFilter["sortBy"]>;
+
+const SORT_LABELS: Record<SortBy, string> = {
+  receivedAt: "Newest",
+  priority: "Priority",
+  status: "Status",
+  sender: "Sender",
 };
 
-const PANEL_ID = "list";
+// Virtual list items — either a message row or a group header
+type VItem =
+  | { kind: "row"; msg: Message }
+  | { kind: "header"; label: string };
 
 export function EmailListPanel() {
   const density = useWorkspace((s) => s.density);
   const cycleDensity = useWorkspace((s) => s.cycleDensity);
-  const folderId = useWorkspace((s) => s.selectedFolderId);
   const selectedEmailIds = useWorkspace((s) => s.selectedEmailIds);
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const focusedRowId = useWorkspace((s) => s.focusedRowId);
@@ -46,49 +60,108 @@ export function EmailListPanel() {
   const setSelectionRange = useWorkspace((s) => s.setSelectionRange);
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
   const selectionAnchorId = useWorkspace((s) => s.selectionAnchorId);
+  const setStarred = useWorkspace((s) => s.setStarred);
 
-  const folder = folders.find((f) => f.id === folderId);
-  const list = React.useMemo(() => emailsByFolder(folderId), [folderId]);
+  const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
+  const [groupBySta, setGroupBySta] = React.useState(false);
+
+  const title = useSelectionTitle();
+  const messages = useVisibleMessages(sortBy);
+
+  // Resolve label/status for each message (looked up from localStore at render time)
+  const resolvedLabels = React.useMemo((): Map<string, Label[]> => {
+    const m = new Map<string, Label[]>();
+    for (const msg of messages) {
+      const lbls: Label[] = [];
+      for (const lid of msg.labelIds) {
+        const l = localStore.labels.get(lid);
+        if (l && l.kind === "user") lbls.push(l);
+      }
+      m.set(msg.id, lbls);
+    }
+    return m;
+  }, [messages]);
+
+  const resolvedStatuses = React.useMemo((): Map<string, Status | null> => {
+    const m = new Map<string, Status | null>();
+    for (const msg of messages) {
+      m.set(msg.id, msg.statusId ? (localStore.statuses.get(msg.statusId) ?? null) : null);
+    }
+    return m;
+  }, [messages]);
+
+  // Build virtual item list
+  const vItems = React.useMemo((): VItem[] => {
+    if (!groupBySta) {
+      return messages.map((msg) => ({ kind: "row" as const, msg }));
+    }
+    // Group by status: sort by statusId, add group headers
+    const groups = new Map<string | null, Message[]>();
+    for (const msg of messages) {
+      const key = msg.statusId ?? null;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(msg);
+    }
+    const items: VItem[] = [];
+    // No-status group first, then ordered by statusId
+    const noStatus = groups.get(null);
+    if (noStatus?.length) {
+      items.push({ kind: "header", label: "No Status" });
+      for (const msg of noStatus) items.push({ kind: "row", msg });
+    }
+    for (const [statusId, msgs] of groups) {
+      if (statusId === null) continue;
+      const status = localStore.statuses.get(statusId);
+      items.push({ kind: "header", label: status?.name ?? statusId });
+      for (const msg of msgs) items.push({ kind: "row", msg });
+    }
+    return items;
+  }, [messages, groupBySta]);
+
+  const msgList = vItems.filter((v): v is { kind: "row"; msg: Message } => v.kind === "row").map((v) => v.msg);
 
   const parentRef = React.useRef<HTMLDivElement>(null);
   const rowSize = HEIGHT_BY_DENSITY[density];
 
   const virtualizer = useVirtualizer({
-    count: list.length,
+    count: vItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => rowSize,
+    estimateSize: (i) => vItems[i]?.kind === "header" ? GROUP_HEADER_HEIGHT : rowSize,
     overscan: 8,
-    getItemKey: (i) => list[i]?.id ?? i,
+    getItemKey: (i) => {
+      const item = vItems[i];
+      return item?.kind === "row" ? item.msg.id : `header-${i}`;
+    },
   });
 
   const isPanelFocused = activePanelId === PANEL_ID;
 
-  // Keyboard navigation (j/k, Space, Esc) when panel is focused
+  // Keyboard navigation
   React.useEffect(() => {
     if (!isPanelFocused) return;
     function onKey(e: KeyboardEvent) {
       if (
         document.activeElement &&
-        ["INPUT", "TEXTAREA"].includes(
-          (document.activeElement as HTMLElement).tagName,
-        )
+        ["INPUT", "TEXTAREA"].includes((document.activeElement as HTMLElement).tagName)
       ) {
         return;
       }
-      const idx = list.findIndex((m) => m.id === focusedRowId);
+      const idx = msgList.findIndex((m) => m.id === focusedRowId);
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
-        const next = list[Math.min(list.length - 1, Math.max(0, idx + 1))];
+        const next = msgList[Math.min(msgList.length - 1, Math.max(0, idx + 1))];
         if (next) {
           setFocusedRow(next.id);
-          virtualizer.scrollToIndex(list.indexOf(next), { align: "auto" });
+          const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === next.id);
+          if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
         }
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
-        const prev = list[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
+        const prev = msgList[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
         if (prev) {
           setFocusedRow(prev.id);
-          virtualizer.scrollToIndex(list.indexOf(prev), { align: "auto" });
+          const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === prev.id);
+          if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
         }
       } else if (e.key === "Enter" || e.key === " ") {
         if (focusedRowId) {
@@ -99,17 +172,16 @@ export function EmailListPanel() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // virtualizer ref is stable from useVirtualizer; intentionally omitted
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelFocused, list, focusedRowId, setFocusedRow, setSelectedEmail]);
+  }, [isPanelFocused, msgList, vItems, focusedRowId, setFocusedRow, setSelectedEmail]);
 
   function handleRowClick(emailId: string, e: React.MouseEvent) {
     if (e.shiftKey && selectionAnchorId) {
-      const ai = list.findIndex((m) => m.id === selectionAnchorId);
-      const bi = list.findIndex((m) => m.id === emailId);
+      const ai = msgList.findIndex((m) => m.id === selectionAnchorId);
+      const bi = msgList.findIndex((m) => m.id === emailId);
       if (ai !== -1 && bi !== -1) {
         const [lo, hi] = ai < bi ? [ai, bi] : [bi, ai];
-        const range = list.slice(lo, hi + 1).map((m) => m.id);
+        const range = msgList.slice(lo, hi + 1).map((m) => m.id);
         setSelectionRange(range);
         return;
       }
@@ -121,105 +193,116 @@ export function EmailListPanel() {
     setSelectedEmail(emailId);
   }
 
-  if (list.length === 0) {
+  const header = (
+    <PanelHeader
+      title={title}
+      meta={`${msgList.length}${selectedEmailIds.size > 1 ? ` · ${selectedEmailIds.size} selected` : ""}`}
+      actions={
+        <>
+          <Tooltip label={`Density: ${density}`} shortcut="D">
+            <Button variant="ghost" size="sm" iconOnly aria-label="Cycle density" onClick={cycleDensity}>
+              <Settings2 />
+            </Button>
+          </Tooltip>
+          <Tooltip label="Filter">
+            <Button variant="ghost" size="sm" iconOnly aria-label="Filter">
+              <ListFilter />
+            </Button>
+          </Tooltip>
+          <Tooltip label="Refresh" shortcut="⌘R">
+            <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
+              <RefreshCw />
+            </Button>
+          </Tooltip>
+          <Tooltip label="Collapse panel">
+            <Button variant="ghost" size="sm" iconOnly aria-label="Collapse">
+              <PanelRightClose />
+            </Button>
+          </Tooltip>
+        </>
+      }
+    />
+  );
+
+  if (msgList.length === 0) {
     return (
-      <Panel
-        panelId={PANEL_ID}
-        type="stage"
-        header={
-          <PanelHeader
-            title={folder?.name ?? "Mail"}
-            actions={
-              <Tooltip label="Refresh" shortcut="⌘R">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
-                  <RefreshCw />
-                </Button>
-              </Tooltip>
-            }
-          />
-        }
-      >
+      <Panel panelId={PANEL_ID} type="stage" header={header}>
         <PanelEmpty
           icon={Inbox}
           title="No emails in this view"
           body="Try clearing filters or selecting a different folder."
-          action={
-            <Button variant="secondary" size="md">
-              Clear filters
-            </Button>
-          }
+          action={<Button variant="secondary" size="md">Clear filters</Button>}
         />
       </Panel>
     );
   }
 
   return (
-    <Panel
-      panelId={PANEL_ID}
-      type="stage"
-      header={
-        <PanelHeader
-          title={folder?.name ?? "Mail"}
-          meta={`${list.length}${selectedEmailIds.size > 1 ? ` · ${selectedEmailIds.size} selected` : ""}`}
-          actions={
-            <>
-              <Tooltip label={`Density: ${DENSITY_LABEL[density]}`} shortcut="D">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Cycle density"
-                  onClick={cycleDensity}
-                >
-                  <Settings2 />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Filter">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Filter">
-                  <ListFilter />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Refresh" shortcut="⌘R">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh">
-                  <RefreshCw />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Collapse panel">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Collapse"
-                >
-                  <PanelRightClose />
-                </Button>
-              </Tooltip>
-            </>
-          }
-        />
-      }
-    >
-      {/* Sub-toolbar */}
+    <Panel panelId={PANEL_ID} type="stage" header={header}>
+      {/* Sub-toolbar: sort + group-by */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 px-2">
-        <button
-          className={cn(
-            "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary",
-            "hover:bg-surface-2 hover:text-text-secondary",
-          )}
-        >
-          Sort: Newest
-          <ChevronDown size={12} />
-        </button>
+        {/* Sort picker */}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              className={cn(
+                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary",
+                "hover:bg-surface-2 hover:text-text-secondary",
+              )}
+            >
+              Sort: {SORT_LABELS[sortBy]}
+              <ChevronDown size={10} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className={cn(
+                "z-50 min-w-[140px] overflow-hidden rounded-md border border-border-subtle",
+                "bg-surface-2 p-1 shadow-lg",
+                "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+                "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+              )}
+              sideOffset={4}
+              align="start"
+            >
+              {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+                <DropdownMenu.Item
+                  key={key}
+                  onSelect={() => setSortBy(key)}
+                  className={cn(
+                    "flex h-7 cursor-pointer items-center rounded-xs px-2 text-body outline-none",
+                    "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                    key === sortBy && "text-text-primary",
+                  )}
+                >
+                  {SORT_LABELS[key]}
+                  {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+
         <span className="text-caption text-text-muted">·</span>
-        <button
-          className={cn(
-            "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary",
-            "hover:bg-surface-2 hover:text-text-secondary",
-          )}
-        >
-          All
-          <ChevronDown size={12} />
-        </button>
+
+        {/* Group-by STA toggle */}
+        <Tooltip label={groupBySta ? "Ungroup" : "Group by status"}>
+          <button
+            type="button"
+            onClick={() => setGroupBySta((v) => !v)}
+            className={cn(
+              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
+              "transition-colors hover:bg-surface-2",
+              groupBySta
+                ? "bg-accent-soft text-text-primary"
+                : "text-text-tertiary hover:text-text-secondary",
+            )}
+            aria-pressed={groupBySta}
+          >
+            <Layers size={11} />
+            {groupBySta ? "Grouped" : "Group by Status"}
+          </button>
+        </Tooltip>
       </div>
 
       {/* Virtualized list */}
@@ -231,21 +314,43 @@ export function EmailListPanel() {
         aria-label="Email list"
         className="nx-scroll relative h-full overflow-auto outline-none"
       >
-        <div
-          style={{
-            height: virtualizer.getTotalSize(),
-            position: "relative",
-            width: "100%",
-          }}
-        >
+        <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {virtualizer.getVirtualItems().map((vi) => {
-            const email = list[vi.index]!;
-            const isSelected = selectedEmailIds.has(email.id);
-            const isSinglySelected = selectedEmailId === email.id;
-            const isFocused = focusedRowId === email.id;
+            const item = vItems[vi.index];
+            if (!item) return null;
+
+            if (item.kind === "header") {
+              return (
+                <div
+                  key={`h-${vi.index}`}
+                  data-index={vi.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: vi.size,
+                    transform: `translateY(${vi.start}px)`,
+                  }}
+                  className="flex items-center border-b border-border-subtle bg-surface-1 px-4"
+                >
+                  <span className="text-overline uppercase text-text-tertiary">
+                    {item.label}
+                  </span>
+                </div>
+              );
+            }
+
+            const { msg } = item;
+            const isSelected = selectedEmailIds.has(msg.id);
+            const isSinglySelected = selectedEmailId === msg.id;
+            const isFocused = focusedRowId === msg.id;
+            const msgLabels = resolvedLabels.get(msg.id) ?? [];
+            const msgStatus = resolvedStatuses.get(msg.id) ?? null;
+
             return (
               <div
-                key={email.id}
+                key={msg.id}
                 data-index={vi.index}
                 style={{
                   position: "absolute",
@@ -257,20 +362,20 @@ export function EmailListPanel() {
                 }}
               >
                 <EmailRow
-                  email={email}
+                  message={msg}
                   density={density}
                   selected={isSelected || isSinglySelected}
                   focused={isFocused}
                   ghosted={!isPanelFocused}
                   inSelectionSet={isSelected}
-                  onFocus={() => setFocusedRow(email.id)}
-                  onSelect={(e) => handleRowClick(email.id, e)}
-                  onToggleStar={() => {
-                    /* stub */
-                  }}
+                  labels={msgLabels}
+                  status={msgStatus}
+                  onFocus={() => setFocusedRow(msg.id)}
+                  onSelect={(e) => handleRowClick(msg.id, e)}
+                  onToggleStar={() => setStarred(msg.id, !msg.star)}
                   onToggleCheck={(c) => {
-                    if (c && !isSelected) toggleEmailSelection(email.id);
-                    if (!c && isSelected) toggleEmailSelection(email.id);
+                    if (c && !isSelected) toggleEmailSelection(msg.id);
+                    if (!c && isSelected) toggleEmailSelection(msg.id);
                   }}
                 />
               </div>

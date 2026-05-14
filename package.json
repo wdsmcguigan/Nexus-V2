@@ -9,7 +9,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173",
     "typecheck": "tsc -b --noEmit",
-    "lint": "eslint src --ext .ts,.tsx --max-warnings 0"
+    "lint": "eslint src --ext .ts,.tsx --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.0.20",
@@ -35,7 +37,9 @@
     "zustand": "^5.0.1"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
@@ -43,11 +47,13 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "@vitest/coverage-v8": "^2.1.9",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   }
 }
