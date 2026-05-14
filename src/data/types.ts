@@ -274,12 +274,14 @@ export type MutationKind =
   | "MOVE_TO_FOLDER"
   | "CREATE_FOLDER"
   | "RENAME_FOLDER"
+  | "RECOLOR_FOLDER"
   | "DELETE_FOLDER"
   // Label ops
   | "ADD_LABEL"
   | "REMOVE_LABEL"
   | "CREATE_LABEL"
   | "RENAME_LABEL"
+  | "RECOLOR_LABEL"
   | "DELETE_LABEL"
   | "REORDER_LABELS"
   // Tag ops

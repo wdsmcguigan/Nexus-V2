@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   Inbox,
   Star,
@@ -16,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Pencil,
   Trash,
+  Palette,
   Bookmark,
   type LucideIcon,
 } from "lucide-react";
@@ -23,6 +25,8 @@ import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { ColorPicker } from "@/components/ui/ColorPicker";
+import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { useWorkspace } from "@/state/workspace";
 import {
   useSystemLabels,
@@ -168,6 +172,31 @@ function InlineRename({
   );
 }
 
+// ─── Inline recolor ───────────────────────────────────────────────────────────
+
+function InlineRecolor({
+  current,
+  onCommit,
+  onCancel,
+}: {
+  current: number;
+  onCommit: (color: number) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-xs border border-accent bg-surface-1 px-2 py-1">
+      <ColorPicker value={current} onChange={(c) => { onCommit(c); }} />
+      <button
+        type="button"
+        onClick={onCancel}
+        className="ml-auto text-text-muted hover:text-text-primary"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // ─── Inline create folder input ───────────────────────────────────────────────
 
 function InlineCreate({
@@ -273,17 +302,24 @@ function UserLabelRow({ label }: { label: LabelType }) {
   const folderId = useWorkspace((s) => s.selectedFolderId);
   const setFolder = useWorkspace((s) => s.setSelectedFolder);
   const renameLabel = useWorkspace((s) => s.renameLabel);
+  const recolorLabel = useWorkspace((s) => s.recolorLabel);
   const deleteLabel = useWorkspace((s) => s.deleteLabel);
   const unread = useLabelUnreadCount(label.id);
   const count = useLabelCount(label.id);
   const active = folderId === label.id;
   const [renaming, setRenaming] = React.useState(false);
+  const [recoloring, setRecoloring] = React.useState(false);
 
   const ctxItems: CtxItem[] = [
     {
       label: "Rename",
       icon: Pencil,
       onSelect: () => setRenaming(true),
+    },
+    {
+      label: "Recolor",
+      icon: Palette,
+      onSelect: () => setRecoloring(true),
     },
     {
       label: "Delete",
@@ -302,6 +338,19 @@ function UserLabelRow({ label }: { label: LabelType }) {
           setRenaming(false);
         }}
         onCancel={() => setRenaming(false)}
+      />
+    );
+  }
+
+  if (recoloring) {
+    return (
+      <InlineRecolor
+        current={label.color}
+        onCommit={(color) => {
+          recolorLabel(label.id, color);
+          setRecoloring(false);
+        }}
+        onCancel={() => setRecoloring(false)}
       />
     );
   }
@@ -368,6 +417,7 @@ function FolderTreeNode({
   const folderId = useWorkspace((s) => s.selectedFolderId);
   const setFolder = useWorkspace((s) => s.setSelectedFolder);
   const renameFolder = useWorkspace((s) => s.renameFolder);
+  const recolorFolder = useWorkspace((s) => s.recolorFolder);
   const deleteFolder = useWorkspace((s) => s.deleteFolder);
   const count = useFolderCount(folder.id);
   const active = folderId === folder.id;
@@ -376,12 +426,18 @@ function FolderTreeNode({
   const hasChildren = children.length > 0;
   const [expanded, setExpanded] = React.useState(true);
   const [renaming, setRenaming] = React.useState(false);
+  const [recoloring, setRecoloring] = React.useState(false);
 
   const ctxItems: CtxItem[] = [
     {
       label: "Rename",
       icon: Pencil,
       onSelect: () => setRenaming(true),
+    },
+    {
+      label: "Recolor",
+      icon: Palette,
+      onSelect: () => setRecoloring(true),
     },
     {
       label: "Delete",
@@ -405,6 +461,17 @@ function FolderTreeNode({
               setRenaming(false);
             }}
             onCancel={() => setRenaming(false)}
+          />
+        </div>
+      ) : recoloring ? (
+        <div style={{ paddingLeft: indentPx + 8 }}>
+          <InlineRecolor
+            current={folder.color ?? 1}
+            onCommit={(color) => {
+              recolorFolder(folder.id, color);
+              setRecoloring(false);
+            }}
+            onCancel={() => setRecoloring(false)}
           />
         </div>
       ) : (
@@ -489,6 +556,7 @@ export function NavigationPanel() {
   const [viewsExpanded, setViewsExpanded] = React.useState(true);
   const [creatingFolder, setCreatingFolder] = React.useState(false);
   const [renamingViewId, setRenamingViewId] = React.useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
 
   // Flat list of all folders for child lookups inside FolderTreeNode
   const allFolders = React.useMemo(
@@ -511,6 +579,32 @@ export function NavigationPanel() {
   }
 
   return (
+    <>
+    <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+        <Dialog.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
+            "rounded-lg border border-border-subtle bg-surface-2 shadow-xl",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-bottom-4",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+            "max-h-[80vh] overflow-auto p-6",
+          )}
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <Dialog.Title className="text-body-strong text-text-primary">Settings</Dialog.Title>
+            <Dialog.Close asChild>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Close">
+                ✕
+              </Button>
+            </Dialog.Close>
+          </div>
+          <CustomFieldsSettings />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+
     <Panel
       panelId={PANEL_ID}
       type="navigation"
@@ -520,7 +614,13 @@ export function NavigationPanel() {
           hideHandle
           actions={
             <Tooltip label="Settings" shortcut="⌘,">
-              <Button variant="ghost" size="sm" iconOnly aria-label="Settings">
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Settings"
+                onClick={() => setSettingsOpen(true)}
+              >
                 <SettingsIcon />
               </Button>
             </Tooltip>
@@ -677,5 +777,6 @@ export function NavigationPanel() {
         </div>
       </div>
     </Panel>
+    </>
   );
 }

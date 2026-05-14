@@ -7,7 +7,7 @@ import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
-import type { Folder, Label, SavedView, Status, Account, Message, MetadataFilter } from "@/data/types";
+import type { Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -160,4 +160,11 @@ export function useSelectionTitle(): string {
 /** Returns all saved views sorted by position. */
 export function useSavedViews(): SavedView[] {
   return useSyncExternalStore(subscribe, () => localStore.getSavedViewsSorted());
+}
+
+/** Returns custom field definitions sorted by position. */
+export function useCustomFieldDefs(): CustomFieldDef[] {
+  return useSyncExternalStore(subscribe, () =>
+    Array.from(localStore.customFieldDefs.values()).sort((a, b) => a.position - b.position),
+  );
 }

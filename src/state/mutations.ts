@@ -98,6 +98,12 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       if (f) store.putFolder({ ...f, name, diskSlug });
       break;
     }
+    case "RECOLOR_FOLDER": {
+      const { folderId, color } = m.payload as { folderId: string; color: number };
+      const f = store.folders.get(folderId);
+      if (f) store.putFolder({ ...f, color });
+      break;
+    }
     case "DELETE_FOLDER": {
       const { folderId } = m.payload as { folderId: string };
       store.deleteFolder(folderId);
@@ -132,6 +138,12 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       const { labelId, name } = m.payload as { labelId: string; name: string };
       const l = store.labels.get(labelId);
       if (l) store.putLabel({ ...l, name });
+      break;
+    }
+    case "RECOLOR_LABEL": {
+      const { labelId, color } = m.payload as { labelId: string; color: number };
+      const l = store.labels.get(labelId);
+      if (l) store.putLabel({ ...l, color });
       break;
     }
     case "DELETE_LABEL": {
@@ -427,6 +439,8 @@ export const createFolder = (s: LocalStore, folder: Folder) =>
   recordMutation("CREATE_FOLDER", folder, s);
 export const renameFolder = (s: LocalStore, folderId: string, name: string, diskSlug: string) =>
   recordMutation("RENAME_FOLDER", { folderId, name, diskSlug }, s);
+export const recolorFolder = (s: LocalStore, folderId: string, color: number) =>
+  recordMutation("RECOLOR_FOLDER", { folderId, color }, s);
 export const deleteFolder = (s: LocalStore, folderId: string) =>
   recordMutation("DELETE_FOLDER", { folderId }, s);
 
@@ -439,6 +453,8 @@ export const createLabel = (s: LocalStore, label: Label) =>
   recordMutation("CREATE_LABEL", label, s);
 export const renameLabel = (s: LocalStore, labelId: string, name: string) =>
   recordMutation("RENAME_LABEL", { labelId, name }, s);
+export const recolorLabel = (s: LocalStore, labelId: string, color: number) =>
+  recordMutation("RECOLOR_LABEL", { labelId, color }, s);
 export const deleteLabel = (s: LocalStore, labelId: string) =>
   recordMutation("DELETE_LABEL", { labelId }, s);
 export const reorderLabels = (s: LocalStore, orderedIds: string[]) =>

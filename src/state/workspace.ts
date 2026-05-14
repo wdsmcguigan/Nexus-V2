@@ -98,6 +98,7 @@ interface WorkspaceState {
   removeLabel: (messageId: string, labelId: string) => void;
   createLabel: (label: Label) => void;
   renameLabel: (labelId: string, name: string) => void;
+  recolorLabel: (labelId: string, color: number) => void;
   deleteLabel: (labelId: string) => void;
 
   // Tag ops
@@ -115,6 +116,8 @@ interface WorkspaceState {
   setStar: (messageId: string, star: StarStyle) => void;
   clearStar: (messageId: string) => void;
   setFlag: (messageId: string, flag: FlagState) => void;
+  updateFlag: (messageId: string, updates: Partial<FlagState>) => void;
+  completeFlag: (messageId: string) => void;
   clearFlag: (messageId: string) => void;
   setPinned: (messageId: string, pinned: boolean) => void;
   setMuted: (messageId: string, muted: boolean) => void;
@@ -122,6 +125,8 @@ interface WorkspaceState {
 
   // Custom fields
   createCustomField: (def: CustomFieldDef) => void;
+  updateCustomField: (fieldId: string, updates: Partial<CustomFieldDef>) => void;
+  deleteCustomField: (fieldId: string) => void;
   setCustomFieldValue: (messageId: string, fieldId: string, value: CustomFieldValue) => void;
   clearCustomFieldValue: (messageId: string, fieldId: string) => void;
 
@@ -134,6 +139,7 @@ interface WorkspaceState {
   // Folder ops
   createFolder: (folder: Folder) => void;
   renameFolder: (folderId: string, name: string, diskSlug: string) => void;
+  recolorFolder: (folderId: string, color: number) => void;
   deleteFolder: (folderId: string) => void;
   moveToFolder: (messageId: string, folderId: string) => void;
 }
@@ -271,6 +277,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   removeLabel: (messageId, labelId) => { Mut.removeLabel(localStore, messageId, labelId); },
   createLabel: (label) => { Mut.createLabel(localStore, label); },
   renameLabel: (labelId, name) => { Mut.renameLabel(localStore, labelId, name); },
+  recolorLabel: (labelId, color) => { Mut.recolorLabel(localStore, labelId, color); },
   deleteLabel: (labelId) => { Mut.deleteLabel(localStore, labelId); },
 
   addTag: (messageId, tag) => { Mut.addTag(localStore, messageId, tag); },
@@ -285,12 +292,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setStar: (messageId, star) => { Mut.setStar(localStore, messageId, star); },
   clearStar: (messageId) => { Mut.clearStar(localStore, messageId); },
   setFlag: (messageId, flag) => { Mut.setFlag(localStore, messageId, flag); },
+  updateFlag: (messageId, updates) => { Mut.updateFlag(localStore, messageId, updates); },
+  completeFlag: (messageId) => { Mut.completeFlag(localStore, messageId); },
   clearFlag: (messageId) => { Mut.clearFlag(localStore, messageId); },
   setPinned: (messageId, pinned) => { Mut.setPinned(localStore, messageId, pinned); },
   setMuted: (messageId, muted) => { Mut.setMuted(localStore, messageId, muted); },
   setNote: (messageId, notes) => { Mut.setNote(localStore, messageId, notes); },
 
   createCustomField: (def) => { Mut.createCustomField(localStore, def); },
+  updateCustomField: (fieldId, updates) => { Mut.updateCustomField(localStore, fieldId, updates); },
+  deleteCustomField: (fieldId) => { Mut.deleteCustomField(localStore, fieldId); },
   setCustomFieldValue: (messageId, fieldId, value) => {
     Mut.setCustomFieldValue(localStore, messageId, fieldId, value);
   },
@@ -313,6 +324,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   renameFolder: (folderId, name, diskSlug) => {
     Mut.renameFolder(localStore, folderId, name, diskSlug);
   },
+  recolorFolder: (folderId, color) => { Mut.recolorFolder(localStore, folderId, color); },
   deleteFolder: (folderId) => { Mut.deleteFolder(localStore, folderId); },
   moveToFolder: (messageId, folderId) => {
     Mut.moveToFolder(localStore, messageId, folderId);

@@ -13,8 +13,7 @@ import {
   MailQuestion,
   BellOff,
   Bell,
-  Flag,
-  FlagOff,
+
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -30,6 +29,9 @@ import { StatusPicker } from "@/components/inspector/StatusPicker";
 import { PriorityPicker } from "@/components/inspector/PriorityPicker";
 import { StarPalette } from "@/components/inspector/StarPalette";
 import { LabelCombobox } from "@/components/inspector/LabelCombobox";
+import { FlagPicker } from "@/components/inspector/FlagPicker";
+import { NoteEditor } from "@/components/inspector/NoteEditor";
+import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
 import { pickPanelLink } from "@/design-system/tokens";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 
@@ -57,8 +59,6 @@ export function InspectorPanel() {
   const togglePin = useWorkspace((s) => s.togglePin);
   const setPinned = useWorkspace((s) => s.setPinned);
   const setMuted = useWorkspace((s) => s.setMuted);
-  const setFlag = useWorkspace((s) => s.setFlag);
-  const clearFlag = useWorkspace((s) => s.clearFlag);
   const removeLabel = useWorkspace((s) => s.removeLabel);
 
   const inspectorEmailId = useInspectorEmailId();
@@ -202,7 +202,7 @@ export function InspectorPanel() {
           </div>
         </Section>
 
-        {/* INS-PIN-TOGGLE / INS-MUTE-TOGGLE / INS-FLAG-TOGGLE */}
+        {/* INS-PIN-TOGGLE / INS-MUTE-TOGGLE */}
         <Section label="Flags">
           <div className="flex flex-wrap gap-2">
             <Tooltip label={msg.pinned ? "Unpin message" : "Pin message"}>
@@ -227,21 +227,12 @@ export function InspectorPanel() {
                 {msg.muted ? "Muted" : "Mute"}
               </Button>
             </Tooltip>
-            <Tooltip label={msg.flag ? "Remove flag" : "Flag for follow-up"}>
-              <Button
-                variant={msg.flag ? "primary" : "secondary"}
-                size="sm"
-                aria-pressed={!!msg.flag}
-                onClick={() => {
-                  if (msg.flag) clearFlag(msg.id);
-                  else setFlag(msg.id, { setAt: Date.now() });
-                }}
-              >
-                {msg.flag ? <Flag /> : <FlagOff />}
-                {msg.flag ? "Flagged" : "Flag"}
-              </Button>
-            </Tooltip>
           </div>
+        </Section>
+
+        {/* INS-FLAG-PICKER — full follow-up picker (EP-2) */}
+        <Section label="Follow-up">
+          <FlagPicker messageId={msg.id} flag={msg.flag} />
         </Section>
 
         {/* Star */}
@@ -294,6 +285,16 @@ export function InspectorPanel() {
           <div className="mt-2">
             <LabelCombobox messageId={msg.id} activeLabelIds={msg.labelIds} />
           </div>
+        </Section>
+
+        {/* INS-CUSTOM-FIELDS — per-message editors (EP-2) */}
+        <Section label="Custom Fields">
+          <CustomFieldStrip messageId={msg.id} customFields={msg.customFields} />
+        </Section>
+
+        {/* INS-NOTE-EDITOR — markdown note (EP-2) */}
+        <Section label="Notes">
+          <NoteEditor messageId={msg.id} notes={msg.notes} />
         </Section>
 
         {/* Attachments */}
