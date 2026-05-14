@@ -177,6 +177,7 @@ export function EmailListPanel() {
       const item = vItems[i];
       return item?.kind === "row" ? item.msg.id : `header-${i}`;
     },
+    measureElement: (el) => el.getBoundingClientRect().height,
   });
 
   const isPanelFocused = activePanelId === PANEL_ID;
@@ -464,12 +465,13 @@ export function EmailListPanel() {
                 <div
                   key={`h-${vi.index}`}
                   data-index={vi.index}
+                  ref={virtualizer.measureElement}
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
-                    height: vi.size,
+                    minHeight: GROUP_HEADER_HEIGHT,
                     transform: `translateY(${vi.start}px)`,
                   }}
                   className="flex items-center border-b border-border-subtle bg-surface-1 px-4"
@@ -492,12 +494,12 @@ export function EmailListPanel() {
               <div
                 key={msg.id}
                 data-index={vi.index}
+                ref={virtualizer.measureElement}
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   width: "100%",
-                  height: vi.size,
                   transform: `translateY(${vi.start}px)`,
                 }}
               >
