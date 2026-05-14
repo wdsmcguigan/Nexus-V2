@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
-import { ChevronDown, Check, Zap, ZapOff, PencilLine, Trash2, Save, CopyPlus, FolderPlus } from "lucide-react";
+import { ChevronDown, Check, Zap, ZapOff, PencilLine, Trash2, Save, CopyPlus, FolderPlus, RotateCcw } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ export function WorkspaceSwitcher() {
   const renameWorkspace = useWorkspace((s) => s.renameWorkspace);
   const deleteWorkspace = useWorkspace((s) => s.deleteWorkspace);
   const toggleAutoSave = useWorkspace((s) => s.toggleAutoSave);
+  const resetWorkspaceLayout = useWorkspace((s) => s.resetWorkspaceLayout);
 
   const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
 
@@ -235,6 +236,20 @@ export function WorkspaceSwitcher() {
             >
               <FolderPlus size={13} className="shrink-0 text-text-tertiary" />
               <span>New workspace…</span>
+            </DropdownMenu.Item>
+
+            <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+
+            <DropdownMenu.Item
+              onSelect={resetWorkspaceLayout}
+              className={cn(
+                "flex h-8 cursor-default items-center gap-2 rounded-xs px-2",
+                "text-body text-text-primary outline-none",
+                "data-[highlighted]:bg-surface-3",
+              )}
+            >
+              <RotateCcw size={13} className="shrink-0 text-text-tertiary" />
+              <span>Reset to default layout</span>
             </DropdownMenu.Item>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>

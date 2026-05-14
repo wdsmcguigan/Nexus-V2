@@ -35,7 +35,7 @@ export interface WorkspacesData {
   activeId: string;
 }
 
-const STORAGE_KEY = "nexus_workspaces_v2";
+const STORAGE_KEY = "nexus_workspaces_v3";
 
 export function loadWorkspacesFromStorage(): WorkspacesData | null {
   try {

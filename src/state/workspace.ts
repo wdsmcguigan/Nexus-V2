@@ -103,6 +103,7 @@ interface WorkspaceState {
   renameWorkspace: (id: string, name: string) => void;
   deleteWorkspace: (id: string) => void;
   toggleAutoSave: (id: string) => void;
+  resetWorkspaceLayout: () => void;
 
   // Theme
   theme: Theme;
@@ -383,6 +384,25 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }));
     const s = get();
     saveWorkspacesToStorage({ workspaces: s.workspaces, activeId: s.activeWorkspaceId });
+  },
+
+  resetWorkspaceLayout: () => {
+    const s = get();
+    const api = getDockviewApi();
+    const defaultLayout = _defaultLayoutJson;
+    if (api && defaultLayout) {
+      _isRestoring = true;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      api.fromJSON(defaultLayout as any);
+      setTimeout(() => { _isRestoring = false; }, 0);
+    }
+    const workspaces = s.workspaces.map((w) =>
+      w.id === s.activeWorkspaceId
+        ? { ...w, dockviewLayout: null, updatedAt: Date.now() }
+        : w,
+    );
+    set({ workspaces });
+    saveWorkspacesToStorage({ workspaces, activeId: s.activeWorkspaceId });
   },
 
   // ── Theme ──────────────────────────────────────────────────────────────────
