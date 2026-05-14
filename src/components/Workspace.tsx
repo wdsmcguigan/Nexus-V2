@@ -12,7 +12,7 @@ import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
 import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
-import { useWorkspace, setDockviewApi } from "@/state/workspace";
+import { useWorkspace, setDockviewApi, setDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -37,10 +37,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // Called once when dockview mounts. Sets up the 4-column layout with
 // proportional initial widths. Users can resize and rearrange from here.
 
-function initLayout(event: DockviewReadyEvent) {
-  setDockviewApi(event.api);
-  const { api } = event;
-
+function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   const nav = api.addPanel({
     id: "nav",
     component: "nav",
@@ -70,6 +67,30 @@ function initLayout(event: DockviewReadyEvent) {
     title: "Inspector",
     initialWidth: 320,
     position: { direction: "right", referencePanel: viewer },
+  });
+}
+
+function initLayout(event: DockviewReadyEvent) {
+  const { api } = event;
+  setDockviewApi(api);
+
+  // Restore saved layout if the active workspace has one.
+  const { workspaces, activeWorkspaceId } = useWorkspace.getState();
+  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
+
+  if (activeWs?.dockviewLayout) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    api.fromJSON(activeWs.dockviewLayout as any);
+  } else {
+    buildDefaultLayout(api);
+  }
+
+  // Capture the default layout for "start fresh" workspace creation.
+  setDefaultLayoutJson(api.toJSON());
+
+  // Trigger auto-save on any dockview layout change (resize, rearrange, float).
+  api.onDidLayoutChange(() => {
+    scheduleAutoSave();
   });
 }
 

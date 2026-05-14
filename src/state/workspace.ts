@@ -1,16 +1,26 @@
 /**
- * Workspace UI state — EP-1.
+ * Workspace UI state — EP-1 + workspace management.
  *
  * UI state (theme, density, panel focus, selection, filter pills, view mode)
  * lives here. Email data is backed by LocalStore + queryMessages
  * (WF-SEARCH-QUERY). All user mutations route through recordMutation
  * (WF-OUTBOUND-MUTATION).
+ *
+ * Workspace snapshots are persisted to localStorage synchronously so the
+ * active workspace's state (layout, filter, density, etc.) is available
+ * before the first React render.
  */
 
 import { create } from "zustand";
 import type { Density, Theme } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
+import {
+  loadWorkspacesFromStorage,
+  saveWorkspacesToStorage,
+  makeDefaultWorkspace,
+} from "@/storage/workspaceManager";
+import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
 import type {
   CustomFieldValue,
   FlagState,
@@ -23,13 +33,55 @@ import type {
 } from "@/data/types";
 import type { DockviewApi } from "dockview";
 
-// Module-level dockview API reference — not in Zustand (non-serializable).
+// ─── Module-level dockview API reference ─────────────────────────────────────
+// Not in Zustand — DockviewApi is not serializable.
+
 let _dockviewApi: DockviewApi | null = null;
 export function setDockviewApi(api: DockviewApi): void { _dockviewApi = api; }
 export function getDockviewApi(): DockviewApi | null { return _dockviewApi; }
 
 let _panelSeq = 0;
 export function newPanelId(type: string): string { return `${type}-${++_panelSeq}`; }
+
+// ─── Default layout capture ───────────────────────────────────────────────────
+// Captured once after initLayout so "start fresh" workspaces can use it.
+
+let _defaultLayoutJson: unknown = null;
+export function setDefaultLayoutJson(json: unknown): void { _defaultLayoutJson = json; }
+export function getDefaultLayoutJson(): unknown { return _defaultLayoutJson; }
+
+// ─── Auto-save machinery ──────────────────────────────────────────────────────
+
+let _isRestoring = false;
+let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Schedule a debounced auto-save if the active workspace has autoSave on. */
+export function scheduleAutoSave(): void {
+  if (_isRestoring) return;
+  const s = useWorkspace.getState();
+  const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+  if (!ws?.autoSave) return;
+  if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    useWorkspace.getState().saveWorkspace();
+  }, 1500);
+}
+
+// ─── Bootstrap from localStorage ─────────────────────────────────────────────
+
+const _savedData = loadWorkspacesFromStorage();
+const _defaultWs = makeDefaultWorkspace();
+const _initialWorkspaces: WorkspaceSnapshot[] = _savedData?.workspaces ?? [_defaultWs];
+const _initialActiveId: string = _savedData?.activeId ?? _defaultWs.id;
+const _activeWs: WorkspaceSnapshot =
+  _initialWorkspaces.find((w) => w.id === _initialActiveId) ??
+  _initialWorkspaces[0] ??
+  _defaultWs;
+
+// Apply saved theme to DOM before first paint.
+document.documentElement.classList.toggle("dark", _activeWs.theme === "dark");
+
+// ─── Per-panel state types ────────────────────────────────────────────────────
 
 /** Per-panel state for list panels when "detached" (own filter, not following global). */
 export interface ListPanelLocalState {
@@ -38,9 +90,20 @@ export interface ListPanelLocalState {
   selectedSavedViewId: string | null;
 }
 
-// ─── Workspace state ──────────────────────────────────────────────────────────
+// ─── WorkspaceState interface ─────────────────────────────────────────────────
 
 interface WorkspaceState {
+  // ── Workspace management ─────────────────────────────────────────────────
+  workspaces: WorkspaceSnapshot[];
+  activeWorkspaceId: string;
+  saveWorkspace: () => void;
+  saveAsWorkspace: (name: string) => void;
+  createWorkspace: (name: string, mode: "fresh" | "clone") => void;
+  switchWorkspace: (id: string) => void;
+  renameWorkspace: (id: string, name: string) => void;
+  deleteWorkspace: (id: string) => void;
+  toggleAutoSave: (id: string) => void;
+
   // Theme
   theme: Theme;
   setTheme: (t: Theme) => void;
@@ -176,7 +239,148 @@ interface WorkspaceState {
 const DENSITIES: Density[] = ["compact", "comfortable", "cozy"];
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
-  theme: "dark",
+  // ── Workspace management ───────────────────────────────────────────────────
+
+  workspaces: _initialWorkspaces,
+  activeWorkspaceId: _initialActiveId,
+
+  saveWorkspace: () => {
+    const s = get();
+    const api = getDockviewApi();
+    const layout = api ? api.toJSON() : null;
+    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    if (!ws) return;
+    const updated: WorkspaceSnapshot = {
+      ...ws,
+      updatedAt: Date.now(),
+      dockviewLayout: layout,
+      viewerPinState: s.viewerPinState,
+      listPanelState: s.listPanelState,
+      selectedFolderId: s.selectedFolderId,
+      activeFilter: s.activeFilter,
+      selectedSavedViewId: s.selectedSavedViewId,
+      density: s.density,
+      viewMode: s.viewMode,
+      theme: s.theme,
+    };
+    const workspaces = s.workspaces.map((w) =>
+      w.id === s.activeWorkspaceId ? updated : w,
+    );
+    set({ workspaces });
+    saveWorkspacesToStorage({ workspaces, activeId: s.activeWorkspaceId });
+  },
+
+  saveAsWorkspace: (name) => {
+    get().createWorkspace(name, "clone");
+  },
+
+  createWorkspace: (name, mode) => {
+    const s = get();
+    const api = getDockviewApi();
+    const id = `ws-${Date.now()}`;
+    const base = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    const newWs: WorkspaceSnapshot = {
+      id,
+      name,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      autoSave: false,
+      dockviewLayout:
+        mode === "clone" ? (api ? api.toJSON() : (base?.dockviewLayout ?? null)) : null,
+      viewerPinState: mode === "clone" ? { ...s.viewerPinState } : {},
+      listPanelState: mode === "clone" ? { ...s.listPanelState } : {},
+      selectedFolderId: mode === "clone" ? s.selectedFolderId : "inbox",
+      activeFilter: mode === "clone" ? { ...s.activeFilter } : {},
+      selectedSavedViewId: mode === "clone" ? s.selectedSavedViewId : null,
+      density: mode === "clone" ? s.density : "comfortable",
+      viewMode: mode === "clone" ? s.viewMode : "list",
+      theme: s.theme,
+    };
+    const workspaces = [...s.workspaces, newWs];
+    set({ workspaces });
+    get().switchWorkspace(id);
+  },
+
+  switchWorkspace: (id) => {
+    const s = get();
+    const ws = s.workspaces.find((w) => w.id === id);
+    if (!ws) return;
+
+    _isRestoring = true;
+
+    const api = getDockviewApi();
+    if (api) {
+      const layout = ws.dockviewLayout ?? _defaultLayoutJson;
+      if (layout) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        api.fromJSON(layout as any);
+      }
+    }
+
+    document.documentElement.classList.toggle("dark", ws.theme === "dark");
+
+    set({
+      activeWorkspaceId: id,
+      viewerPinState: ws.viewerPinState,
+      listPanelState: ws.listPanelState as Record<string, ListPanelLocalState | null>,
+      selectedFolderId: ws.selectedFolderId,
+      activeFilter: ws.activeFilter,
+      selectedSavedViewId: ws.selectedSavedViewId,
+      density: ws.density,
+      viewMode: ws.viewMode,
+      theme: ws.theme,
+      // Reset ephemeral selection state on workspace switch
+      selectedEmailId: null,
+      selectedEmailIds: new Set(),
+      focusedRowId: null,
+      selectionAnchorId: null,
+    });
+
+    const updatedWorkspaces = s.workspaces.map((w) =>
+      w.id === id ? w : w,
+    );
+    saveWorkspacesToStorage({ workspaces: updatedWorkspaces, activeId: id });
+
+    // Reset flag after all synchronous handlers (including onDidLayoutChange)
+    setTimeout(() => { _isRestoring = false; }, 0);
+  },
+
+  renameWorkspace: (id, name) => {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === id ? { ...w, name, updatedAt: Date.now() } : w,
+      ),
+    }));
+    const s = get();
+    saveWorkspacesToStorage({ workspaces: s.workspaces, activeId: s.activeWorkspaceId });
+  },
+
+  deleteWorkspace: (id) => {
+    const s = get();
+    if (s.workspaces.length <= 1) return; // never delete the last workspace
+    const workspaces = s.workspaces.filter((w) => w.id !== id);
+    if (s.activeWorkspaceId === id) {
+      set({ workspaces });
+      get().switchWorkspace(workspaces[0]!.id);
+    } else {
+      set({ workspaces });
+      saveWorkspacesToStorage({ workspaces, activeId: s.activeWorkspaceId });
+    }
+  },
+
+  toggleAutoSave: (id) => {
+    set((s) => ({
+      workspaces: s.workspaces.map((w) =>
+        w.id === id ? { ...w, autoSave: !w.autoSave } : w,
+      ),
+    }));
+    const s = get();
+    saveWorkspacesToStorage({ workspaces: s.workspaces, activeId: s.activeWorkspaceId });
+  },
+
+  // ── Theme ──────────────────────────────────────────────────────────────────
+
+  theme: _activeWs.theme,
   setTheme: (t) => {
     document.documentElement.classList.toggle("dark", t === "dark");
     set({ theme: t });
@@ -187,14 +391,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ theme: next });
   },
 
-  density: "comfortable",
+  // ── Density ────────────────────────────────────────────────────────────────
+
+  density: _activeWs.density,
   setDensity: (d) => set({ density: d }),
   cycleDensity: () => {
     const i = DENSITIES.indexOf(get().density);
     set({ density: DENSITIES[(i + 1) % DENSITIES.length]! });
   },
 
-  selectedFolderId: "inbox",
+  // ── Folder / label selection ───────────────────────────────────────────────
+
+  selectedFolderId: _activeWs.selectedFolderId,
   setSelectedFolder: (id) =>
     set({
       selectedFolderId: id,
@@ -205,7 +413,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       selectedSavedViewId: null,
     }),
 
-  activeFilter: {},
+  // ── Active filter ──────────────────────────────────────────────────────────
+
+  activeFilter: _activeWs.activeFilter,
   setFilterAxis: (axis) => set((s) => ({ activeFilter: { ...s.activeFilter, ...axis } })),
   removeFilterAxis: (key) =>
     set((s) => {
@@ -231,10 +441,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       focusedRowId: null,
     });
   },
-  selectedSavedViewId: null,
+  selectedSavedViewId: _activeWs.selectedSavedViewId,
 
-  viewMode: "list",
+  // ── View mode ──────────────────────────────────────────────────────────────
+
+  viewMode: _activeWs.viewMode,
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  // ── Email selection ────────────────────────────────────────────────────────
 
   selectedEmailId: null,
   selectedEmailIds: new Set(),
@@ -272,6 +486,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }),
   setFocusedRow: (id) => set({ focusedRowId: id }),
 
+  // ── Panel focus ────────────────────────────────────────────────────────────
+
   activePanelId: "list",
   previousPanelId: null,
   setActivePanel: (id) => {
@@ -279,6 +495,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (prev === id) return;
     set({ activePanelId: id, previousPanelId: prev });
   },
+
+  // ── Inspector pin ──────────────────────────────────────────────────────────
 
   inspectorPinned: false,
   pinnedEmailId: null,
@@ -291,13 +509,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  viewerPinState: {},
+  // ── Per-viewer pin state ───────────────────────────────────────────────────
+
+  viewerPinState: _activeWs.viewerPinState,
   pinViewerToEmail: (panelId, emailId) =>
     set((s) => ({ viewerPinState: { ...s.viewerPinState, [panelId]: emailId } })),
   unpinViewer: (panelId) =>
     set((s) => ({ viewerPinState: { ...s.viewerPinState, [panelId]: null } })),
 
-  listPanelState: {},
+  // ── Per-list panel state ───────────────────────────────────────────────────
+
+  listPanelState: _activeWs.listPanelState as Record<string, ListPanelLocalState | null>,
   detachListPanel: (panelId) => {
     const { selectedFolderId, activeFilter, selectedSavedViewId } = get();
     set((s) => ({
@@ -334,11 +556,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return { listPanelState: { ...s.listPanelState, [panelId]: { ...cur, filter: {} } } };
     }),
 
+  // ── Composer ───────────────────────────────────────────────────────────────
+
   composerOpen: false,
   setComposerOpen: (open) => set({ composerOpen: open }),
 
+  // ── Command palette ────────────────────────────────────────────────────────
+
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  // ── HUD strip ─────────────────────────────────────────────────────────────
 
   hudExpanded: false,
   toggleHud: () => set({ hudExpanded: !get().hudExpanded }),
@@ -403,6 +631,25 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 }));
 
+// ─── Auto-save subscription ───────────────────────────────────────────────────
+// Fires on every state change; schedules a debounced save when relevant
+// fields change and the active workspace has autoSave enabled.
+
+useWorkspace.subscribe((state, prev) => {
+  if (_isRestoring) return;
+  if (
+    state.selectedFolderId === prev.selectedFolderId &&
+    state.activeFilter === prev.activeFilter &&
+    state.selectedSavedViewId === prev.selectedSavedViewId &&
+    state.density === prev.density &&
+    state.viewMode === prev.viewMode &&
+    state.theme === prev.theme &&
+    state.viewerPinState === prev.viewerPinState &&
+    state.listPanelState === prev.listPanelState
+  ) return;
+  scheduleAutoSave();
+});
+
 // ─── Derived selectors ────────────────────────────────────────────────────────
 
 /** Email currently shown in the inspector — pinned overrides selected. */
@@ -411,4 +658,3 @@ export function useInspectorEmailId(): string | null {
     s.inspectorPinned ? s.pinnedEmailId : s.selectedEmailId,
   );
 }
-

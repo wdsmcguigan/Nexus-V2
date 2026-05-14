@@ -3,13 +3,13 @@ import {
   Search,
   Sun,
   Moon,
-  ChevronDown,
   Command as CommandIcon,
 } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Kbd } from "@/components/ui/Kbd";
+import { WorkspaceSwitcher } from "@/components/chrome/WorkspaceSwitcher";
 import { cn } from "@/lib/utils";
 
 export function WorkspaceChrome() {
@@ -36,17 +36,7 @@ export function WorkspaceChrome() {
       </div>
 
       {/* Workspace switcher */}
-      <button
-        type="button"
-        className={cn(
-          "flex h-7 items-center gap-1 rounded-sm bg-surface-2 px-2",
-          "text-caption text-text-secondary hover:bg-surface-3",
-          "transition-colors duration-fast",
-        )}
-      >
-        Default workspace
-        <ChevronDown size={11} className="text-text-tertiary" />
-      </button>
+      <WorkspaceSwitcher />
 
       {/* Sync indicator */}
       <div className="flex items-center gap-1.5 text-caption text-text-tertiary">

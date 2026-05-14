@@ -38,6 +38,7 @@ import {
   Columns2,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
+import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
 import { localStore } from "@/storage/local";
 import { cn } from "@/lib/utils";
 import { Kbd } from "@/components/ui/Kbd";
@@ -99,6 +100,12 @@ export function CommandPalette() {
   const clearStatus = useWorkspace((s) => s.clearStatus);
   const moveToFolder = useWorkspace((s) => s.moveToFolder);
   const setRead = useWorkspace((s) => s.setRead);
+
+  // Workspace management
+  const workspaces = useWorkspace((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspace((s) => s.activeWorkspaceId);
+  const saveWorkspace = useWorkspace((s) => s.saveWorkspace);
+  const switchWorkspace = useWorkspace((s) => s.switchWorkspace);
 
   // Restore focus on close
   const wasOpenRef = React.useRef(false);
@@ -388,6 +395,27 @@ export function CommandPalette() {
     all.push({ id: "density-cozy", label: "Density: Cozy", group: "Workspace", icon: Rows2, perform: () => setDensity("cozy" as Density) });
     all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => {} });
 
+    // ── Workspaces ──────────────────────────────────────────────────
+    all.push({
+      id: "workspace-save",
+      label: "Save workspace",
+      group: "Workspaces",
+      icon: SettingsIcon,
+      shortcut: "⌘S",
+      perform: saveWorkspace,
+    });
+    for (const ws of workspaces as WorkspaceSnapshot[]) {
+      if (ws.id !== activeWorkspaceId) {
+        all.push({
+          id: `workspace-switch-${ws.id}`,
+          label: `Switch to workspace: ${ws.name}`,
+          group: "Workspaces",
+          icon: LayoutPanelLeft,
+          perform: () => switchWorkspace(ws.id),
+        });
+      }
+    }
+
     // ── Panels ──────────────────────────────────────────────────────
     all.push({
       id: "panel-add-viewer",
@@ -439,6 +467,7 @@ export function CommandPalette() {
     return all;
   }, [
     selectedEmailId,
+    workspaces, activeWorkspaceId, saveWorkspace, switchWorkspace,
     setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity,
     archive, snooze, setPinnedAction, setMuted, setFlag, clearFlag,
     setPriority, clearPriority, setStar, clearStar,
