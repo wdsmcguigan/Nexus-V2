@@ -12,7 +12,7 @@ import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
 import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
-import { useWorkspace, setDockviewApi, setDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
+import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -37,19 +37,23 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // Called once when dockview mounts. Sets up the 4-column layout with
 // proportional initial widths. Users can resize and rearrange from here.
 
+// Panel sizing targets a 1440 px screen (sum = 1420 px).
+// minimumWidth prevents accidental squishing below usable sizes.
 function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   const nav = api.addPanel({
     id: "nav",
     component: "nav",
     title: "Navigation",
-    initialWidth: 240,
+    initialWidth: 220,
+    minimumWidth: 160,
   });
 
   const list = api.addPanel({
     id: "list",
     component: "list",
     title: "Mail",
-    initialWidth: 380,
+    initialWidth: 320,
+    minimumWidth: 260,
     position: { direction: "right", referencePanel: nav },
   });
 
@@ -57,7 +61,8 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "viewer",
     component: "viewer",
     title: "Message",
-    initialWidth: 580,
+    initialWidth: 620,
+    minimumWidth: 360,
     position: { direction: "right", referencePanel: list },
   });
 
@@ -65,7 +70,8 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
     id: "inspector",
     component: "inspector",
     title: "Inspector",
-    initialWidth: 320,
+    initialWidth: 260,
+    minimumWidth: 200,
     position: { direction: "right", referencePanel: viewer },
   });
 }
@@ -74,19 +80,20 @@ function initLayout(event: DockviewReadyEvent) {
   const { api } = event;
   setDockviewApi(api);
 
-  // Restore saved layout if the active workspace has one.
+  // Always build (and capture) the default layout first so "start fresh"
+  // workspaces have a valid reference even if we immediately override it.
+  buildDefaultLayout(api);
+  if (!getDefaultLayoutJson()) {
+    setDefaultLayoutJson(api.toJSON());
+  }
+
+  // Then restore the saved workspace layout if one exists.
   const { workspaces, activeWorkspaceId } = useWorkspace.getState();
   const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
-
   if (activeWs?.dockviewLayout) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     api.fromJSON(activeWs.dockviewLayout as any);
-  } else {
-    buildDefaultLayout(api);
   }
-
-  // Capture the default layout for "start fresh" workspace creation.
-  setDefaultLayoutJson(api.toJSON());
 
   // Trigger auto-save on any dockview layout change (resize, rearrange, float).
   api.onDidLayoutChange(() => {
