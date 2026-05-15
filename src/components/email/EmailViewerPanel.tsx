@@ -15,6 +15,7 @@ import {
   PinOff,
   PanelRight,
   PanelRightClose,
+  ChevronDown,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -23,12 +24,55 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useMessage } from "@/storage/useStore";
+import { useMessage, useThreadMessages } from "@/storage/useStore";
+import { cn } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
+import type { Message } from "@/data/types";
+
+// ─── Collapsed thread message row ─────────────────────────────────────────────
+
+function ThreadMessageRow({ msg }: { msg: Message }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const colorSeed = pickPanelLink(msg.fromAddr.email);
+  const body = bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`;
+
+  return (
+    <div className="border-b border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2 transition-colors duration-fast"
+      >
+        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} />
+        <div className="min-w-0 flex-1">
+          <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
+          {!expanded && (
+            <span className="ml-2 text-small text-text-tertiary truncate">{msg.snippet}</span>
+          )}
+        </div>
+        <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
+          {formatAbsoluteTime(new Date(msg.receivedAt))}
+        </span>
+        <ChevronDown
+          size={12}
+          className={cn("shrink-0 text-text-tertiary transition-transform duration-fast", expanded && "rotate-180")}
+        />
+      </button>
+      {expanded && (
+        <iframe
+          title={`Email from ${msg.fromAddr.name}`}
+          sandbox=""
+          srcDoc={`<!doctype html><html><head><style>html,body{margin:0;padding:16px 24px;background:transparent;color:#e6e8ec;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}strong{color:#fff}a{color:#76A1F5}</style></head><body>${body}</body></html>`}
+          className="block h-48 w-full bg-canvas"
+        />
+      )}
+    </div>
+  );
+}
 
 export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const globalSelectedEmailId = useWorkspace((s) => s.selectedEmailId);
@@ -40,6 +84,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
+  const threadMsgs = useThreadMessages(msg?.threadId ?? "", effectiveEmailId ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
 
   // Auto-mark as read after 500ms — gives time to skip past without marking
@@ -189,6 +234,15 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
       }
     >
       <div className="flex h-full flex-col">
+        {/* Earlier messages in this thread */}
+        {threadMsgs.length > 0 && (
+          <div className="shrink-0 bg-surface-1">
+            {threadMsgs.map((m) => (
+              <ThreadMessageRow key={m.id} msg={m} />
+            ))}
+          </div>
+        )}
+
         {/* Sender chrome */}
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
           <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} />

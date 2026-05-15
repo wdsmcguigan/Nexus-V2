@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value as JsonValue;
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::db::{queries::HydratePayload, VaultDb};
 use crate::gmail::{GmailOAuth, GmailSyncer};
@@ -398,7 +399,7 @@ async fn poll_all_accounts(
         return Ok(());
     }
 
-    let mut any_new = false;
+    let mut new_count: u32 = 0;
 
     for (account_id, vault_id) in accounts {
         // Refresh token (async — no DB reference held).
@@ -428,15 +429,16 @@ async fn poll_all_accounts(
             Ok(stats) => {
                 if stats.inserted > 0 {
                     log::info!("Poll: {} new messages for {account_id}", stats.inserted);
-                    any_new = true;
+                    new_count += stats.inserted;
                 }
             }
             Err(e) => log::warn!("Incremental sync failed for {account_id}: {e}"),
         }
     }
 
-    if any_new {
+    if new_count > 0 {
         let _ = app.emit("vault:hydrate-needed", ());
+        fire_notification(app, new_count);
     }
 
     Ok(())
@@ -460,4 +462,18 @@ fn save_vault_path_to_disk(path: &str) -> Result<()> {
 fn open_browser(app: &tauri::AppHandle, url: &str) -> Result<()> {
     use tauri_plugin_shell::ShellExt;
     app.shell().open(url, None).context("opening system browser")
+}
+
+fn fire_notification(app: &tauri::AppHandle, count: u32) {
+    let body = if count == 1 {
+        "1 new message".to_string()
+    } else {
+        format!("{count} new messages")
+    };
+    let _ = app
+        .notification()
+        .builder()
+        .title("Nexus")
+        .body(&body)
+        .show();
 }

@@ -609,6 +609,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                   inSelectionSet={isSelected}
                   labels={msgLabels}
                   status={msgStatus}
+                  threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
                   onFocus={() => setFocusedRow(msg.id)}
                   onSelect={(e) => handleRowClick(msg.id, e)}
                   onToggleStar={() => setStarred(msg.id, !msg.star)}

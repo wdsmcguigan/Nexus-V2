@@ -154,6 +154,25 @@ export function useMessage(id: string | null): Message | null {
   );
 }
 
+/** Returns all other messages in the same thread, sorted oldest→newest. */
+export function useThreadMessages(threadId: string, excludeId: string): Message[] {
+  const v = useStoreVersion();
+  void v;
+  const ids = localStore.messagesByThread.get(threadId) ?? new Set<string>();
+  return Array.from(ids)
+    .filter((id) => id !== excludeId)
+    .map((id) => localStore.messages.get(id))
+    .filter((m): m is Message => m != null)
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+}
+
+/** Returns the total number of messages in a thread. */
+export function useThreadCount(threadId: string): number {
+  const v = useStoreVersion();
+  void v;
+  return localStore.messagesByThread.get(threadId)?.size ?? 1;
+}
+
 /**
  * Returns messages for the current view — combining nav selection and
  * any active filter pills (EP-1). When a saved view is loaded, the

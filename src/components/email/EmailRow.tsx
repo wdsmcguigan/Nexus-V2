@@ -37,6 +37,7 @@ interface EmailRowProps {
   labels: Label[];
   /** Pre-resolved status (null if not set). */
   status: Status | null;
+  threadCount?: number;
   onSelect: (e: React.MouseEvent) => void;
   onFocus: () => void;
   onToggleStar: () => void;
@@ -91,6 +92,7 @@ export const EmailRow = React.memo(function EmailRow({
   inSelectionSet,
   labels,
   status,
+  threadCount,
   onSelect,
   onFocus,
   onToggleStar,
@@ -301,16 +303,19 @@ export const EmailRow = React.memo(function EmailRow({
         )}
       </div>
 
-      {/* Date */}
+      {/* Date + thread count */}
       <div
         className={cn(
-          "flex w-16 shrink-0 items-start justify-end self-start pt-1.5 font-mono",
+          "flex shrink-0 flex-col items-end gap-0.5 self-start pt-1.5 font-mono",
           density === "compact" ? "text-mono-xs" : "text-mono-sm",
           "text-text-tertiary",
           "transition-opacity duration-fast group-hover/row:opacity-dim",
         )}
       >
         {formatRelativeTime(new Date(msg.receivedAt))}
+        {threadCount && threadCount > 1 && (
+          <span className="font-mono text-mono-xs text-text-muted">{threadCount}</span>
+        )}
       </div>
     </div>
   );
