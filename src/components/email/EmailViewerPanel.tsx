@@ -15,6 +15,8 @@ import {
   PanelRight,
   PanelRightClose,
   ChevronDown,
+  Paperclip,
+  Download,
 } from "lucide-react";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { Panel } from "@/components/panel/Panel";
@@ -25,7 +27,7 @@ import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useMessage, useThreadMessages } from "@/storage/useStore";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
@@ -301,6 +303,37 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
             />
           </div>
         </div>
+
+        {/* Attachment chips */}
+        {msg.attachmentRefs.length > 0 && (
+          <div className="shrink-0 border-t border-border-subtle bg-surface-1 px-4 py-2">
+            <div className="mb-1.5 flex items-center gap-1.5 text-overline uppercase text-text-tertiary">
+              <Paperclip size={10} />
+              <span>{msg.attachmentRefs.length} attachment{msg.attachmentRefs.length > 1 ? "s" : ""}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {msg.attachmentRefs.map((a) => (
+                <div
+                  key={a.name}
+                  className="flex items-center gap-2 rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1.5 hover:border-border-default hover:bg-surface-3 transition-colors duration-fast"
+                >
+                  <Paperclip size={11} className="shrink-0 text-text-tertiary" />
+                  <div className="min-w-0">
+                    <div className="max-w-[160px] truncate text-small text-text-primary">{a.name}</div>
+                    <div className="font-mono text-mono-xs text-text-tertiary">{formatBytes(a.size)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Download ${a.name}`}
+                    className="ml-1 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+                  >
+                    <Download size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer chrome (reply bar) */}
         <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-4">

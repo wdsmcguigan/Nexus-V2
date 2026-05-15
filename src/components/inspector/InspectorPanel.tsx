@@ -3,8 +3,8 @@ import {
   Pin,
   PinOff,
   Reply,
+  ReplyAll,
   Forward,
-  AlarmClock,
   Archive,
   Trash2,
   MoreHorizontal,
@@ -18,8 +18,11 @@ import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { useInspectorEmailId, useWorkspace } from "@/state/workspace";
 import { useMessage, useLabels } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
+import * as Mut from "@/state/mutations";
 import { TagBar } from "@/components/inspector/TagBar";
 import { StatusPicker } from "@/components/inspector/StatusPicker";
 import { PriorityPicker } from "@/components/inspector/PriorityPicker";
@@ -54,6 +57,7 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
   const setPinned = useWorkspace((s) => s.setPinned);
   const setMuted = useWorkspace((s) => s.setMuted);
   const removeLabel = useWorkspace((s) => s.removeLabel);
+  const openComposer = useWorkspace((s) => s.openComposer);
 
   // When this inspector panel was opened from a specific viewer, show that
   // viewer's effective email rather than the globally-selected one.
@@ -171,22 +175,24 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
         {/* Quick actions */}
         <Section label="Actions">
           <div className="grid grid-cols-2 gap-1">
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => openComposer({ mode: "reply", replyToMessage: msg })}>
               <Reply />
               Reply
             </Button>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="sm" onClick={() => openComposer({ mode: "reply-all", replyToMessage: msg })}>
+              <ReplyAll />
+              Reply all
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => openComposer({ mode: "forward", replyToMessage: msg })}>
               <Forward />
               Forward
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => useWorkspace.getState().archive(msg.id)}>
-              <Archive />Archive
+            <Button variant="secondary" size="sm" onClick={() => Mut.archiveMessage(localStore, msg.id)}>
+              <Archive />
+              Archive
             </Button>
-            <Button variant="secondary" size="sm">
-              <AlarmClock />
-              Snooze
-            </Button>
-            <Button variant="secondary" size="sm">
+            <SnoozePopover messageId={msg.id} variant="inline" />
+            <Button variant="secondary" size="sm" onClick={() => Mut.deleteMessage(localStore, msg.id)}>
               <Trash2 />
               Delete
             </Button>
