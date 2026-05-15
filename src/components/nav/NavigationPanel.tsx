@@ -40,6 +40,7 @@ import {
   useSavedViews,
 } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
+import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
 import type { Folder as FolderType, Label as LabelType } from "@/data/types";
 
@@ -568,6 +569,7 @@ export function NavigationPanel() {
   const [labelsExpanded, setLabelsExpanded] = React.useState(true);
   const [viewsExpanded, setViewsExpanded] = React.useState(true);
   const [creatingFolder, setCreatingFolder] = React.useState(false);
+  const [creatingLabel, setCreatingLabel] = React.useState(false);
   const [renamingViewId, setRenamingViewId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
 
@@ -782,11 +784,44 @@ export function NavigationPanel() {
               {labelsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
               Labels
             </button>
+            <Tooltip label="New label">
+              <Button
+                variant="ghost"
+                size="xs"
+                iconOnly
+                aria-label="New label"
+                onClick={() => {
+                  setLabelsExpanded(true);
+                  setCreatingLabel(true);
+                }}
+              >
+                <Plus />
+              </Button>
+            </Tooltip>
           </div>
-          {labelsExpanded &&
-            userLabels.map((label) => (
-              <UserLabelRow key={label.id} label={label} />
-            ))}
+          {labelsExpanded && (
+            <>
+              {userLabels.map((label) => (
+                <UserLabelRow key={label.id} label={label} />
+              ))}
+              {creatingLabel && (
+                <InlineCreate
+                  onCommit={(name) => {
+                    Mut.createLabel(localStore, {
+                      id: `lbl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                      vaultId: localStore.vault?.id ?? "local",
+                      kind: "user",
+                      name,
+                      color: Math.floor(Math.random() * 12),
+                      position: localStore.labels.size,
+                    });
+                    setCreatingLabel(false);
+                  }}
+                  onCancel={() => setCreatingLabel(false)}
+                />
+              )}
+            </>
+          )}
         </div>
       </div>
     </Panel>

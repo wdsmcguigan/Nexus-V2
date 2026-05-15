@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
 import { EmailRowContextMenu } from "./EmailRowContextMenu";
+import { LabelPickerDialog } from "@/components/email/LabelPickerPopover";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
@@ -93,6 +94,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   const [saveViewOpen, setSaveViewOpen] = React.useState(false);
   const [saveViewName, setSaveViewName] = React.useState("");
+  const [labelPickerMsgId, setLabelPickerMsgId] = React.useState<string | null>(null);
 
   const activeFilter = panelLocalState?.filter ?? globalActiveFilter;
   const setFilterAxis = React.useCallback(
@@ -300,6 +302,9 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         e.preventDefault();
         if (activeMsg.star) Mut.clearStar(localStore, activeMsg.id);
         else Mut.setStar(localStore, activeMsg.id, "yellow");
+      } else if ((e.key === "l" || e.key === "L") && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        if (activeId) setLabelPickerMsgId(activeId);
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
         if (!activeMsg) return;
         e.preventDefault();
@@ -742,6 +747,13 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
           />
         )}
       </div>
+
+      {/* Label picker dialog — opened via L key shortcut */}
+      <LabelPickerDialog
+        messageId={labelPickerMsgId}
+        open={!!labelPickerMsgId}
+        onClose={() => setLabelPickerMsgId(null)}
+      />
     </Panel>
   );
 }

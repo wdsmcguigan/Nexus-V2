@@ -17,8 +17,11 @@ import {
   ChevronDown,
   Paperclip,
   Download,
+  Tag as TagIcon,
 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
+import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -31,6 +34,7 @@ import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
+import * as Mut from "@/state/mutations";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
@@ -88,6 +92,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const msg = useMessage(effectiveEmailId);
   const threadMsgs = useThreadMessages(msg?.threadId ?? "", effectiveEmailId ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
+  const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
 
   // Auto-mark as read after 500ms — gives time to skip past without marking
   React.useEffect(() => {
@@ -204,28 +209,75 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
                 </Button>
               </Tooltip>
-              <Tooltip label="Star">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Star">
+              <Tooltip label={msg.star ? "Unstar" : "Star"} shortcut="S">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Star"
+                  className={msg.star ? "text-accent" : ""}
+                  onClick={() => { if (msg.star) Mut.clearStar(localStore, msg.id); else Mut.setStar(localStore, msg.id, "yellow"); }}
+                >
                   <Star />
                 </Button>
               </Tooltip>
               <SnoozePopover messageId={msg.id} />
               <Tooltip label="Archive" shortcut="E">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Archive">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Archive"
+                  onClick={() => Mut.archiveMessage(localStore, msg.id)}
+                >
                   <Archive />
                 </Button>
               </Tooltip>
               <Tooltip label="Delete" shortcut="#">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Delete">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Delete"
+                  onClick={() => Mut.deleteMessage(localStore, msg.id)}
+                >
                   <Trash2 />
                 </Button>
               </Tooltip>
               <span className="mx-1 h-4 w-px bg-border-subtle" />
-              <Tooltip label="More">
-                <Button variant="ghost" size="sm" iconOnly aria-label="More">
-                  <MoreHorizontal />
-                </Button>
-              </Tooltip>
+              {/* More dropdown */}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <span>
+                    <Tooltip label="More">
+                      <Button variant="ghost" size="sm" iconOnly aria-label="More actions">
+                        <MoreHorizontal />
+                      </Button>
+                    </Tooltip>
+                  </span>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={6}
+                    align="end"
+                    className="z-50 min-w-[160px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                  >
+                    <DropdownMenu.Item
+                      onSelect={() => setLabelPickerOpen(true)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <TagIcon size={12} />
+                      Label…
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+              {/* Label picker popover (controlled, opened from More menu) */}
+              <LabelPickerPopover
+                messageId={msg.id}
+                open={labelPickerOpen}
+                onOpenChange={setLabelPickerOpen}
+              />
             </>
           }
         />
