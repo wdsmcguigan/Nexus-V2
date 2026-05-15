@@ -232,15 +232,50 @@ pub async fn start_watcher(
         .map_err(|e| e.to_string())
 }
 
-// ─── Send command (Phase 4e stub) ─────────────────────────────────────────────
+// ─── Send command ─────────────────────────────────────────────────────────────
 
+/// Send a pre-composed RFC822 message via Gmail.
+/// `raw_eml` must be base64url-encoded (no padding).
 #[tauri::command]
 pub async fn send_message(
-    _state: State<'_, AppState>,
-    _account_id: String,
-    _raw_eml: String,
-) -> std::result::Result<(), String> {
-    Err("send_message not yet implemented".into())
+    state: State<'_, AppState>,
+    account_id: String,
+    raw_eml: String,
+) -> std::result::Result<String, String> {
+    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
+    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
+
+    let refresh_token = {
+        let db = state.db.lock().unwrap();
+        db.as_ref()
+            .ok_or_else(|| "DB not open".to_string())?
+            .get_refresh_token(&account_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No refresh token".to_string())?
+    };
+
+    let oauth = GmailOAuth::new(client_id, client_secret);
+    let (access_token, expires_in) = oauth
+        .refresh_access_token(&refresh_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let expires_at = chrono::Utc::now().timestamp() + expires_in;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let client = reqwest::Client::new();
+    let gmail_id = crate::gmail::mutations::send_raw(&client, &access_token, &raw_eml)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(gmail_id)
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
@@ -277,12 +312,32 @@ async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> 
     *state.vault_path.lock().unwrap() = Some(vault_path.to_string());
     save_vault_path_to_disk(vault_path)?;
 
+    // Start outbound mutation drainer (no-op if Gmail creds not set)
+    maybe_start_drainer(vault_path);
+
     Ok(vault_id)
 }
 
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
     let state = app.state::<AppState>();
     init_vault_inner(&state, vault_path).await.map(|_| ())
+}
+
+/// Start the outbound mutation drainer if Gmail credentials are available.
+pub fn maybe_start_drainer(vault_path: &str) {
+    let client_id = match std::env::var("NEXUS_GMAIL_CLIENT_ID") {
+        Ok(v) => v,
+        Err(_) => return, // no credentials, drainer not needed
+    };
+    let client_secret = match std::env::var("NEXUS_GMAIL_CLIENT_SECRET") {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let db_path = std::path::Path::new(vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+    crate::gmail::mutations::start_drainer(db_path, client_id, client_secret);
 }
 
 pub fn load_saved_vault_path(_app: &tauri::AppHandle) -> Option<String> {

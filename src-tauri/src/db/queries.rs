@@ -630,18 +630,34 @@ impl VaultDb {
         Ok(())
     }
 
-    pub fn pending_outbound_mutations(&self) -> Result<Vec<(String, String, String)>> {
+    /// Returns (mutation_id, kind, payload_json, vault_id) for all unsynced mutations.
+    pub fn pending_outbound_mutations(&self) -> Result<Vec<(String, String, String, String)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, kind, payload_json FROM mutations WHERE synced_at IS NULL ORDER BY ts",
+            "SELECT id, kind, payload_json, vault_id FROM mutations WHERE synced_at IS NULL ORDER BY ts LIMIT 100",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
             ))
         })?;
         rows.map(|r| r.context("loading pending mutation")).collect()
+    }
+
+    /// Returns true if the stored access token has not yet expired.
+    pub fn token_is_valid(&self, account_id: &str) -> Result<bool> {
+        let mut stmt = self.conn.prepare(
+            "SELECT token_expires_at FROM accounts WHERE id = ?1",
+        )?;
+        let expires_at: Option<i64> = stmt
+            .query_row(params![account_id], |r| r.get(0))
+            .optional()?;
+        Ok(match expires_at {
+            Some(exp) => chrono::Utc::now().timestamp() < exp - 60,
+            None => false,
+        })
     }
 
     pub fn mark_mutation_synced(&self, mutation_id: &str) -> Result<()> {

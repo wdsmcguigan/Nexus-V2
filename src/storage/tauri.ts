@@ -95,3 +95,49 @@ export async function onNewMessages(
 ): Promise<() => void> {
   return listen("gmail:new-messages", cb as (p: unknown) => void);
 }
+
+// ─── Send message ─────────────────────────────────────────────────────────────
+
+/**
+ * Send a composed message via Gmail.
+ * Builds RFC822 from the provided fields, base64url-encodes it, and calls
+ * the `send_message` IPC command. Returns the Gmail message ID.
+ */
+export async function sendMessage(params: {
+  accountId: string;
+  from: string;
+  to: string[];
+  subject: string;
+  bodyHtml: string;
+  replyToMessageId?: string;
+}): Promise<string> {
+  const raw = buildRfc822(params);
+  const b64 = btoa(raw)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+  return invoke<string>("send_message", { accountId: params.accountId, rawEml: b64 });
+}
+
+function buildRfc822(params: {
+  from: string;
+  to: string[];
+  subject: string;
+  bodyHtml: string;
+  replyToMessageId?: string;
+}): string {
+  const lines: string[] = [];
+  lines.push(`From: ${params.from}`);
+  lines.push(`To: ${params.to.join(", ")}`);
+  lines.push(`Subject: ${params.subject}`);
+  lines.push(`MIME-Version: 1.0`);
+  lines.push(`Content-Type: text/html; charset=UTF-8`);
+  lines.push(`Content-Transfer-Encoding: quoted-printable`);
+  if (params.replyToMessageId) {
+    lines.push(`In-Reply-To: ${params.replyToMessageId}`);
+    lines.push(`References: ${params.replyToMessageId}`);
+  }
+  lines.push("");
+  lines.push(params.bodyHtml);
+  return lines.join("\r\n");
+}

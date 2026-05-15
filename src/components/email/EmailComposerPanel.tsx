@@ -24,6 +24,8 @@ import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
+import { isTauri, sendMessage } from "@/storage/tauri";
+import { localStore } from "@/storage/local";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
@@ -81,15 +83,43 @@ export function EmailComposerPanel() {
     setDraftInput("");
   }, [draftInput]);
 
+  const doActualSend = React.useCallback(async () => {
+    setSending(false);
+    setCountdown(0);
+    if (isTauri()) {
+      // Resolve the first connected Gmail account
+      const accounts = Array.from(localStore.accounts.values());
+      const gmailAccount = accounts.find((a) => a.provider === "gmail");
+      if (!gmailAccount) {
+        toast.error("No Gmail account connected");
+        return;
+      }
+      try {
+        await sendMessage({
+          accountId: gmailAccount.id,
+          from: gmailAccount.email,
+          to: recipients,
+          subject,
+          bodyHtml: body.replace(/\n/g, "<br>"),
+        });
+        toast.success("Sent");
+      } catch (e) {
+        toast.error(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    } else {
+      // Web mode — optimistic "sent" (no real API)
+      toast.success("Sent");
+    }
+    setComposerOpen(false);
+  }, [recipients, subject, body, setComposerOpen]);
+
   const startSend = React.useCallback(() => {
     setSending(true);
     setCountdown(COUNTDOWN_SECONDS);
     const tick = (remaining: number) => {
       if (remaining <= 0) {
-        setSending(false);
-        setCountdown(0);
-        toast.success("Sent");
-        setComposerOpen(false);
+        doActualSend();
         return;
       }
       sendTimeoutRef.current = window.setTimeout(() => {
@@ -105,7 +135,7 @@ export function EmailComposerPanel() {
       },
       duration: COUNTDOWN_SECONDS * 1000,
     });
-  }, [setComposerOpen]);
+  }, [doActualSend]);
 
   const undoSend = React.useCallback(() => {
     if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current);
