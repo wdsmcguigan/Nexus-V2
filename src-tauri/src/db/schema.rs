@@ -148,4 +148,34 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     content='messages',
     content_rowid='rowid'
 );
+
+CREATE TABLE IF NOT EXISTS contacts (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    company TEXT,
+    title TEXT,
+    website TEXT,
+    location TEXT,
+    notes TEXT,
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contact_emails (
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (contact_id, email)
+);
+CREATE INDEX IF NOT EXISTS idx_contact_emails_email ON contact_emails(email);
+
+CREATE TABLE IF NOT EXISTS contact_phones (
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    phone TEXT NOT NULL,
+    label TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (contact_id, phone)
+);
 "#;

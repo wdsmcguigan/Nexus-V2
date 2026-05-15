@@ -11,7 +11,7 @@ import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
-import type { Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
+import type { Contact, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -124,6 +124,26 @@ export function useFolderCount(folderId: string): number {
     () => localStore.messagesByFolder.get(folderId)?.size ?? 0,
     [v, folderId],
   );
+}
+
+export function useContacts(): Contact[] {
+  const v = useStoreVersion();
+  void v;
+  return Array.from(localStore.contacts.values()).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+}
+
+export function useContactByEmail(email: string): Contact | null {
+  const v = useStoreVersion();
+  void v;
+  return localStore.lookupByEmail(email);
+}
+
+export function useContactMessageCount(contactId: string): number {
+  const v = useStoreVersion();
+  void v;
+  return localStore.messagesByContact.get(contactId)?.size ?? 0;
 }
 
 /** Returns a single message by id, or null. */

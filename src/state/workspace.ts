@@ -164,6 +164,11 @@ interface WorkspaceState {
   clearSelection: () => void;
   setFocusedRow: (id: string | null) => void;
 
+  // Contact selection
+  selectedContactId: string | null;
+  setSelectedContactId: (id: string | null) => void;
+  openContactsPanel: (contactId?: string) => void;
+
   // Panel focus + Focus Memory Stack
   activePanelId: string | null;
   previousPanelId: string | null;
@@ -543,6 +548,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       selectionAnchorId: null,
     }),
   setFocusedRow: (id) => set({ focusedRowId: id }),
+
+  // ── Contact selection ──────────────────────────────────────────────────────
+
+  selectedContactId: null,
+  setSelectedContactId: (id) => set({ selectedContactId: id }),
+  openContactsPanel: (contactId) => {
+    const api = getDockviewApi();
+    if (!api) return;
+    if (contactId) set({ selectedContactId: contactId });
+    const existing = api.panels.find((p) => p.id === "contacts");
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      api.addPanel({
+        id: "contacts",
+        component: "contacts",
+        title: "Contacts",
+        minimumWidth: 480,
+        position: { direction: "right" },
+      });
+    }
+  },
 
   // ── Panel focus ────────────────────────────────────────────────────────────
 

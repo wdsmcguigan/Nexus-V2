@@ -12,6 +12,7 @@
  */
 
 import {
+  type Contact,
   type CustomFieldDef,
   type CustomFieldValue,
   type FlagState,
@@ -435,6 +436,19 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.putMessage(msg);
       break;
     }
+
+    // ── Contact ops ──────────────────────────────────────────────
+    case "UPSERT_CONTACT":
+    case "UPDATE_CONTACT": {
+      const { contact } = m.payload as { contact: Contact };
+      store.putContact(contact);
+      break;
+    }
+    case "DELETE_CONTACT": {
+      const { contactId } = m.payload as { contactId: string };
+      store.deleteContact(contactId);
+      break;
+    }
   }
 }
 
@@ -604,4 +618,31 @@ export function deleteView(store: LocalStore, viewId: string): void {
 export function renameView(store: LocalStore, viewId: string, name: string): void {
   recordMutation("RENAME_VIEW", { viewId, name }, store);
   store.renameSavedView(viewId, name);
+}
+
+// ── Contact ops ─────────────────────────────────────────────────────────────
+
+export function upsertContact(
+  contact: Contact,
+  store: LocalStore = _defaultStore,
+): void {
+  recordMutation("UPSERT_CONTACT", { contact }, store);
+  store.putContact(contact);
+}
+
+export function updateContact(
+  id: string,
+  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags">>,
+  store: LocalStore = _defaultStore,
+): void {
+  const existing = store.contacts.get(id);
+  if (!existing) return;
+  const updated: Contact = { ...existing, ...patch, updatedAt: Date.now() };
+  recordMutation("UPDATE_CONTACT", { contact: updated }, store);
+  store.putContact(updated);
+}
+
+export function deleteContact(id: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_CONTACT", { contactId: id }, store);
+  store.deleteContact(id);
 }
