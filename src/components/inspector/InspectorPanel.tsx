@@ -7,18 +7,14 @@ import {
   AlarmClock,
   Archive,
   Trash2,
-  Copy,
-  ExternalLink,
   MoreHorizontal,
   MailQuestion,
   BellOff,
   Bell,
-
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
-import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -32,7 +28,7 @@ import { LabelCombobox } from "@/components/inspector/LabelCombobox";
 import { FlagPicker } from "@/components/inspector/FlagPicker";
 import { NoteEditor } from "@/components/inspector/NoteEditor";
 import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
-import { pickPanelLink } from "@/design-system/tokens";
+import { ContactCard } from "@/components/contacts/ContactCard";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 
 function Section({
@@ -123,7 +119,6 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
     );
   }
 
-  const fromColorSeed = pickPanelLink(msg.fromAddr.email);
   const msgLabels = allLabels.filter((l) => msg.labelIds.includes(l.id));
 
   return (
@@ -141,33 +136,11 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
       <div data-scroll className="nx-scroll h-full overflow-auto">
         {/* Sender card */}
         <Section label="From">
-          <div className="flex items-start gap-3">
-            <Avatar name={msg.fromAddr.name} size={40} colorSeed={fromColorSeed} />
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-body-strong text-text-primary">
-                {msg.fromAddr.name}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1">
-                <span className="truncate font-mono text-mono-sm text-text-tertiary">
-                  {msg.fromAddr.email}
-                </span>
-                <Tooltip label="Copy address">
-                  <button
-                    aria-label="Copy address"
-                    className="rounded-xs p-0.5 text-text-tertiary opacity-dim hover:opacity-full focus-visible:opacity-full focus-visible:shadow-focus"
-                  >
-                    <Copy size={11} />
-                  </button>
-                </Tooltip>
-              </div>
-              <div className="mt-2 flex items-center gap-1">
-                <Button variant="ghost" size="xs">
-                  <ExternalLink />
-                  Open contact
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ContactCard
+            email={msg.fromAddr.email}
+            name={msg.fromAddr.name}
+            compact
+          />
         </Section>
 
         {/* Recipients */}

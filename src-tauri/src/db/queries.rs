@@ -21,6 +21,7 @@ pub struct HydratePayload {
     pub messages: Vec<JsonValue>,
     pub tag_usage: Vec<JsonValue>,
     pub mutations: Vec<JsonValue>,
+    pub contacts: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -36,6 +37,7 @@ impl VaultDb {
             messages: self.load_messages(vault_id)?,
             tag_usage: self.load_tag_usage(vault_id)?,
             mutations: vec![],
+            contacts: self.load_contacts(vault_id)?,
         })
     }
 
@@ -269,6 +271,109 @@ impl VaultDb {
             r.get::<_, String>(0).map(JsonValue::String)
         })?.map(|r| r.context("loading tag")).collect::<Result<_>>()?;
         Ok(JsonValue::Array(tags))
+    }
+
+    pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at
+             FROM contacts WHERE vault_id = ?1 ORDER BY name"
+        )?;
+        let contacts: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, i64, i64)> =
+            stmt.query_map(params![vault_id], |r| Ok((
+                r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
+                r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?,
+                r.get(8)?, r.get(9)?
+            )))?.filter_map(|r| r.ok()).collect();
+
+        let mut result = Vec::new();
+        for (id, name, company, title, website, location, notes, tags_json, created_at, updated_at) in contacts {
+            let emails = self.load_contact_emails(&id)?;
+            let phones = self.load_contact_phones(&id)?;
+            let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or(serde_json::json!([]));
+            result.push(serde_json::json!({
+                "id": id,
+                "vaultId": vault_id,
+                "name": name,
+                "emails": emails,
+                "phones": phones,
+                "company": company,
+                "title": title,
+                "website": website,
+                "location": location,
+                "notes": notes,
+                "tags": tags,
+                "createdAt": created_at,
+                "updatedAt": updated_at
+            }));
+        }
+        Ok(result)
+    }
+
+    fn load_contact_emails(&self, contact_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT email FROM contact_emails WHERE contact_id = ?1 ORDER BY position"
+        )?;
+        let rows = stmt.query_map(params![contact_id], |r| r.get::<_, String>(0))?;
+        rows.map(|r| r.context("loading contact email")).collect()
+    }
+
+    fn load_contact_phones(&self, contact_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT phone FROM contact_phones WHERE contact_id = ?1 ORDER BY position"
+        )?;
+        let rows = stmt.query_map(params![contact_id], |r| r.get::<_, String>(0))?;
+        rows.map(|r| r.context("loading contact phone")).collect()
+    }
+
+    pub fn upsert_contact(&self, vault_id: &str, contact: &serde_json::Value) -> Result<()> {
+        let id = contact["id"].as_str().unwrap_or_default();
+        let name = contact["name"].as_str().unwrap_or_default();
+        let company = contact["company"].as_str();
+        let title = contact["title"].as_str();
+        let website = contact["website"].as_str();
+        let location = contact["location"].as_str();
+        let notes = contact["notes"].as_str();
+        let tags = contact["tags"].to_string();
+        let created_at = contact["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        let updated_at = contact["updatedAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+        self.conn.execute(
+            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes, tags_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+             ON CONFLICT(id) DO UPDATE SET
+               name=excluded.name, company=excluded.company, title=excluded.title,
+               website=excluded.website, location=excluded.location, notes=excluded.notes,
+               tags_json=excluded.tags_json, updated_at=excluded.updated_at",
+            params![id, vault_id, name, company, title, website, location, notes, tags, created_at, updated_at],
+        )?;
+
+        // Rebuild email list
+        self.conn.execute("DELETE FROM contact_emails WHERE contact_id = ?1", params![id])?;
+        if let Some(emails) = contact["emails"].as_array() {
+            for (pos, email) in emails.iter().enumerate() {
+                if let Some(e) = email.as_str() {
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO contact_emails (contact_id, email, position) VALUES (?1, ?2, ?3)",
+                        params![id, e, pos as i64],
+                    )?;
+                }
+            }
+        }
+
+        // Rebuild phone list
+        self.conn.execute("DELETE FROM contact_phones WHERE contact_id = ?1", params![id])?;
+        if let Some(phones) = contact["phones"].as_array() {
+            for (pos, phone) in phones.iter().enumerate() {
+                if let Some(p) = phone.as_str() {
+                    self.conn.execute(
+                        "INSERT OR IGNORE INTO contact_phones (contact_id, phone, label, position) VALUES (?1, ?2, NULL, ?3)",
+                        params![id, p, pos as i64],
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn load_tag_usage(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
@@ -620,6 +725,18 @@ impl VaultDb {
                 self.conn.execute(
                     "UPDATE messages SET custom_fields_json = ?1 WHERE id = ?2",
                     params![serde_json::to_string(&fields)?, msg_id],
+                )?;
+            }
+            "UPSERT_CONTACT" | "UPDATE_CONTACT" => {
+                let contact = &p["contact"];
+                let vault_id = contact["vaultId"].as_str().unwrap_or("local");
+                self.upsert_contact(vault_id, contact)?;
+            }
+            "DELETE_CONTACT" => {
+                let contact_id = p["contactId"].as_str().unwrap_or_default();
+                self.conn.execute(
+                    "DELETE FROM contacts WHERE id = ?1",
+                    params![contact_id],
                 )?;
             }
             // Unrecognised mutations are logged but not applied to the DB tables
