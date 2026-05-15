@@ -25,6 +25,7 @@ import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Tag } from "@/components/ui/Tag";
+import { Avatar } from "@/components/ui/Avatar";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
@@ -82,6 +83,112 @@ function ToolbarBtn({
         <Icon size={13} />
       </button>
     </Tooltip>
+  );
+}
+
+// ─── Recipient input with autocomplete ───────────────────────────────────────
+
+interface RecipientInputProps {
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: (email: string) => void;
+  placeholder: string;
+}
+
+function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInputProps) {
+  const [isFocused, setIsFocused] = React.useState(false);
+  const [activeIdx, setActiveIdx] = React.useState(-1);
+
+  const suggestions = React.useMemo(() => {
+    if (value.trim().length < 1) return [];
+    const q = value.toLowerCase();
+    const results: import("@/data/types").Contact[] = [];
+    for (const c of localStore.contacts.values()) {
+      if (
+        c.name.toLowerCase().includes(q) ||
+        c.emails.some((e) => e.toLowerCase().includes(q))
+      ) {
+        results.push(c);
+        if (results.length >= 6) break;
+      }
+    }
+    return results;
+  }, [value]);
+
+  // Reset activeIdx when suggestions change
+  React.useEffect(() => {
+    setActiveIdx(-1);
+  }, [suggestions]);
+
+  const showDropdown = isFocused && suggestions.length > 0;
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Escape") {
+      setActiveIdx(-1);
+      setIsFocused(false);
+    } else if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (activeIdx >= 0 && suggestions[activeIdx]) {
+        const email = suggestions[activeIdx].emails[0] ?? "";
+        onCommit(email);
+        onChange("");
+      } else {
+        onCommit(value);
+        onChange("");
+      }
+    }
+  }
+
+  return (
+    <div style={{ position: "relative" }} className="flex-1">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => {
+          setIsFocused(false);
+          setActiveIdx(-1);
+        }}
+        placeholder={placeholder}
+        className="min-w-[120px] w-full bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none"
+      />
+      {showDropdown && (
+        <div className="absolute top-full left-0 z-50 mt-0.5 w-72 overflow-hidden rounded-md border border-border-subtle bg-surface-2 shadow-lg">
+          {suggestions.map((c, idx) => (
+            <div
+              key={c.id}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const email = c.emails[0] ?? "";
+                onCommit(email);
+                onChange("");
+              }}
+              className={cn(
+                "flex h-9 cursor-pointer items-center gap-2 px-2 text-body text-text-secondary hover:bg-surface-3",
+                idx === activeIdx && "bg-surface-3 text-text-primary",
+              )}
+            >
+              <Avatar
+                name={c.name}
+                size={20}
+                colorSeed={pickPanelLink(c.emails[0] ?? "")}
+              />
+              <span className="truncate">{c.name}</span>
+              <span className="ml-auto truncate font-mono text-mono-xs text-text-muted">
+                {c.emails[0] ?? ""}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -257,19 +364,6 @@ export function EmailComposerPanel() {
     }
   }
 
-  function commitRecipient() {
-    const v = draftInput.trim().replace(/,$/, "");
-    if (!v) return;
-    setRecipients((r) => [...r, v]);
-    setDraftInput("");
-  }
-  function commitCc() {
-    const v = ccDraftInput.trim().replace(/,$/, "");
-    if (!v) return;
-    setCcRecipients((r) => [...r, v]);
-    setCcDraftInput("");
-  }
-
   const fromEmail =
     Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ??
     "me@nexus.app";
@@ -314,13 +408,11 @@ export function EmailComposerPanel() {
                 {r}
               </Tag>
             ))}
-            <input
+            <RecipientInput
               value={draftInput}
-              onChange={(e) => setDraftInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commitRecipient(); } }}
-              onBlur={commitRecipient}
+              onChange={setDraftInput}
+              onCommit={(email) => { setRecipients((r) => [...r, email]); setDraftInput(""); }}
               placeholder={recipients.length === 0 ? "Add recipient…" : ""}
-              className="min-w-[120px] flex-1 bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none"
             />
             {!showCc && (
               <button type="button" onClick={() => setShowCc(true)} className="ml-auto text-caption text-text-tertiary hover:text-text-secondary">
@@ -340,13 +432,11 @@ export function EmailComposerPanel() {
                     {r}
                   </Tag>
                 ))}
-                <input
+                <RecipientInput
                   value={ccDraftInput}
-                  onChange={(e) => setCcDraftInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commitCc(); } }}
-                  onBlur={commitCc}
+                  onChange={setCcDraftInput}
+                  onCommit={(email) => { setCcRecipients((r) => [...r, email]); setCcDraftInput(""); }}
                   placeholder={ccRecipients.length === 0 ? "Add cc…" : ""}
-                  className="min-w-[120px] flex-1 bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none"
                 />
               </div>
             </FieldRow>

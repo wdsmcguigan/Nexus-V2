@@ -19,8 +19,10 @@ import {
   MailOpen,
   Mail,
   CheckCheck,
+  Bookmark,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Popover from "@radix-ui/react-popover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -87,6 +89,10 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const attachListPanel = useWorkspace((s) => s.attachListPanel);
   const _setListPanelAxis = useWorkspace((s) => s.setListPanelAxis);
   const _removeListPanelAxis = useWorkspace((s) => s.removeListPanelAxis);
+  const saveCurrentFilter = useWorkspace((s) => s.saveCurrentFilter);
+
+  const [saveViewOpen, setSaveViewOpen] = React.useState(false);
+  const [saveViewName, setSaveViewName] = React.useState("");
 
   const activeFilter = panelLocalState?.filter ?? globalActiveFilter;
   const setFilterAxis = React.useCallback(
@@ -387,6 +393,60 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
               </button>
             </Tooltip>
           </div>
+
+          {/* Save current filter as a view */}
+          <Popover.Root open={saveViewOpen} onOpenChange={(v) => { setSaveViewOpen(v); if (v) setSaveViewName(title); }}>
+            <Popover.Trigger asChild>
+              <span>
+                <Tooltip label="Save current filter as a view">
+                  <Button variant="ghost" size="sm" iconOnly aria-label="Save view">
+                    <Bookmark />
+                  </Button>
+                </Tooltip>
+              </span>
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content
+                sideOffset={6}
+                align="end"
+                className={cn(
+                  "z-50 w-64 rounded-md border border-border-subtle bg-surface-2 p-3 shadow-lg",
+                  "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+                  "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+                )}
+              >
+                <p className="mb-2 text-caption text-text-tertiary">Save current filter as a view</p>
+                <input
+                  autoFocus
+                  value={saveViewName}
+                  onChange={(e) => setSaveViewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const name = saveViewName.trim();
+                      if (name) { saveCurrentFilter(name); setSaveViewOpen(false); }
+                    } else if (e.key === "Escape") {
+                      setSaveViewOpen(false);
+                    }
+                  }}
+                  placeholder="View name…"
+                  className="mb-2 w-full rounded-xs border border-border-default bg-canvas px-2 py-1.5 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setSaveViewOpen(false)}>Cancel</Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      const name = saveViewName.trim();
+                      if (name) { saveCurrentFilter(name); setSaveViewOpen(false); }
+                    }}
+                  >
+                    Save view
+                  </Button>
+                </div>
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
 
           <Tooltip label={`Density: ${density}`} shortcut="D">
             <Button variant="ghost" size="sm" iconOnly aria-label="Cycle density" onClick={cycleDensity}>
