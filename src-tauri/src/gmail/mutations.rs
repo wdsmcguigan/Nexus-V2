@@ -215,6 +215,15 @@ async fn drain_once(db_path: &str, client_id: &str, client_secret: &str) -> Resu
 
 /// Returns a valid (non-expired) access token, refreshing if needed.
 /// Opens and closes its own DB connections so no VaultDb crosses an await point.
+pub async fn ensure_fresh_token_pub(
+    db_path: &str,
+    account_id: &str,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<String> {
+    ensure_fresh_token(db_path, account_id, client_id, client_secret).await
+}
+
 async fn ensure_fresh_token(
     db_path: &str,
     account_id: &str,

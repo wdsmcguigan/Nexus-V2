@@ -26,6 +26,7 @@ import type {
   FlagState,
   Label,
   Folder,
+  Message,
   MetadataFilter,
   Status,
   StarStyle,
@@ -42,6 +43,14 @@ export function getDockviewApi(): DockviewApi | null { return _dockviewApi; }
 
 let _panelSeq = 0;
 export function newPanelId(type: string): string { return `${type}-${++_panelSeq}`; }
+
+// ─── Composer context ────────────────────────────────────────────────────────
+
+export type ComposerMode = "reply" | "reply-all" | "forward";
+export interface ComposerContext {
+  mode: ComposerMode;
+  replyToMessage: Message;
+}
 
 // ─── Default layout capture ───────────────────────────────────────────────────
 // Captured once after initLayout so "start fresh" workspaces can use it.
@@ -188,6 +197,8 @@ interface WorkspaceState {
   // Composer
   composerOpen: boolean;
   setComposerOpen: (open: boolean) => void;
+  composerContext: ComposerContext | null;
+  openComposer: (ctx?: ComposerContext) => void;
 
   // Command palette
   paletteOpen: boolean;
@@ -616,7 +627,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   // ── Composer ───────────────────────────────────────────────────────────────
 
   composerOpen: false,
-  setComposerOpen: (open) => set({ composerOpen: open }),
+  composerContext: null,
+  setComposerOpen: (open) => set(open ? { composerOpen: true } : { composerOpen: false, composerContext: null }),
+  openComposer: (ctx) => set({ composerOpen: true, composerContext: ctx ?? null }),
 
   // ── Command palette ────────────────────────────────────────────────────────
 

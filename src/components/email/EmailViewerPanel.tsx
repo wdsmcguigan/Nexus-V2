@@ -34,7 +34,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const isPinned = pinnedEmailId !== null;
   const pinViewerToEmail = useWorkspace((s) => s.pinViewerToEmail);
   const unpinViewer = useWorkspace((s) => s.unpinViewer);
-  const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
+  const openComposer = useWorkspace((s) => s.openComposer);
 
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
@@ -243,15 +243,15 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Footer chrome (reply bar) */}
         <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-4">
-          <Button variant="primary" size="md" onClick={() => setComposerOpen(true)}>
+          <Button variant="primary" size="md" onClick={() => openComposer({ mode: "reply", replyToMessage: msg })}>
             <Reply />
             Reply
           </Button>
-          <Button variant="secondary" size="md">
+          <Button variant="secondary" size="md" onClick={() => openComposer({ mode: "reply-all", replyToMessage: msg })}>
             <ReplyAll />
             Reply all
           </Button>
-          <Button variant="secondary" size="md">
+          <Button variant="secondary" size="md" onClick={() => openComposer({ mode: "forward", replyToMessage: msg })}>
             <Forward />
             Forward
           </Button>

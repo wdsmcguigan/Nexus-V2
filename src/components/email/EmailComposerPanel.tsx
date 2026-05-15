@@ -26,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
 import { isTauri, sendMessage } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
+import { bodyStore } from "@/storage/bodyStore";
+import { formatAbsoluteTime } from "@/lib/utils";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
@@ -63,15 +65,56 @@ function ToolbarButton({
   );
 }
 
+function buildQuotedBlock(msg: { fromAddr: { name: string; email: string }; receivedAt: number; snippet: string; bodyRef: string }): string {
+  const date = formatAbsoluteTime(new Date(msg.receivedAt));
+  const rawBody = bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`;
+  return `<br><br><div style="padding-left:12px;border-left:2px solid #4a5568;margin-left:0;color:#9ca3af">
+    <div style="margin-bottom:8px;font-size:12px">On ${date}, ${msg.fromAddr.name} &lt;${msg.fromAddr.email}&gt; wrote:</div>
+    ${rawBody}
+  </div>`;
+}
+
 export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
-  const [recipients, setRecipients] = React.useState<string[]>([
-    "alice@axiomlabs.io",
-  ]);
+  const composerContext = useWorkspace((s) => s.composerContext);
+
+  const replyMsg = composerContext?.replyToMessage ?? null;
+  const mode = composerContext?.mode ?? null;
+
+  const [recipients, setRecipients] = React.useState<string[]>(() => {
+    if (!replyMsg || mode === "forward") return [];
+    if (mode === "reply") return [replyMsg.fromAddr.email];
+    // reply-all: original sender + all to's except self
+    const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";
+    return [replyMsg.fromAddr.email, ...replyMsg.toAddrs.map((t) => t.email).filter((e) => e !== self)];
+  });
+
+  const [ccRecipients, setCcRecipients] = React.useState<string[]>(() => {
+    if (mode === "reply-all" && replyMsg) {
+      return replyMsg.ccAddrs.map((t) => t.email);
+    }
+    return [];
+  });
+
   const [draftInput, setDraftInput] = React.useState("");
-  const [showCc, setShowCc] = React.useState(false);
-  const [subject, setSubject] = React.useState("Q2 review — quick note");
-  const [body, setBody] = React.useState("Hi Alice,\n\nQuick note on the Q2 review — ");
+  const [ccDraftInput, setCcDraftInput] = React.useState("");
+  const [showCc, setShowCc] = React.useState(mode === "reply-all");
+
+  const [subject, setSubject] = React.useState(() => {
+    if (!replyMsg) return "Q2 review — quick note";
+    if (mode === "forward") return `Fwd: ${replyMsg.subject}`;
+    const subj = replyMsg.subject;
+    return subj.startsWith("Re:") ? subj : `Re: ${subj}`;
+  });
+
+  const [body, setBody] = React.useState(() => {
+    if (!replyMsg || mode === "forward") {
+      const quoted = replyMsg ? buildQuotedBlock(replyMsg) : "";
+      return quoted;
+    }
+    return buildQuotedBlock(replyMsg);
+  });
+
   const [sending, setSending] = React.useState(false);
   const [countdown, setCountdown] = React.useState(0);
   const sendTimeoutRef = React.useRef<number | null>(null);
@@ -83,11 +126,17 @@ export function EmailComposerPanel() {
     setDraftInput("");
   }, [draftInput]);
 
+  const onCommitCc = React.useCallback(() => {
+    const v = ccDraftInput.trim().replace(/,$/, "");
+    if (!v) return;
+    setCcRecipients((r) => [...r, v]);
+    setCcDraftInput("");
+  }, [ccDraftInput]);
+
   const doActualSend = React.useCallback(async () => {
     setSending(false);
     setCountdown(0);
     if (isTauri()) {
-      // Resolve the first connected Gmail account
       const accounts = Array.from(localStore.accounts.values());
       const gmailAccount = accounts.find((a) => a.provider === "gmail");
       if (!gmailAccount) {
@@ -95,12 +144,15 @@ export function EmailComposerPanel() {
         return;
       }
       try {
+        const allTo = recipients;
+        const bodyHtml = body.replace(/\n/g, "<br>");
         await sendMessage({
           accountId: gmailAccount.id,
           from: gmailAccount.email,
-          to: recipients,
+          to: allTo,
           subject,
-          bodyHtml: body.replace(/\n/g, "<br>"),
+          bodyHtml,
+          replyToMessageId: replyMsg?.providerIds?.messageId,
         });
         toast.success("Sent");
       } catch (e) {
@@ -108,11 +160,10 @@ export function EmailComposerPanel() {
         return;
       }
     } else {
-      // Web mode — optimistic "sent" (no real API)
       toast.success("Sent");
     }
     setComposerOpen(false);
-  }, [recipients, subject, body, setComposerOpen]);
+  }, [recipients, subject, body, replyMsg, setComposerOpen]);
 
   const startSend = React.useCallback(() => {
     setSending(true);
@@ -150,14 +201,18 @@ export function EmailComposerPanel() {
     };
   }, []);
 
+  const headerMeta = mode
+    ? `${mode === "forward" ? "Fwd" : "Re"}: ${replyMsg?.fromAddr.name ?? "draft"}`
+    : (recipients[0] ?? "draft");
+
   return (
     <Panel
       panelId={PANEL_ID}
       type="stage"
       header={
         <PanelHeader
-          title="Compose"
-          meta={recipients[0] ?? "draft"}
+          title={mode === "forward" ? "Forward" : mode ? "Reply" : "Compose"}
+          meta={headerMeta}
           actions={
             <>
               <Tooltip label="Discard">
@@ -183,7 +238,7 @@ export function EmailComposerPanel() {
             className="flex h-9 w-full items-center gap-1 text-left text-body text-text-primary"
           >
             <span className="font-mono text-mono-sm text-text-secondary">
-              will@nexus.app
+              {Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "will@nexus.app"}
             </span>
             <ChevronDown size={12} className="text-text-tertiary" />
           </button>
@@ -230,10 +285,32 @@ export function EmailComposerPanel() {
         ) : (
           <>
             <FieldRow label="Cc">
-              <input
-                placeholder="Add cc…"
-                className="h-9 w-full bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none"
-              />
+              <div className="flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5">
+                {ccRecipients.map((r) => (
+                  <Tag
+                    key={r}
+                    color={pickPanelLink(r)}
+                    size="md"
+                    removable
+                    onRemove={() => setCcRecipients((rs) => rs.filter((x) => x !== r))}
+                  >
+                    {r}
+                  </Tag>
+                ))}
+                <input
+                  value={ccDraftInput}
+                  onChange={(e) => setCcDraftInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") {
+                      e.preventDefault();
+                      onCommitCc();
+                    }
+                  }}
+                  onBlur={onCommitCc}
+                  placeholder={ccRecipients.length === 0 ? "Add cc…" : ""}
+                  className="min-w-[120px] flex-1 bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none"
+                />
+              </div>
             </FieldRow>
             <FieldRow label="Bcc">
               <input
@@ -267,7 +344,7 @@ export function EmailComposerPanel() {
           <ToolbarButton icon={Code} label="Code" />
         </div>
 
-        {/* Editor body (contenteditable stub) */}
+        {/* Editor body */}
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
@@ -276,17 +353,22 @@ export function EmailComposerPanel() {
             "outline-none placeholder:text-text-muted nx-scroll",
           )}
           data-scroll
+          placeholder={mode ? "" : "Write your message…"}
         />
 
         {/* Attachments strip */}
         <div className="flex h-9 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-3">
           <Paperclip size={12} className="text-text-tertiary" />
-          <span className="font-mono text-mono-sm text-text-secondary">
-            Q2-deck.pdf
-          </span>
-          <span className="font-mono text-mono-xs text-text-tertiary">
-            4.2 MB
-          </span>
+          {mode !== "forward" && (
+            <>
+              <span className="font-mono text-mono-sm text-text-secondary">
+                Q2-deck.pdf
+              </span>
+              <span className="font-mono text-mono-xs text-text-tertiary">
+                4.2 MB
+              </span>
+            </>
+          )}
           <Button variant="ghost" size="xs" className="ml-auto">
             + Attach
           </Button>
@@ -296,7 +378,7 @@ export function EmailComposerPanel() {
         <div className="flex h-12 shrink-0 items-center gap-3 border-t border-border-subtle bg-surface-1 px-3">
           {!sending ? (
             <Button variant="primary" size="md" onClick={startSend}>
-              Send
+              {mode === "forward" ? "Forward" : "Send"}
               <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">
                 ⌘↵
               </Kbd>

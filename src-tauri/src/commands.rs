@@ -12,9 +12,10 @@ use crate::AppState;
 #[tauri::command]
 pub async fn load_vault_data(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     vault_path: String,
 ) -> std::result::Result<HydratePayload, String> {
-    let vault_id = init_vault_inner(&state, &vault_path)
+    let vault_id = init_vault_inner_with_app(&state, &vault_path, &app)
         .await
         .map_err(|e| e.to_string())?;
     let db = state.db.lock().unwrap();
@@ -318,9 +319,23 @@ async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> 
     Ok(vault_id)
 }
 
+async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tauri::AppHandle) -> Result<String> {
+    let vault_id = init_vault_inner(state, vault_path).await?;
+
+    // Start 60s inbound poller if Gmail credentials are configured.
+    if let (Ok(client_id), Ok(client_secret)) = (
+        std::env::var("NEXUS_GMAIL_CLIENT_ID"),
+        std::env::var("NEXUS_GMAIL_CLIENT_SECRET"),
+    ) {
+        start_inbox_poller(vault_path.to_string(), app.clone(), client_id, client_secret);
+    }
+
+    Ok(vault_id)
+}
+
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
     let state = app.state::<AppState>();
-    init_vault_inner(&state, vault_path).await.map(|_| ())
+    init_vault_inner_with_app(&state, vault_path, app).await.map(|_| ())
 }
 
 /// Start the outbound mutation drainer if Gmail credentials are available.
@@ -338,6 +353,93 @@ pub fn maybe_start_drainer(vault_path: &str) {
         .to_string_lossy()
         .into_owned();
     crate::gmail::mutations::start_drainer(db_path, client_id, client_secret);
+}
+
+/// Start a background 60-second polling loop that incrementally syncs all
+/// connected Gmail accounts and emits `vault:hydrate-needed` when new mail arrives.
+pub fn start_inbox_poller(
+    vault_path: String,
+    app: tauri::AppHandle,
+    client_id: String,
+    client_secret: String,
+) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        interval.tick().await; // skip immediate first tick — initial sync already runs on connect
+
+        loop {
+            interval.tick().await;
+            if let Err(e) = poll_all_accounts(&vault_path, &app, &client_id, &client_secret).await {
+                log::warn!("Inbox poll error: {e}");
+            }
+        }
+    });
+}
+
+/// One polling pass: sync every Gmail account found in the DB.
+async fn poll_all_accounts(
+    vault_path: &str,
+    app: &tauri::AppHandle,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<()> {
+    let db_path = std::path::Path::new(vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    // Load all Gmail accounts synchronously — DB not held across await.
+    let accounts: Vec<(String, String)> = {
+        let db = crate::db::VaultDb::open(&db_path, "nexus")?;
+        db.all_gmail_accounts()?
+    };
+
+    if accounts.is_empty() {
+        return Ok(());
+    }
+
+    let mut any_new = false;
+
+    for (account_id, vault_id) in accounts {
+        // Refresh token (async — no DB reference held).
+        let access_token = match crate::gmail::mutations::ensure_fresh_token_pub(
+            &db_path,
+            &account_id,
+            client_id,
+            client_secret,
+        )
+        .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("Token refresh failed for {account_id}: {e}");
+                continue;
+            }
+        };
+
+        let syncer = crate::gmail::GmailSyncer::new(
+            account_id.clone(),
+            vault_id,
+            access_token,
+            std::path::Path::new(vault_path),
+        );
+
+        match syncer.incremental_sync_with_db(&db_path).await {
+            Ok(stats) => {
+                if stats.inserted > 0 {
+                    log::info!("Poll: {} new messages for {account_id}", stats.inserted);
+                    any_new = true;
+                }
+            }
+            Err(e) => log::warn!("Incremental sync failed for {account_id}: {e}"),
+        }
+    }
+
+    if any_new {
+        let _ = app.emit("vault:hydrate-needed", ());
+    }
+
+    Ok(())
 }
 
 pub fn load_saved_vault_path(_app: &tauri::AppHandle) -> Option<String> {

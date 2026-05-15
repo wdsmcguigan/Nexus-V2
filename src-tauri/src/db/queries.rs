@@ -699,6 +699,17 @@ impl VaultDb {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         }).optional()?)
     }
+
+    /// Return all Gmail accounts as (account_id, vault_id) pairs.
+    pub fn all_gmail_accounts(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id FROM accounts WHERE provider = 'gmail'",
+        )?;
+        let rows = stmt.query_map(params![], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        rows.map(|r| r.context("loading gmail account row")).collect()
+    }
 }
 
 // Allow rusqlite's optional() on queries returning no rows
