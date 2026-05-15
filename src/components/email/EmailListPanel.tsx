@@ -28,6 +28,7 @@ import { EmailRow } from "./EmailRow";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
+import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import type { Message, MetadataFilter, Status, Label } from "@/data/types";
@@ -63,6 +64,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const focusedRowId = useWorkspace((s) => s.focusedRowId);
   const activePanelId = useWorkspace((s) => s.activePanelId);
   const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
+  const openComposer = useWorkspace((s) => s.openComposer);
   const toggleEmailSelection = useWorkspace((s) => s.toggleEmailSelection);
   const setSelectionRange = useWorkspace((s) => s.setSelectionRange);
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
@@ -224,7 +226,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     setSelectedEmail(emailId);
   }, [panelId, setSelectedEmail]);
 
-  // Keyboard navigation
+  // Keyboard navigation + actions
   React.useEffect(() => {
     if (!isPanelFocused) return;
     function onKey(e: KeyboardEvent) {
@@ -234,34 +236,75 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       ) {
         return;
       }
+
       const idx = msgList.findIndex((m) => m.id === focusedRowId);
+      const activeId = focusedRowId ?? selectedEmailId;
+      const activeMsg = activeId ? localStore.messages.get(activeId) : null;
+
+      function scrollToMsg(id: string) {
+        const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === id);
+        if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
+      }
+
+      function advanceAfterAction() {
+        // After archive/delete, move focus to next message (or prev if at end)
+        const next = msgList[Math.min(msgList.length - 1, Math.max(0, idx + 1))];
+        const target = next && next.id !== activeId ? next : msgList[Math.max(0, idx - 1)];
+        if (target) {
+          openEmail(target.id);
+          scrollToMsg(target.id);
+        }
+      }
+
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
         const next = msgList[Math.min(msgList.length - 1, Math.max(0, idx + 1))];
-        if (next) {
-          setFocusedRow(next.id);
-          const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === next.id);
-          if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
-        }
+        if (next) { openEmail(next.id); scrollToMsg(next.id); }
       } else if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
         const prev = msgList[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
-        if (prev) {
-          setFocusedRow(prev.id);
-          const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === prev.id);
-          if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
-        }
+        if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
       } else if (e.key === "Enter" || e.key === " ") {
-        if (focusedRowId) {
-          e.preventDefault();
-          openEmail(focusedRowId);
-        }
+        if (focusedRowId) { e.preventDefault(); openEmail(focusedRowId); }
+
+      // ── Action shortcuts ─────────────────────────────────────────
+      } else if (e.key === "e" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.archiveMessage(localStore, activeMsg.id);
+        advanceAfterAction();
+      } else if (e.key === "#" || (e.key === "Delete" && !e.metaKey)) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.deleteMessage(localStore, activeMsg.id);
+        advanceAfterAction();
+      } else if (e.key === "u" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        if (activeMsg.flags.read) Mut.unreadMessage(localStore, activeMsg.id);
+        else Mut.readMessage(localStore, activeMsg.id);
+      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        if (activeMsg.star) Mut.clearStar(localStore, activeMsg.id);
+        else Mut.setStar(localStore, activeMsg.id, "yellow");
+      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        openComposer({ mode: "reply", replyToMessage: activeMsg });
+      } else if (e.key === "f" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        openComposer({ mode: "forward", replyToMessage: activeMsg });
+      } else if (e.key === "c" && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        openComposer();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelFocused, msgList, vItems, focusedRowId, setFocusedRow, openEmail]);
+  }, [isPanelFocused, msgList, vItems, focusedRowId, selectedEmailId, setFocusedRow, openEmail, openComposer]);
 
   function handleRowClick(emailId: string, e: React.MouseEvent) {
     if (e.shiftKey && selectionAnchorId) {

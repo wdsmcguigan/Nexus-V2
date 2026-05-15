@@ -25,6 +25,8 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useMessage } from "@/storage/useStore";
 import { bodyStore } from "@/storage/bodyStore";
+import { localStore } from "@/storage/local";
+import { readMessage } from "@/state/mutations";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 
@@ -39,6 +41,15 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
   const [imagesShown, setImagesShown] = React.useState(false);
+
+  // Auto-mark as read after 500ms — gives time to skip past without marking
+  React.useEffect(() => {
+    if (!effectiveEmailId) return;
+    const current = localStore.messages.get(effectiveEmailId);
+    if (!current || current.flags.read) return;
+    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), 500);
+    return () => clearTimeout(timer);
+  }, [effectiveEmailId]);
 
   // Inspector toggle — opens/closes an inspector panel associated with this viewer.
   const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
