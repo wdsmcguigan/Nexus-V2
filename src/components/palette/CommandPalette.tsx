@@ -36,11 +36,13 @@ import {
   LayoutPanelLeft,
   LayoutPanelTop,
   Columns2,
+  User,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
 import { localStore } from "@/storage/local";
-import { cn } from "@/lib/utils";
+import { queryMessages } from "@/storage/query";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import { Kbd } from "@/components/ui/Kbd";
 import type { Density } from "@/design-system/tokens";
 import type { StarStyle } from "@/data/types";
@@ -74,10 +76,15 @@ export function CommandPalette() {
   const setOpen = useWorkspace((s) => s.setPaletteOpen);
   const setFolder = useWorkspace((s) => s.setSelectedFolder);
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
+  const openComposer = useWorkspace((s) => s.openComposer);
+  const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
+  const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
   const togglePin = useWorkspace((s) => s.togglePin);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const setDensity = useWorkspace((s) => s.setDensity);
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
+
+  const [query, setQuery] = React.useState("");
   const previousPanelId = useWorkspace((s) => s.previousPanelId);
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
 
@@ -115,6 +122,7 @@ export function CommandPalette() {
       restoreTargetRef.current = previousPanelId;
     }
     if (!open && wasOpenRef.current) {
+      setQuery("");
       const target = restoreTargetRef.current;
       if (target) {
         const el = document.querySelector<HTMLElement>(`[data-panel-id="${target}"]`);
@@ -160,7 +168,7 @@ export function CommandPalette() {
       group: "Mail",
       icon: Reply,
       shortcut: "R",
-      perform: () => setComposerOpen(true),
+      perform: () => msg ? openComposer({ mode: "reply", replyToMessage: msg }) : setComposerOpen(true),
     });
     all.push({
       id: "forward",
@@ -168,7 +176,7 @@ export function CommandPalette() {
       group: "Mail",
       icon: Forward,
       shortcut: "F",
-      perform: () => setComposerOpen(true),
+      perform: () => msg ? openComposer({ mode: "forward", replyToMessage: msg }) : setComposerOpen(true),
     });
 
     // ── Message ops (require selected email) ───────────────────────
@@ -506,7 +514,8 @@ export function CommandPalette() {
             <div className="flex items-center gap-2 border-b border-border-default px-3">
               <Search size={14} className="text-text-tertiary" />
               <Command.Input
-                placeholder="Type a command or search…"
+                placeholder="Search mail, contacts, or type a command…"
+                onValueChange={setQuery}
                 className={cn(
                   "h-12 w-full bg-transparent font-sans text-body text-text-primary",
                   "placeholder:text-text-muted focus:outline-none",
@@ -516,8 +525,107 @@ export function CommandPalette() {
             </div>
             <Command.List data-scroll className="nx-scroll max-h-[420px] overflow-y-auto p-2">
               <Command.Empty className="px-3 py-6 text-center text-small text-text-tertiary">
-                No commands match
+                No results
               </Command.Empty>
+
+              {/* Live message search — shows when query ≥ 2 chars */}
+              {query.trim().length >= 2 && (() => {
+                const q = query.trim();
+                const msgResults = queryMessages(
+                  { textQuery: q, sortBy: "receivedAt", sortDir: "desc", limit: 8 },
+                  localStore,
+                ).items;
+                const contactResults = Array.from(localStore.contacts.values())
+                  .filter((c) =>
+                    c.name.toLowerCase().includes(q.toLowerCase()) ||
+                    c.emails.some((e) => e.toLowerCase().includes(q.toLowerCase()))
+                  )
+                  .slice(0, 4);
+
+                return (
+                  <>
+                    {msgResults.length > 0 && (
+                      <Command.Group
+                        heading="Messages"
+                        className={cn(
+                          "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2",
+                          "[&_[cmdk-group-heading]]:text-overline [&_[cmdk-group-heading]]:uppercase",
+                          "[&_[cmdk-group-heading]]:text-text-tertiary",
+                        )}
+                      >
+                        {msgResults.map((m) => (
+                          <Command.Item
+                            key={m.id}
+                            value={`msg-${m.id}-${m.subject}-${m.fromAddr.name}`}
+                            onSelect={() => {
+                              setFolder(m.folderId);
+                              setSelectedEmail(m.id);
+                              setOpen(false);
+                            }}
+                            className={cn(
+                              "flex h-10 cursor-default items-center gap-2 rounded-sm px-2",
+                              "text-body text-text-primary",
+                              "data-[selected=true]:bg-surface-3",
+                              "transition-colors duration-fast",
+                            )}
+                          >
+                            <Mail size={14} className="shrink-0 text-text-tertiary" />
+                            <div className="min-w-0 flex-1">
+                              <span className={cn(
+                                "truncate font-sans",
+                                m.flags.read ? "text-text-secondary" : "font-semibold text-text-primary",
+                              )}>
+                                {m.fromAddr.name}
+                              </span>
+                              <span className="ml-2 truncate text-small text-text-tertiary">
+                                {m.subject}
+                              </span>
+                            </div>
+                            <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
+                              {formatRelativeTime(new Date(m.receivedAt))}
+                            </span>
+                          </Command.Item>
+                        ))}
+                      </Command.Group>
+                    )}
+                    {contactResults.length > 0 && (
+                      <Command.Group
+                        heading="Contacts"
+                        className={cn(
+                          "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2",
+                          "[&_[cmdk-group-heading]]:text-overline [&_[cmdk-group-heading]]:uppercase",
+                          "[&_[cmdk-group-heading]]:text-text-tertiary",
+                        )}
+                      >
+                        {contactResults.map((c) => (
+                          <Command.Item
+                            key={c.id}
+                            value={`contact-${c.id}-${c.name}-${c.emails[0] ?? ""}`}
+                            onSelect={() => {
+                              openContactsPanel(c.id);
+                              setOpen(false);
+                            }}
+                            className={cn(
+                              "flex h-9 cursor-default items-center gap-2 rounded-sm px-2",
+                              "text-body text-text-primary",
+                              "data-[selected=true]:bg-surface-3",
+                              "transition-colors duration-fast",
+                            )}
+                          >
+                            <User size={14} className="shrink-0 text-text-tertiary" />
+                            <span className="flex-1 truncate">{c.name}</span>
+                            <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
+                              {c.emails[0] ?? ""}
+                            </span>
+                          </Command.Item>
+                        ))}
+                      </Command.Group>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Commands */}
               {Object.entries(grouped).map(([group, list]) => (
                 <Command.Group
                   key={group}
