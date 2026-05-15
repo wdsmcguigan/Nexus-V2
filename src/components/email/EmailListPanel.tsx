@@ -18,6 +18,7 @@ import {
   Trash2,
   MailOpen,
   Mail,
+  CheckCheck,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
@@ -555,6 +556,24 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
             {groupBySta ? "Grouped" : "Group by Status"}
           </button>
         </Tooltip>
+
+        {/* Mark all as read */}
+        {msgList.some((m) => !m.flags.read) && (
+          <Tooltip label={`Mark all ${msgList.filter((m) => !m.flags.read).length} as read`}>
+            <button
+              type="button"
+              onClick={() => {
+                for (const msg of msgList) {
+                  if (!msg.flags.read) Mut.readMessage(localStore, msg.id);
+                }
+              }}
+              className="ml-auto flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary hover:bg-surface-2 hover:text-text-secondary"
+            >
+              <CheckCheck size={11} />
+              Mark all read
+            </button>
+          </Tooltip>
+        )}
       </div>
 
       {/* Virtualized list */}

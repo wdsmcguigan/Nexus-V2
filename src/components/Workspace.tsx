@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
 import { StatusBar } from "@/components/chrome/StatusBar";
 import { CommandPalette } from "@/components/palette/CommandPalette";
+import { ShortcutHelpModal } from "@/components/chrome/ShortcutHelpModal";
 import { NavigationPanel } from "@/components/nav/NavigationPanel";
 import { EmailListPanel } from "@/components/email/EmailListPanel";
 import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
@@ -15,6 +16,7 @@ import { HudStrip } from "@/components/hud/HudStrip";
 import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
+import { useTotalInboxUnread } from "@/storage/useStore";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -135,6 +137,27 @@ function initLayout(event: DockviewReadyEvent) {
  * rearrangeable by dragging panel tabs to new positions.
  */
 export function Workspace() {
+  const [helpOpen, setHelpOpen] = React.useState(false);
+  const unread = useTotalInboxUnread();
+
+  // Update document title with unread badge
+  React.useEffect(() => {
+    document.title = unread > 0 ? `(${unread}) Nexus` : "Nexus";
+  }, [unread]);
+
+  // Global `?` key opens shortcut help
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (e.key === "?" && tag !== "INPUT" && tag !== "TEXTAREA") {
+        e.preventDefault();
+        setHelpOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <TooltipProvider delayDuration={600}>
       <div
@@ -164,6 +187,7 @@ export function Workspace() {
 
         <StatusBar />
         <CommandPalette />
+        <ShortcutHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
 
         <Toaster
           position="bottom-right"

@@ -140,6 +140,26 @@ export function useFolderUnreadCount(folderId: string): number {
   }, [v, folderId]);
 }
 
+/** Returns total unread count across all messages in the inbox label. */
+export function useTotalInboxUnread(): number {
+  const v = useStoreVersion();
+  return useMemo(() => {
+    let count = 0;
+    // Find the inbox system label
+    for (const label of localStore.labels.values()) {
+      if (label.kind === "system" && label.systemKind === "inbox") {
+        const msgIds = localStore.messagesByLabel.get(label.id) ?? new Set();
+        for (const id of msgIds) {
+          const msg = localStore.messages.get(id);
+          if (msg && !msg.flags.read) count++;
+        }
+        break;
+      }
+    }
+    return count;
+  }, [v]);
+}
+
 export function useContacts(): Contact[] {
   const v = useStoreVersion();
   void v;

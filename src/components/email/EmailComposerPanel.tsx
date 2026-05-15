@@ -14,6 +14,7 @@ import {
   X,
   ChevronDown,
 } from "lucide-react";
+import * as AlertDialog from "@radix-ui/react-dialog";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import UnderlineExt from "@tiptap/extension-underline";
@@ -171,6 +172,7 @@ export function EmailComposerPanel() {
 
   // ── Send machinery ────────────────────────────────────────────────────────
 
+  const [discardOpen, setDiscardOpen] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [countdown, setCountdown] = React.useState(0);
   const sendTimeoutRef = React.useRef<number | null>(null);
@@ -243,6 +245,18 @@ export function EmailComposerPanel() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  function handleDiscard() {
+    // Consider it dirty if: has recipients, non-empty subject, or editor
+    // has more than the initial quoted block (check text content length)
+    const text = editor?.getText() ?? "";
+    const isDirty = recipients.length > 0 || subject.trim() !== "" || text.trim().length > 0;
+    if (isDirty) {
+      setDiscardOpen(true);
+    } else {
+      setComposerOpen(false);
+    }
+  }
+
   function commitRecipient() {
     const v = draftInput.trim().replace(/,$/, "");
     if (!v) return;
@@ -265,6 +279,7 @@ export function EmailComposerPanel() {
     : (recipients[0] ?? "new message");
 
   return (
+    <>
     <Panel
       panelId={PANEL_ID}
       type="stage"
@@ -274,7 +289,7 @@ export function EmailComposerPanel() {
           meta={headerMeta}
           actions={
             <Tooltip label="Discard">
-              <Button variant="ghost" size="sm" iconOnly aria-label="Close composer" onClick={() => setComposerOpen(false)}>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Close composer" onClick={handleDiscard}>
                 <X />
               </Button>
             </Tooltip>
@@ -402,12 +417,48 @@ export function EmailComposerPanel() {
               <span className="ml-1 font-mono text-mono-xs text-text-tertiary">Click to undo</span>
             </button>
           )}
-          <Button variant="ghost" size="md" className="ml-auto" onClick={() => setComposerOpen(false)}>
+          <Button variant="ghost" size="md" className="ml-auto" onClick={handleDiscard}>
             Discard
           </Button>
         </div>
       </div>
     </Panel>
+
+    {/* Discard confirmation dialog */}
+    <AlertDialog.Root open={discardOpen} onOpenChange={setDiscardOpen}>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+        <AlertDialog.Content
+          className={cn(
+            "fixed left-1/2 top-1/2 z-[60] w-full max-w-sm -translate-x-1/2 -translate-y-1/2",
+            "rounded-lg border border-border-subtle bg-surface-2 p-6 shadow-xl",
+            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+          )}
+        >
+          <AlertDialog.Title className="mb-2 text-body-strong text-text-primary">
+            Discard this draft?
+          </AlertDialog.Title>
+          <AlertDialog.Description className="mb-5 text-body text-text-secondary">
+            Your message will be permanently deleted and cannot be recovered.
+          </AlertDialog.Description>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" size="md" onClick={() => setDiscardOpen(false)}>
+              Keep editing
+            </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              className="text-error hover:bg-error/10 hover:text-error"
+              onClick={() => { setDiscardOpen(false); setComposerOpen(false); }}
+            >
+              Discard
+            </Button>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+    </>
   );
 }
 
