@@ -10,13 +10,13 @@ import {
   Star,
   Archive,
   Trash2,
-  AlarmClock,
   Pin,
   PinOff,
   PanelRight,
   PanelRightClose,
   ChevronDown,
 } from "lucide-react";
+import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -207,11 +207,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   <Star />
                 </Button>
               </Tooltip>
-              <Tooltip label="Snooze" shortcut="H">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Snooze">
-                  <AlarmClock />
-                </Button>
-              </Tooltip>
+              <SnoozePopover messageId={msg.id} />
               <Tooltip label="Archive" shortcut="E">
                 <Button variant="ghost" size="sm" iconOnly aria-label="Archive">
                   <Archive />

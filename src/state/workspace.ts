@@ -169,6 +169,9 @@ interface WorkspaceState {
   setSelectedContactId: (id: string | null) => void;
   openContactsPanel: (contactId?: string) => void;
 
+  // Settings panel
+  openSettingsPanel: () => void;
+
   // Panel focus + Focus Memory Stack
   activePanelId: string | null;
   previousPanelId: string | null;
@@ -566,6 +569,23 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         component: "contacts",
         title: "Contacts",
         minimumWidth: 480,
+        position: { direction: "right" },
+      });
+    }
+  },
+
+  openSettingsPanel: () => {
+    const api = getDockviewApi();
+    if (!api) return;
+    const existing = api.panels.find((p) => p.id === "settings");
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      api.addPanel({
+        id: "settings",
+        component: "settings",
+        title: "Settings",
+        minimumWidth: 420,
         position: { direction: "right" },
       });
     }

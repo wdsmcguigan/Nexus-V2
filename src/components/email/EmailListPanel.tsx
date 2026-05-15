@@ -14,6 +14,10 @@ import {
   X,
   Link,
   Unlink,
+  Archive,
+  Trash2,
+  MailOpen,
+  Mail,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Panel } from "@/components/panel/Panel";
@@ -296,6 +300,15 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         if (!activeMsg) return;
         e.preventDefault();
         openComposer({ mode: "forward", replyToMessage: activeMsg });
+      } else if (e.key === "h" && !e.metaKey && !e.ctrlKey) {
+        if (!activeMsg) return;
+        e.preventDefault();
+        // Snooze: tomorrow 08:00 — quick one-key default
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(8, 0, 0, 0);
+        Mut.snoozeMessage(localStore, activeMsg.id, tomorrow.getTime());
+        advanceAfterAction();
       } else if (e.key === "c" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         openComposer();
@@ -544,23 +557,53 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       </div>
 
       {/* Virtualized list */}
-      <div
-        ref={parentRef}
-        data-scroll
-        role="grid"
-        aria-multiselectable
-        aria-label="Email list"
-        className="nx-scroll relative h-full overflow-auto outline-none"
-      >
-        <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
-          {virtualizer.getVirtualItems().map((vi) => {
-            const item = vItems[vi.index];
-            if (!item) return null;
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={parentRef}
+          data-scroll
+          role="grid"
+          aria-multiselectable
+          aria-label="Email list"
+          className="nx-scroll h-full overflow-auto outline-none"
+        >
+          <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+            {virtualizer.getVirtualItems().map((vi) => {
+              const item = vItems[vi.index];
+              if (!item) return null;
 
-            if (item.kind === "header") {
+              if (item.kind === "header") {
+                return (
+                  <div
+                    key={`h-${vi.index}`}
+                    data-index={vi.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      minHeight: GROUP_HEADER_HEIGHT,
+                      transform: `translateY(${vi.start}px)`,
+                    }}
+                    className="flex items-center border-b border-border-subtle bg-surface-1 px-4"
+                  >
+                    <span className="text-overline uppercase text-text-tertiary">
+                      {item.label}
+                    </span>
+                  </div>
+                );
+              }
+
+              const { msg } = item;
+              const isSelected = selectedEmailIds.has(msg.id);
+              const isSinglySelected = selectedEmailId === msg.id;
+              const isFocused = focusedRowId === msg.id;
+              const msgLabels = resolvedLabels.get(msg.id) ?? [];
+              const msgStatus = resolvedStatuses.get(msg.id) ?? null;
+
               return (
                 <div
-                  key={`h-${vi.index}`}
+                  key={msg.id}
                   data-index={vi.index}
                   ref={virtualizer.measureElement}
                   style={{
@@ -568,61 +611,151 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                     top: 0,
                     left: 0,
                     width: "100%",
-                    minHeight: GROUP_HEADER_HEIGHT,
                     transform: `translateY(${vi.start}px)`,
                   }}
-                  className="flex items-center border-b border-border-subtle bg-surface-1 px-4"
                 >
-                  <span className="text-overline uppercase text-text-tertiary">
-                    {item.label}
-                  </span>
+                  <EmailRow
+                    message={msg}
+                    density={density}
+                    selected={isSelected || isSinglySelected}
+                    focused={isFocused}
+                    ghosted={!isPanelFocused}
+                    inSelectionSet={isSelected}
+                    labels={msgLabels}
+                    status={msgStatus}
+                    threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
+                    onFocus={() => setFocusedRow(msg.id)}
+                    onSelect={(e) => handleRowClick(msg.id, e)}
+                    onToggleStar={() => setStarred(msg.id, !msg.star)}
+                    onToggleCheck={(c) => {
+                      if (c && !isSelected) toggleEmailSelection(msg.id);
+                      if (!c && isSelected) toggleEmailSelection(msg.id);
+                    }}
+                  />
                 </div>
               );
-            }
-
-            const { msg } = item;
-            const isSelected = selectedEmailIds.has(msg.id);
-            const isSinglySelected = selectedEmailId === msg.id;
-            const isFocused = focusedRowId === msg.id;
-            const msgLabels = resolvedLabels.get(msg.id) ?? [];
-            const msgStatus = resolvedStatuses.get(msg.id) ?? null;
-
-            return (
-              <div
-                key={msg.id}
-                data-index={vi.index}
-                ref={virtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${vi.start}px)`,
-                }}
-              >
-                <EmailRow
-                  message={msg}
-                  density={density}
-                  selected={isSelected || isSinglySelected}
-                  focused={isFocused}
-                  ghosted={!isPanelFocused}
-                  inSelectionSet={isSelected}
-                  labels={msgLabels}
-                  status={msgStatus}
-                  threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
-                  onFocus={() => setFocusedRow(msg.id)}
-                  onSelect={(e) => handleRowClick(msg.id, e)}
-                  onToggleStar={() => setStarred(msg.id, !msg.star)}
-                  onToggleCheck={(c) => {
-                    if (c && !isSelected) toggleEmailSelection(msg.id);
-                    if (!c && isSelected) toggleEmailSelection(msg.id);
-                  }}
-                />
-              </div>
-            );
-          })}
+            })}
+          </div>
         </div>
+
+        {/* Bulk action bar — floats above the list when ≥2 emails are checked */}
+        {selectedEmailIds.size > 1 && (
+          <BulkActionBar
+            selectedIds={selectedEmailIds}
+            onClear={() => useWorkspace.getState().clearSelection()}
+          />
+        )}
       </div>
     </Panel>
+  );
+}
+
+// ─── Bulk action bar ──────────────────────────────────────────────────────────
+
+function BulkActionBar({
+  selectedIds,
+  onClear,
+}: {
+  selectedIds: Set<string>;
+  onClear: () => void;
+}) {
+  const count = selectedIds.size;
+
+  function archiveAll() {
+    for (const id of selectedIds) Mut.archiveMessage(localStore, id);
+    onClear();
+  }
+
+  function deleteAll() {
+    for (const id of selectedIds) Mut.deleteMessage(localStore, id);
+    onClear();
+  }
+
+  function markReadAll() {
+    for (const id of selectedIds) {
+      const msg = localStore.messages.get(id);
+      if (msg && !msg.flags.read) Mut.readMessage(localStore, id);
+    }
+  }
+
+  function markUnreadAll() {
+    for (const id of selectedIds) {
+      const msg = localStore.messages.get(id);
+      if (msg && msg.flags.read) Mut.unreadMessage(localStore, id);
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        "absolute bottom-4 left-1/2 -translate-x-1/2",
+        "flex items-center gap-1 rounded-lg border border-border-default",
+        "bg-surface-3 px-2 py-1.5 shadow-l4 backdrop-blur-sm",
+        "animate-in fade-in-0 slide-in-from-bottom-2 duration-150",
+      )}
+    >
+      <span className="px-2 font-mono text-mono-sm text-text-secondary">
+        {count} selected
+      </span>
+      <span className="h-4 w-px bg-border-subtle" />
+
+      <Tooltip label="Archive all (E)">
+        <button
+          type="button"
+          onClick={archiveAll}
+          className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-caption text-text-secondary hover:bg-surface-4 hover:text-text-primary"
+        >
+          <Archive size={13} />
+          Archive
+        </button>
+      </Tooltip>
+
+      <Tooltip label="Delete all (#)">
+        <button
+          type="button"
+          onClick={deleteAll}
+          className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-caption text-text-secondary hover:bg-surface-4 hover:text-error"
+        >
+          <Trash2 size={13} />
+          Delete
+        </button>
+      </Tooltip>
+
+      <span className="h-4 w-px bg-border-subtle" />
+
+      <Tooltip label="Mark all as read">
+        <button
+          type="button"
+          onClick={markReadAll}
+          className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-caption text-text-secondary hover:bg-surface-4 hover:text-text-primary"
+        >
+          <MailOpen size={13} />
+          Read
+        </button>
+      </Tooltip>
+
+      <Tooltip label="Mark all as unread">
+        <button
+          type="button"
+          onClick={markUnreadAll}
+          className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-caption text-text-secondary hover:bg-surface-4 hover:text-text-primary"
+        >
+          <Mail size={13} />
+          Unread
+        </button>
+      </Tooltip>
+
+      <span className="h-4 w-px bg-border-subtle" />
+
+      <Tooltip label="Clear selection (Esc)">
+        <button
+          type="button"
+          onClick={onClear}
+          className="flex items-center gap-1 rounded-xs px-2 py-1 text-caption text-text-tertiary hover:bg-surface-4 hover:text-text-primary"
+        >
+          <X size={12} />
+        </button>
+      </Tooltip>
+    </div>
   );
 }

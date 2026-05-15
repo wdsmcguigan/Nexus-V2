@@ -83,6 +83,7 @@ export function CommandPalette() {
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const setDensity = useWorkspace((s) => s.setDensity);
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
+  const openSettingsPanel = useWorkspace((s) => s.openSettingsPanel);
 
   const [query, setQuery] = React.useState("");
   const previousPanelId = useWorkspace((s) => s.previousPanelId);
@@ -139,6 +140,10 @@ export function CommandPalette() {
       if (cmd && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen(!open);
+      }
+      if (cmd && e.key === ",") {
+        e.preventDefault();
+        openSettingsPanel();
       }
       if (e.key === "Escape" && open) {
         setOpen(false);
@@ -401,7 +406,7 @@ export function CommandPalette() {
     all.push({ id: "density-compact", label: "Density: Compact", group: "Workspace", icon: Rows4, perform: () => setDensity("compact" as Density) });
     all.push({ id: "density-comfortable", label: "Density: Comfortable", group: "Workspace", icon: Rows3, perform: () => setDensity("comfortable" as Density) });
     all.push({ id: "density-cozy", label: "Density: Cozy", group: "Workspace", icon: Rows2, perform: () => setDensity("cozy" as Density) });
-    all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => {} });
+    all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => openSettingsPanel() });
 
     // ── Workspaces ──────────────────────────────────────────────────
     all.push({

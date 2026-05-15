@@ -13,6 +13,7 @@ import { InspectorPanel } from "@/components/inspector/InspectorPanel";
 import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
 import { ContactsPanel } from "@/components/contacts/ContactsPanel";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
@@ -27,6 +28,7 @@ const ViewerPanel = (props: IDockviewPanelProps) => {
 };
 const InspPanel = (props: IDockviewPanelProps) => <InspectorPanel panelId={props.api.id} />;
 const ContactsPanelWrapper = (props: IDockviewPanelProps) => <ContactsPanel panelId={props.api.id} />;
+const SettingsPanelWrapper = (props: IDockviewPanelProps) => <SettingsPanel panelId={props.api.id} />;
 
 const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   nav: NavPanel,
@@ -34,6 +36,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
   viewer: ViewerPanel,
   inspector: InspPanel,
   contacts: ContactsPanelWrapper,
+  settings: SettingsPanelWrapper,
 };
 
 // ─── Initial layout ───────────────────────────────────────────────────────────

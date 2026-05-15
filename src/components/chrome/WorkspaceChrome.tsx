@@ -4,6 +4,7 @@ import {
   Sun,
   Moon,
   Command as CommandIcon,
+  Settings,
 } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +17,7 @@ export function WorkspaceChrome() {
   const theme = useWorkspace((s) => s.theme);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const setPaletteOpen = useWorkspace((s) => s.setPaletteOpen);
+  const openSettingsPanel = useWorkspace((s) => s.openSettingsPanel);
 
   return (
     <header
@@ -73,6 +75,11 @@ export function WorkspaceChrome() {
           onClick={() => setPaletteOpen(true)}
         >
           <CommandIcon />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Settings">
+        <Button variant="ghost" size="sm" iconOnly aria-label="Settings" onClick={openSettingsPanel}>
+          <Settings />
         </Button>
       </Tooltip>
       <Tooltip label="Refresh" shortcut="⌘R">
