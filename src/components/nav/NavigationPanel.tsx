@@ -36,6 +36,7 @@ import {
   useLabelUnreadCount,
   useLabelCount,
   useFolderCount,
+  useFolderUnreadCount,
   useSavedViews,
 } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
@@ -420,6 +421,7 @@ function FolderTreeNode({
   const recolorFolder = useWorkspace((s) => s.recolorFolder);
   const deleteFolder = useWorkspace((s) => s.deleteFolder);
   const count = useFolderCount(folder.id);
+  const unread = useFolderUnreadCount(folder.id);
   const active = folderId === folder.id;
 
   const children = allFolders.filter((f) => f.parentId === folder.id);
@@ -515,12 +517,23 @@ function FolderTreeNode({
               size={13}
               className={cn(active ? "text-accent" : "opacity-dim group-hover/row:opacity-full")}
             />
-            <span className="min-w-0 flex-1 truncate text-body">{folder.name}</span>
-            {count > 0 && (
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-body",
+                unread > 0 && !active && "font-semibold text-text-primary",
+              )}
+            >
+              {folder.name}
+            </span>
+            {unread > 0 ? (
+              <span className="rounded-xs bg-surface-3 px-1 py-px font-mono text-mono-xs font-semibold text-text-secondary">
+                {unread}
+              </span>
+            ) : count > 0 ? (
               <span className="font-mono text-mono-xs text-text-tertiary opacity-dim">
                 {count}
               </span>
-            )}
+            ) : null}
           </button>
         </ContextMenu>
       )}

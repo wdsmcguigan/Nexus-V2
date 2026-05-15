@@ -212,6 +212,11 @@ interface WorkspaceState {
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
 
+  // Sync status (updated from Tauri events or manual triggers)
+  lastSyncedAt: number | null;
+  isSyncing: boolean;
+  setSyncStatus: (syncing: boolean, syncedAt?: number) => void;
+
   // HUD strip
   hudExpanded: boolean;
   toggleHud: () => void;
@@ -682,6 +687,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   paletteOpen: false,
   setPaletteOpen: (open) => set({ paletteOpen: open }),
+
+  // ── Sync status ────────────────────────────────────────────────────────────
+
+  lastSyncedAt: null,
+  isSyncing: false,
+  setSyncStatus: (syncing, syncedAt) =>
+    set(syncing
+      ? { isSyncing: true }
+      : { isSyncing: false, lastSyncedAt: syncedAt ?? get().lastSyncedAt }),
 
   // ── HUD strip ─────────────────────────────────────────────────────────────
 

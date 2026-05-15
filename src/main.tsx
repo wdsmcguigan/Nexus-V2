@@ -10,8 +10,11 @@ import {
   loadVaultData,
   getVaultPath,
   onHydrateNeeded,
+  onSyncProgress,
+  onNewMessages,
   startWatcher,
 } from "@/storage/tauri";
+import { useWorkspace } from "@/state/workspace";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root missing in index.html");
@@ -52,6 +55,14 @@ async function initTauri() {
       localStore.hydrate(fresh as Parameters<typeof localStore.hydrate>[0]);
       const msgs = Array.from(localStore.messages.values());
       ftsIndex.indexMessages(msgs, bodyStore);
+    });
+
+    // Push sync progress into workspace state so WorkspaceChrome can display it
+    onSyncProgress(() => {
+      useWorkspace.getState().setSyncStatus(true);
+    });
+    onNewMessages(() => {
+      useWorkspace.getState().setSyncStatus(false, Date.now());
     });
   } catch (e) {
     console.error("Failed to load vault data, falling back to fixtures:", e);

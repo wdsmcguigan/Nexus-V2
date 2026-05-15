@@ -126,6 +126,20 @@ export function useFolderCount(folderId: string): number {
   );
 }
 
+/** Returns unread count for a folder. */
+export function useFolderUnreadCount(folderId: string): number {
+  const v = useStoreVersion();
+  return useMemo(() => {
+    const msgIds = localStore.messagesByFolder.get(folderId) ?? new Set();
+    let count = 0;
+    for (const id of msgIds) {
+      const msg = localStore.messages.get(id);
+      if (msg && !msg.flags.read) count++;
+    }
+    return count;
+  }, [v, folderId]);
+}
+
 export function useContacts(): Contact[] {
   const v = useStoreVersion();
   void v;

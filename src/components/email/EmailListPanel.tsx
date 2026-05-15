@@ -29,6 +29,7 @@ import { TableView } from "@/components/views/TableView";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
+import { EmailRowContextMenu } from "./EmailRowContextMenu";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
@@ -614,24 +615,40 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                     transform: `translateY(${vi.start}px)`,
                   }}
                 >
-                  <EmailRow
+                  <EmailRowContextMenu
                     message={msg}
-                    density={density}
-                    selected={isSelected || isSinglySelected}
-                    focused={isFocused}
-                    ghosted={!isPanelFocused}
-                    inSelectionSet={isSelected}
-                    labels={msgLabels}
-                    status={msgStatus}
-                    threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
-                    onFocus={() => setFocusedRow(msg.id)}
-                    onSelect={(e) => handleRowClick(msg.id, e)}
-                    onToggleStar={() => setStarred(msg.id, !msg.star)}
-                    onToggleCheck={(c) => {
-                      if (c && !isSelected) toggleEmailSelection(msg.id);
-                      if (!c && isSelected) toggleEmailSelection(msg.id);
+                    onArchive={() => {
+                      Mut.archiveMessage(localStore, msg.id);
+                      const i = msgList.findIndex((m) => m.id === msg.id);
+                      const next = msgList[i + 1] ?? msgList[i - 1];
+                      if (next) openEmail(next.id);
                     }}
-                  />
+                    onDelete={() => {
+                      Mut.deleteMessage(localStore, msg.id);
+                      const i = msgList.findIndex((m) => m.id === msg.id);
+                      const next = msgList[i + 1] ?? msgList[i - 1];
+                      if (next) openEmail(next.id);
+                    }}
+                  >
+                    <EmailRow
+                      message={msg}
+                      density={density}
+                      selected={isSelected || isSinglySelected}
+                      focused={isFocused}
+                      ghosted={!isPanelFocused}
+                      inSelectionSet={isSelected}
+                      labels={msgLabels}
+                      status={msgStatus}
+                      threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
+                      onFocus={() => setFocusedRow(msg.id)}
+                      onSelect={(e) => handleRowClick(msg.id, e)}
+                      onToggleStar={() => setStarred(msg.id, !msg.star)}
+                      onToggleCheck={(c) => {
+                        if (c && !isSelected) toggleEmailSelection(msg.id);
+                        if (!c && isSelected) toggleEmailSelection(msg.id);
+                      }}
+                    />
+                  </EmailRowContextMenu>
                 </div>
               );
             })}
