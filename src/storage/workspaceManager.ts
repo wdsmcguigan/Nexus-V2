@@ -32,6 +32,8 @@ export interface WorkspaceSnapshot {
   tableColumnOrder: string[];
   /** Per-column width overrides for the table view (key → px width). */
   tableColumnWidths: Record<string, number>;
+  /** Controls whether contextual "jump to filtered messages" opens in-place or a new panel. */
+  filteredViewBehavior: "replace" | "new-panel";
 }
 
 export interface WorkspacesData {
@@ -77,5 +79,6 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     theme: "dark",
     tableColumnOrder: [],
     tableColumnWidths: {},
+    filteredViewBehavior: "replace",
   };
 }

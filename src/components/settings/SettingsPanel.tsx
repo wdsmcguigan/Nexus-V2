@@ -108,6 +108,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const setTheme = useWorkspace((s) => s.setTheme);
   const density = useWorkspace((s) => s.density);
   const setDensity = useWorkspace((s) => s.setDensity);
+  const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
+  const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
 
   const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences">("accounts");
 
@@ -251,6 +253,52 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                       <div className="text-small text-text-tertiary">{d.sublabel}</div>
                     </div>
                     {density === d.value && (
+                      <CheckCircle2 size={14} className="ml-auto shrink-0 text-accent" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Open filtered views */}
+              <SectionHeader>Open filtered views</SectionHeader>
+              <div className="flex flex-col gap-1 px-4 pb-4">
+                {(
+                  [
+                    {
+                      value: "replace" as const,
+                      label: "In current panel",
+                      sublabel: "Navigates the existing email list",
+                    },
+                    {
+                      value: "new-panel" as const,
+                      label: "In new panel",
+                      sublabel: "Opens a separate list alongside",
+                    },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setFilteredViewBehavior(opt.value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-sm border px-3 py-2.5 text-left transition-colors",
+                      filteredViewBehavior === opt.value
+                        ? "border-accent bg-accent-soft"
+                        : "border-border-subtle bg-surface-2 hover:border-border-default",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className={cn(
+                          "text-body",
+                          filteredViewBehavior === opt.value ? "text-text-primary" : "text-text-secondary",
+                        )}
+                      >
+                        {opt.label}
+                      </div>
+                      <div className="text-small text-text-tertiary">{opt.sublabel}</div>
+                    </div>
+                    {filteredViewBehavior === opt.value && (
                       <CheckCircle2 size={14} className="ml-auto shrink-0 text-accent" />
                     )}
                   </button>

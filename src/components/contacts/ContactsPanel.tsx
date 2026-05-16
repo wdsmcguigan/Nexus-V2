@@ -106,8 +106,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
   const setSelectedContactId = useWorkspace((s) => s.setSelectedContactId);
   const participantFilter = useWorkspace((s) => s.contactParticipantFilter);
   const setParticipantFilter = useWorkspace((s) => s.setContactParticipantFilter);
-  const setFilterAxis = useWorkspace((s) => s.setFilterAxis);
-  const setSelectedFolder = useWorkspace((s) => s.setSelectedFolder);
+  const openContactMessages = useWorkspace((s) => s.openContactMessages);
 
   const [query, setQuery] = React.useState("");
 
@@ -156,15 +155,6 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
     upsertContact(contact);
     setSelectedContactId(id);
   };
-
-  function navigateToContactMessages(contactId: string) {
-    // Set contactId filter on the global email list and navigate to inbox
-    const inboxLabel = Array.from(localStore.labels.values()).find(
-      (l) => l.kind === "system" && l.systemKind === "inbox",
-    );
-    if (inboxLabel) setSelectedFolder(inboxLabel.id);
-    setFilterAxis({ contactId });
-  }
 
   const effectivePanelId = panelId ?? "contacts";
 
@@ -258,7 +248,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     primaryEmail={contact.emails[0] ?? email}
                     isSelected={contact.id === selectedContactId}
                     onSelect={() => setSelectedContactId(contact.id)}
-                    onMessageCountClick={() => navigateToContactMessages(contact.id)}
+                    onMessageCountClick={() => openContactMessages(contact.id)}
                   />
                 ) : (
                   <ParticipantPlaceholderRow
@@ -284,7 +274,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     primaryEmail={c.emails[0] ?? ""}
                     isSelected={c.id === selectedContactId}
                     onSelect={() => setSelectedContactId(c.id)}
-                    onMessageCountClick={() => navigateToContactMessages(c.id)}
+                    onMessageCountClick={() => openContactMessages(c.id)}
                   />
                 ))
               )

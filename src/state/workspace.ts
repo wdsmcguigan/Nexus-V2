@@ -171,6 +171,12 @@ interface WorkspaceState {
   contactParticipantFilter: string[] | null;
   setContactParticipantFilter: (emails: string[] | null) => void;
   openContactsPanel: (contactId?: string, participantEmails?: string[]) => void;
+  /** Open a filtered email list showing all messages for a given contact. */
+  openContactMessages: (contactId: string) => void;
+
+  // Preferences
+  filteredViewBehavior: "replace" | "new-panel";
+  setFilteredViewBehavior: (v: "replace" | "new-panel") => void;
 
   // Settings panel
   openSettingsPanel: () => void;
@@ -305,6 +311,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       theme: s.theme,
       tableColumnOrder: s.tableColumnOrder,
       tableColumnWidths: s.tableColumnWidths,
+      filteredViewBehavior: s.filteredViewBehavior,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -340,6 +347,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       theme: s.theme,
       tableColumnOrder: mode === "clone" ? [...s.tableColumnOrder] : [],
       tableColumnWidths: mode === "clone" ? { ...s.tableColumnWidths } : {},
+      filteredViewBehavior: s.filteredViewBehavior,
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -376,6 +384,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       theme: ws.theme,
       tableColumnOrder: ws.tableColumnOrder ?? [],
       tableColumnWidths: ws.tableColumnWidths ?? {},
+      filteredViewBehavior: ws.filteredViewBehavior ?? "replace",
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -446,6 +455,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ workspaces });
     saveWorkspacesToStorage({ workspaces, activeId: s.activeWorkspaceId });
   },
+
+  // ── Filtered view behavior preference ─────────────────────────────────────
+
+  filteredViewBehavior: (_activeWs.filteredViewBehavior ?? "replace"),
+  setFilteredViewBehavior: (v) => set({ filteredViewBehavior: v }),
 
   // ── Theme ──────────────────────────────────────────────────────────────────
 
@@ -581,6 +595,36 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         component: "contacts",
         title: "Contacts",
         minimumWidth: 480,
+        position: { direction: "right" },
+      });
+    }
+  },
+
+  openContactMessages: (contactId) => {
+    const { filteredViewBehavior, setSelectedFolder, setFilterAxis } = get();
+    const inboxLabel = Array.from(localStore.labels.values()).find(
+      (l) => l.kind === "system" && l.systemKind === "inbox",
+    );
+    const inboxId = inboxLabel?.id ?? "inbox";
+
+    if (filteredViewBehavior === "replace") {
+      setSelectedFolder(inboxId);
+      setFilterAxis({ contactId });
+    } else {
+      const api = getDockviewApi();
+      if (!api) return;
+      const newId = newPanelId("list");
+      set((s) => ({
+        listPanelState: {
+          ...s.listPanelState,
+          [newId]: { filter: { contactId }, selectedFolderId: inboxId, selectedSavedViewId: null },
+        },
+      }));
+      api.addPanel({
+        id: newId,
+        component: "list",
+        title: "Mail",
+        minimumWidth: 280,
         position: { direction: "right" },
       });
     }

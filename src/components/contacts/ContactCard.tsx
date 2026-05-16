@@ -217,6 +217,7 @@ function FoundContactCard({
 }) {
   const msgCount = useContactMessageCount(contact.id);
   const colorSeed = pickPanelLink(contact.emails[0] ?? contact.id);
+  const openContactMessages = useWorkspace((s) => s.openContactMessages);
 
   const save = (patch: Parameters<typeof updateContact>[1]) => {
     updateContact(contact.id, patch);
@@ -337,10 +338,14 @@ function FoundContactCard({
 
       {/* Message count badge */}
       {msgCount > 0 && (
-        <div className="flex items-center gap-1.5 text-small text-text-secondary">
+        <button
+          type="button"
+          onClick={() => openContactMessages(contact.id)}
+          className="flex items-center gap-1.5 text-small text-text-secondary hover:text-accent hover:underline"
+        >
           <MessageSquare size={13} className="text-text-tertiary" />
-          <span>{msgCount} message{msgCount !== 1 ? "s" : ""}</span>
-        </div>
+          {msgCount} message{msgCount !== 1 ? "s" : ""}
+        </button>
       )}
 
       {/* Emails */}
