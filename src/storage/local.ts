@@ -176,6 +176,8 @@ export class LocalStore {
         if (cid) this._setAdd(this.messagesByContact, cid, msg.id);
       }
     }
+
+    this._notify();
   }
 
   toSnapshot(): StorageSnapshot {
