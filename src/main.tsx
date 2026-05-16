@@ -25,39 +25,42 @@ createRoot(rootEl).render(
   </StrictMode>,
 );
 
+async function hydrateFromVault(path: string) {
+  const payload = await loadVaultData(path);
+  localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+  ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
+}
+
 async function initTauri() {
-  // Check if the user already has a vault configured
+  // Register the hydrate listener unconditionally so the first-run
+  // onboarding→main transition works even when we fall through to fixtures below.
+  onHydrateNeeded(async () => {
+    const path = await getVaultPath();
+    if (!path) return;
+    await hydrateFromVault(path).catch((e) =>
+      console.error("Re-hydrate failed:", e),
+    );
+    useWorkspace.getState().setSyncStatus(false, Date.now());
+  });
+
   const savedPath = await getVaultPath();
   if (!savedPath) {
-    // No vault yet — load fixture data so the UI isn't blank
-    // The onboarding UI (VaultSetup) will handle first-run
+    // No vault yet — load fixture data so the UI isn't blank.
+    // When onboarding completes, Rust emits vault:hydrate-needed and the
+    // listener above will replace fixtures with real data automatically.
     await import("@/data/fixtures");
     return;
   }
 
   // Load real data from SQLite
   try {
-    const payload = await loadVaultData(savedPath);
-    localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
-
-    // Rebuild FTS index from real messages
-    const messages = Array.from(localStore.messages.values());
-    ftsIndex.indexMessages(messages, bodyStore);
+    await hydrateFromVault(savedPath);
 
     // Start filesystem watcher
     await startWatcher(savedPath).catch((e) =>
       console.warn("Watcher failed to start:", e),
     );
 
-    // Listen for re-hydrate signals from Rust (after sync, FS changes, etc.)
-    onHydrateNeeded(async () => {
-      const fresh = await loadVaultData(savedPath);
-      localStore.hydrate(fresh as Parameters<typeof localStore.hydrate>[0]);
-      const msgs = Array.from(localStore.messages.values());
-      ftsIndex.indexMessages(msgs, bodyStore);
-    });
-
-    // Push sync progress into workspace state so WorkspaceChrome can display it
     onSyncProgress(() => {
       useWorkspace.getState().setSyncStatus(true);
     });

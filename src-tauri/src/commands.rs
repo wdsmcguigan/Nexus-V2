@@ -76,8 +76,9 @@ pub async fn set_vault_path(
     state: State<'_, AppState>,
     path: String,
 ) -> std::result::Result<(), String> {
-    *state.vault_path.lock().unwrap() = Some(path.clone());
-    save_vault_path_to_disk(&path).map_err(|e| e.to_string())
+    let expanded = expand_tilde(&path);
+    *state.vault_path.lock().unwrap() = Some(expanded.clone());
+    save_vault_path_to_disk(&expanded).map_err(|e| e.to_string())
 }
 
 // ─── Gmail OAuth + sync commands ──────────────────────────────────────────────
@@ -296,6 +297,7 @@ fn get_vault_id(state: &AppState) -> Result<String> {
 }
 
 async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> {
+    let vault_path = &expand_tilde(vault_path);
     let db_path = std::path::Path::new(vault_path).join("nexus.db");
     std::fs::create_dir_all(vault_path).context("creating vault directory")?;
 
