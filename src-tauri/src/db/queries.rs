@@ -581,12 +581,13 @@ impl VaultDb {
         for gl in gmail_labels {
             self.conn.execute(
                 "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, provider_id)
-                 VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(id) DO UPDATE SET
                    name = excluded.name,
+                   color = excluded.color,
                    provider_id = excluded.provider_id",
                 params![
-                    gl.nexus_id, vault_id, gl.name, gl.kind, gl.system_kind,
+                    gl.nexus_id, vault_id, gl.name, gl.color, gl.kind, gl.system_kind,
                     gl.position, gl.gmail_id
                 ],
             )?;

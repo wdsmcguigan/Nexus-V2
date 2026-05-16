@@ -9,6 +9,63 @@ pub struct GmailLabelInfo {
     pub kind: &'static str,        // 'system' | 'user'
     pub system_kind: Option<&'static str>,
     pub position: i64,
+    pub color: i64,                // 1-8, maps to --color-link-N
+}
+
+/// Parse a #rrggbb hex string and return the RGB hue (0-360).
+/// Returns None for achromatic colors (saturation < 15%).
+fn hex_to_hue(hex: &str) -> Option<f64> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() != 6 { return None; }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f64 / 255.0;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f64 / 255.0;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f64 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    if delta < 0.15 { return None; } // achromatic
+    let hue = if max == r {
+        60.0 * (((g - b) / delta) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    };
+    Some((hue + 360.0) % 360.0)
+}
+
+/// Map a Gmail backgroundColor hex to a Nexus color slot (1-8).
+/// Nexus slots by approximate hue:
+///   1=red(~25), 2=orange(~78), 3=yellow-green(~130), 4=green(~152),
+///   5=teal(~200), 6=purple(~290), 7=pink(~330), 8=gray(achromatic)
+fn gmail_hex_to_nexus_color(hex: &str) -> i64 {
+    match hex_to_hue(hex) {
+        None => 8, // achromatic → gray
+        Some(h) => match h as u32 {
+            0..=30 | 331..=360 => 1,   // red
+            31..=95            => 2,   // orange / yellow
+            96..=140           => 3,   // yellow-green
+            141..=170          => 4,   // green
+            171..=230          => 5,   // teal / cyan
+            231..=305          => 6,   // blue / purple
+            _                  => 7,   // pink / magenta
+        },
+    }
+}
+
+/// Deterministic color 1-7 from a Gmail label ID (stable across reconnects).
+fn stable_color(id: &str) -> i64 {
+    let sum: u64 = id.bytes().map(|b| b as u64).sum();
+    (sum % 7) as i64 + 1
+}
+
+/// Resolve the best color for a user label: use Gmail color when set, else hash the ID.
+fn user_label_color(gl: &GmailLabel) -> i64 {
+    gl.color
+        .as_ref()
+        .and_then(|c| c.background_color.as_deref())
+        .map(gmail_hex_to_nexus_color)
+        .unwrap_or_else(|| stable_color(&gl.id))
 }
 
 /// Map a list of Gmail labels to Nexus label records.
@@ -17,13 +74,13 @@ pub fn map_gmail_labels(labels: &[GmailLabel], vault_id: &str) -> Vec<GmailLabel
     let mut out = Vec::new();
     for gl in labels {
         let info = match gl.id.as_str() {
-            "INBOX"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-inbox"),    name: "Inbox".into(),     kind: "system", system_kind: Some("inbox"),    position: 0 },
-            "SENT"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-sent"),     name: "Sent".into(),      kind: "system", system_kind: Some("sent"),     position: 1 },
-            "DRAFT"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-drafts"),   name: "Drafts".into(),    kind: "system", system_kind: Some("drafts"),   position: 2 },
-            "TRASH"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-trash"),    name: "Trash".into(),     kind: "system", system_kind: Some("trash"),    position: 3 },
-            "SPAM"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-spam"),     name: "Spam".into(),      kind: "system", system_kind: None,             position: 4 },
-            "STARRED"   => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-starred"),  name: "Starred".into(),   kind: "system", system_kind: Some("starred"),  position: 5 },
-            "IMPORTANT" => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-important"),name: "Important".into(), kind: "system", system_kind: Some("important"),position: 6 },
+            "INBOX"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-inbox"),    name: "Inbox".into(),     kind: "system", system_kind: Some("inbox"),    position: 0, color: 5 },
+            "SENT"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-sent"),     name: "Sent".into(),      kind: "system", system_kind: Some("sent"),     position: 1, color: 5 },
+            "DRAFT"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-drafts"),   name: "Drafts".into(),    kind: "system", system_kind: Some("drafts"),   position: 2, color: 8 },
+            "TRASH"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-trash"),    name: "Trash".into(),     kind: "system", system_kind: Some("trash"),    position: 3, color: 1 },
+            "SPAM"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-spam"),     name: "Spam".into(),      kind: "system", system_kind: None,             position: 4, color: 1 },
+            "STARRED"   => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-starred"),  name: "Starred".into(),   kind: "system", system_kind: Some("starred"),  position: 5, color: 2 },
+            "IMPORTANT" => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-important"),name: "Important".into(), kind: "system", system_kind: Some("important"),position: 6, color: 3 },
             "CATEGORY_PERSONAL" | "CATEGORY_SOCIAL" | "CATEGORY_PROMOTIONS" |
             "CATEGORY_UPDATES" | "CATEGORY_FORUMS" => continue, // skip category tabs
             _ if gl.label_type.as_deref() == Some("user") => {
@@ -34,6 +91,7 @@ pub fn map_gmail_labels(labels: &[GmailLabel], vault_id: &str) -> Vec<GmailLabel
                     kind: "user",
                     system_kind: None,
                     position: 100,
+                    color: user_label_color(gl),
                 }
             }
             _ => continue,

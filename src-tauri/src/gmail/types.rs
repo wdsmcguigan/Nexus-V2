@@ -85,6 +85,13 @@ pub struct GmailLabel {
     pub label_type: Option<String>,
     #[serde(rename = "messageListVisibility")]
     pub message_list_visibility: Option<String>,
+    pub color: Option<GmailLabelColor>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GmailLabelColor {
+    #[serde(rename = "backgroundColor")]
+    pub background_color: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
