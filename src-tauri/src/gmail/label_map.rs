@@ -34,29 +34,42 @@ fn hex_to_hue(hex: &str) -> Option<f64> {
     Some((hue + 360.0) % 360.0)
 }
 
-/// Map a Gmail backgroundColor hex to a Nexus color slot (1-8).
-/// Nexus slots by approximate hue:
-///   1=red(~25), 2=orange(~78), 3=yellow-green(~130), 4=green(~152),
-///   5=teal(~200), 6=purple(~290), 7=pink(~330), 8=gray(achromatic)
+/// Map a Gmail backgroundColor hex to a Nexus color slot (1-21).
+/// Slots by hue: 1=coral, 9=crimson, 10=orange, 2=amber, 11=yellow, 12=sage,
+///   3=lime, 13=forest, 4=emerald, 14=seafoam, 5=teal, 15=sky, 21=steel,
+///   8=slate(gray), 16=blue, 17=indigo, 6=violet, 18=grape, 19=fuchsia, 7=rose, 20=blush
 fn gmail_hex_to_nexus_color(hex: &str) -> i64 {
     match hex_to_hue(hex) {
-        None => 8, // achromatic → gray
+        None => 8,  // achromatic → slate/gray
         Some(h) => match h as u32 {
-            0..=30 | 331..=360 => 1,   // red
-            31..=95            => 2,   // orange / yellow
-            96..=140           => 3,   // yellow-green
-            141..=170          => 4,   // green
-            171..=230          => 5,   // teal / cyan
-            231..=305          => 6,   // blue / purple
-            _                  => 7,   // pink / magenta
+            0..=17            => 9,    // crimson
+            18..=35           => 1,    // coral / red
+            36..=63           => 10,   // orange
+            64..=90           => 2,    // amber
+            91..=108          => 11,   // yellow
+            109..=122         => 12,   // sage
+            123..=135         => 3,    // lime
+            136..=145         => 13,   // forest
+            146..=160         => 4,    // emerald / green
+            161..=178         => 14,   // seafoam
+            179..=210         => 5,    // teal
+            211..=228         => 15,   // sky
+            229..=245         => 21,   // steel
+            246..=262         => 16,   // blue
+            263..=278         => 17,   // indigo
+            279..=298         => 6,    // violet / purple
+            299..=310         => 18,   // grape
+            311..=322         => 19,   // fuchsia
+            323..=340         => 7,    // rose
+            _                 => 20,   // blush
         },
     }
 }
 
-/// Deterministic color 1-7 from a Gmail label ID (stable across reconnects).
+/// Deterministic color 1-21 from a Gmail label ID (stable across reconnects).
 fn stable_color(id: &str) -> i64 {
     let sum: u64 = id.bytes().map(|b| b as u64).sum();
-    (sum % 7) as i64 + 1
+    (sum % 21) as i64 + 1
 }
 
 /// Resolve the best color for a user label: use Gmail color when set, else hash the ID.

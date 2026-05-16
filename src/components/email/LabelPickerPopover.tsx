@@ -65,7 +65,7 @@ function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
     const id = `lbl-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
     const vaultId = localStore.vault?.id ?? "local";
     const position = labels.length;
-    const color = (position % 8) + 1;
+    const color = (position % 21) + 1;
     createLabel(localStore, { id, vaultId, name, color, kind: "user", position });
     if (messageId) addLabel(localStore, messageId, id);
     setQuery("");

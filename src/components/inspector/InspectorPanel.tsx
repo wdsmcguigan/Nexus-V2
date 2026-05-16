@@ -34,7 +34,7 @@ import { NoteEditor } from "@/components/inspector/NoteEditor";
 import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
-import { pickPanelLink } from "@/design-system/tokens";
+import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
 
 function Section({
   label,
@@ -319,7 +319,7 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
             {msgLabels.map((l) => (
               <Tag
                 key={l.id}
-                color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8}
+                color={l.color as PanelLink}
                 size="md"
                 removable
                 onRemove={() => removeLabel(msg.id, l.id)}

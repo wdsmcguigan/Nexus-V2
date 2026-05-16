@@ -10,6 +10,7 @@ import { useLabels } from "@/storage/useStore";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import type { Label } from "@/data/types";
+import type { PanelLink } from "@/design-system/tokens";
 
 interface LabelComboboxProps {
   messageId: string;
@@ -54,7 +55,7 @@ export function LabelCombobox({ messageId, activeLabelIds }: LabelComboboxProps)
     const name = query.trim();
     if (!name) return;
     const newId = `lbl-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`;
-    const autoColor = ((userLabels.length % 8) + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+    const autoColor = ((userLabels.length % 21) + 1) as PanelLink;
     createLabel({
       id: newId,
       vaultId: "local",
