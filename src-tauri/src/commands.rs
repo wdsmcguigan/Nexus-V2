@@ -337,7 +337,12 @@ async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tau
 
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
     let state = app.state::<AppState>();
-    init_vault_inner_with_app(&state, vault_path, app).await.map(|_| ())
+    init_vault_inner_with_app(&state, vault_path, app).await.map(|_| ())?;
+    // Tell the JS layer to hydrate from SQLite now that the vault is ready.
+    // This covers the startup race: JS may have fallen back to fixtures while
+    // Rust was still opening the DB — this event corrects it.
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
 }
 
 /// Start the outbound mutation drainer if Gmail credentials are available.

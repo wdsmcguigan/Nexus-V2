@@ -13,19 +13,20 @@ export default defineConfig({
     },
   },
   server: {
-    // Tauri expects the dev server on 1420; plain `pnpm dev` uses 1420 too
-    // (set in the `dev` script) so the URL stays consistent.
     port: 1420,
     strictPort: true,
     host: "127.0.0.1",
-    // Tauri reads HMR over the same port — no separate WS port needed
     hmr: isTauriBuild ? { protocol: "ws", host: "127.0.0.1", port: 1420 } : true,
+    // Don't reload when .env changes — credentials are loaded by the shell
+    // before Tauri starts; reloading causes spurious restarts.
+    watch: {
+      ignored: ["**/.env", "**/.env.*", "!**/.env.example"],
+    },
   },
   build: {
     outDir: "dist",
     sourcemap: true,
     target: "es2022",
   },
-  // Prevent Vite from mangling the environment variable Tauri injects
   envPrefix: ["VITE_", "TAURI_"],
 });

@@ -101,7 +101,9 @@ fn handle_event(
 fn ingest_eml(app: &tauri::AppHandle, path: &Path, _vault_path: &str) {
     let path = path.to_path_buf();
     let app = app.clone();
-    tokio::spawn(async move {
+    // notify's FSEvents callback runs on a non-Tokio thread; use Tauri's
+    // global runtime handle so we can spawn async work from here safely.
+    tauri::async_runtime::spawn(async move {
         match tokio::fs::read(&path).await {
             Ok(bytes) => {
                 // Parse the .eml and derive folder from its containing directory
