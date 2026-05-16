@@ -202,6 +202,10 @@ export function FilterBar() {
   if (activeFilter.tags?.length) {
     pills.push({ key: "tags", label: `#${activeFilter.tags[0]}` });
   }
+  if (activeFilter.contactId) {
+    const c = localStore.contacts.get(activeFilter.contactId);
+    pills.push({ key: "contactId", label: `From: ${c?.name ?? activeFilter.contactId}` });
+  }
 
   const hasFilter = pills.length > 0;
 

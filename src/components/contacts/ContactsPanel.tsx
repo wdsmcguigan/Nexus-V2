@@ -1,10 +1,11 @@
 import * as React from "react";
-import { Search, UserPlus, Users } from "lucide-react";
+import { Search, UserPlus, Users, ChevronLeft } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { Tooltip } from "@/components/ui/Tooltip";
 import { ContactCard } from "@/components/contacts/ContactCard";
 import { useContacts, useContactMessageCount } from "@/storage/useStore";
 import { useWorkspace } from "@/state/workspace";
@@ -21,12 +22,14 @@ function ContactRow({
   primaryEmail,
   isSelected,
   onSelect,
+  onMessageCountClick,
 }: {
   contactId: string;
   name: string;
   primaryEmail: string;
   isSelected: boolean;
   onSelect: () => void;
+  onMessageCountClick?: () => void;
 }) {
   const msgCount = useContactMessageCount(contactId);
   const colorSeed = pickPanelLink(primaryEmail || contactId);
@@ -49,10 +52,48 @@ function ContactRow({
         </div>
       </div>
       {msgCount > 0 && (
-        <span className="shrink-0 rounded-full bg-surface-3 px-1.5 py-0.5 font-mono text-mono-xs text-text-tertiary">
-          {msgCount}
-        </span>
+        <Tooltip label="Show emails with this contact">
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onMessageCountClick?.(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onMessageCountClick?.(); } }}
+            className="shrink-0 cursor-pointer rounded-full bg-surface-3 px-1.5 py-0.5 font-mono text-mono-xs text-text-tertiary hover:bg-accent/20 hover:text-accent"
+          >
+            {msgCount}
+          </span>
+        </Tooltip>
       )}
+    </button>
+  );
+}
+
+// ─── Placeholder row (for participant emails with no saved contact) ────────────
+
+function ParticipantPlaceholderRow({
+  email,
+  isSelected,
+  onSelect,
+}: {
+  email: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  const colorSeed = pickPanelLink(email);
+  const initials = email.split("@")[0] ?? email;
+  return (
+    <button
+      onClick={onSelect}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-xs px-3 py-2 text-left transition-colors",
+        isSelected ? "bg-accent/10 text-text-primary" : "hover:bg-surface-2 text-text-primary",
+      )}
+    >
+      <Avatar name={initials} size={32} colorSeed={colorSeed} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-mono text-mono-xs text-text-tertiary">{email}</div>
+        <div className="text-caption text-text-muted">Not in contacts</div>
+      </div>
     </button>
   );
 }
@@ -63,17 +104,28 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
   const contacts = useContacts();
   const selectedContactId = useWorkspace((s) => s.selectedContactId);
   const setSelectedContactId = useWorkspace((s) => s.setSelectedContactId);
+  const participantFilter = useWorkspace((s) => s.contactParticipantFilter);
+  const setParticipantFilter = useWorkspace((s) => s.setContactParticipantFilter);
+  const setFilterAxis = useWorkspace((s) => s.setFilterAxis);
+  const setSelectedFolder = useWorkspace((s) => s.setSelectedFolder);
 
   const [query, setQuery] = React.useState("");
 
-  // Auto-select first contact if none is selected and contacts are available
-  React.useEffect(() => {
-    if (!selectedContactId && contacts.length > 0) {
-      setSelectedContactId(contacts[0]!.id);
-    }
-  }, [contacts, selectedContactId, setSelectedContactId]);
+  // Build the effective list based on whether participant filter is active
+  const isScoped = participantFilter !== null && participantFilter.length > 0;
 
-  const filtered = React.useMemo(() => {
+  const scopedList = React.useMemo(() => {
+    if (!isScoped) return null;
+    return participantFilter!.map((email) => {
+      const contact = localStore.lookupByEmail(email);
+      return { email, contact };
+    }).filter((entry, idx, arr) =>
+      // deduplicate by email
+      arr.findIndex((x) => x.email === entry.email) === idx
+    );
+  }, [isScoped, participantFilter]);
+
+  const allContactsList = React.useMemo(() => {
     if (!query.trim()) return contacts;
     const q = query.toLowerCase();
     return contacts.filter(
@@ -105,6 +157,15 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
     setSelectedContactId(id);
   };
 
+  function navigateToContactMessages(contactId: string) {
+    // Set contactId filter on the global email list and navigate to inbox
+    const inboxLabel = Array.from(localStore.labels.values()).find(
+      (l) => l.kind === "system" && l.systemKind === "inbox",
+    );
+    if (inboxLabel) setSelectedFolder(inboxLabel.id);
+    setFilterAxis({ contactId });
+  }
+
   const effectivePanelId = panelId ?? "contacts";
 
   const headerActions = (
@@ -113,7 +174,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
     </Button>
   );
 
-  if (contacts.length === 0) {
+  if (!isScoped && contacts.length === 0) {
     return (
       <Panel
         panelId={effectivePanelId}
@@ -139,50 +200,94 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
     <Panel
       panelId={effectivePanelId}
       type="inspector"
-      header={<PanelHeader title="Contacts" meta={String(contacts.length)} actions={headerActions} />}
+      header={
+        <PanelHeader
+          title="Contacts"
+          meta={isScoped ? `${scopedList!.length} participants` : String(contacts.length)}
+          actions={headerActions}
+        />
+      }
     >
       <div className="flex h-full min-h-0">
         {/* Left column — contact list */}
         <div className="flex w-64 shrink-0 flex-col border-r border-border-subtle">
-          {/* Search */}
-          <div className="border-b border-border-subtle p-2">
-            <div className="relative flex items-center">
-              <Search
-                size={13}
-                className="pointer-events-none absolute left-2 text-text-tertiary"
-              />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search contacts…"
-                className={cn(
-                  "w-full rounded-sm bg-surface-2 pl-7 pr-2 py-1",
-                  "font-sans text-small text-text-primary placeholder:text-text-muted",
-                  "border border-border-default",
-                  "focus:border-accent focus:outline-none",
-                )}
-              />
+
+          {/* Scoped mode banner */}
+          {isScoped ? (
+            <div className="flex items-center gap-1 border-b border-border-subtle bg-surface-2 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => setParticipantFilter(null)}
+                className="flex items-center gap-1 rounded-xs px-1.5 py-0.5 text-caption text-text-tertiary hover:bg-surface-3 hover:text-text-secondary"
+              >
+                <ChevronLeft size={11} />
+                All contacts
+              </button>
             </div>
-          </div>
+          ) : (
+            /* Search (full mode only) */
+            <div className="border-b border-border-subtle p-2">
+              <div className="relative flex items-center">
+                <Search size={13} className="pointer-events-none absolute left-2 text-text-tertiary" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search contacts…"
+                  className={cn(
+                    "w-full rounded-sm bg-surface-2 pl-7 pr-2 py-1",
+                    "font-sans text-small text-text-primary placeholder:text-text-muted",
+                    "border border-border-default",
+                    "focus:border-accent focus:outline-none",
+                  )}
+                />
+              </div>
+            </div>
+          )}
 
           {/* List */}
           <div className="flex-1 overflow-y-auto p-1">
-            {filtered.length === 0 ? (
-              <div className="py-6 text-center text-small text-text-tertiary">
-                No results for &ldquo;{query}&rdquo;
-              </div>
+            {isScoped ? (
+              // Participant-scoped list
+              scopedList!.map(({ email, contact }) =>
+                contact ? (
+                  <ContactRow
+                    key={email}
+                    contactId={contact.id}
+                    name={contact.name}
+                    primaryEmail={contact.emails[0] ?? email}
+                    isSelected={contact.id === selectedContactId}
+                    onSelect={() => setSelectedContactId(contact.id)}
+                    onMessageCountClick={() => navigateToContactMessages(contact.id)}
+                  />
+                ) : (
+                  <ParticipantPlaceholderRow
+                    key={email}
+                    email={email}
+                    isSelected={false}
+                    onSelect={() => {}}
+                  />
+                )
+              )
             ) : (
-              filtered.map((c) => (
-                <ContactRow
-                  key={c.id}
-                  contactId={c.id}
-                  name={c.name}
-                  primaryEmail={c.emails[0] ?? ""}
-                  isSelected={c.id === selectedContactId}
-                  onSelect={() => setSelectedContactId(c.id)}
-                />
-              ))
+              // Full contact list
+              allContactsList.length === 0 ? (
+                <div className="py-6 text-center text-small text-text-tertiary">
+                  No results for &ldquo;{query}&rdquo;
+                </div>
+              ) : (
+                allContactsList.map((c) => (
+                  <ContactRow
+                    key={c.id}
+                    contactId={c.id}
+                    name={c.name}
+                    primaryEmail={c.emails[0] ?? ""}
+                    isSelected={c.id === selectedContactId}
+                    onSelect={() => setSelectedContactId(c.id)}
+                    onMessageCountClick={() => navigateToContactMessages(c.id)}
+                  />
+                ))
+              )
             )}
           </div>
         </div>

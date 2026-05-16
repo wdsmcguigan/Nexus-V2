@@ -167,7 +167,10 @@ interface WorkspaceState {
   // Contact selection
   selectedContactId: string | null;
   setSelectedContactId: (id: string | null) => void;
-  openContactsPanel: (contactId?: string) => void;
+  /** When non-null, the contacts panel left-column is scoped to these participant emails. */
+  contactParticipantFilter: string[] | null;
+  setContactParticipantFilter: (emails: string[] | null) => void;
+  openContactsPanel: (contactId?: string, participantEmails?: string[]) => void;
 
   // Settings panel
   openSettingsPanel: () => void;
@@ -561,10 +564,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   selectedContactId: null,
   setSelectedContactId: (id) => set({ selectedContactId: id }),
-  openContactsPanel: (contactId) => {
+  contactParticipantFilter: null,
+  setContactParticipantFilter: (emails) => set({ contactParticipantFilter: emails }),
+  openContactsPanel: (contactId, participantEmails) => {
     const api = getDockviewApi();
     if (!api) return;
     if (contactId) set({ selectedContactId: contactId });
+    // participantEmails scopes the left column; undefined → clear filter (standalone open)
+    set({ contactParticipantFilter: participantEmails ?? null });
     const existing = api.panels.find((p) => p.id === "contacts");
     if (existing) {
       existing.api.setActive();

@@ -11,6 +11,7 @@ import {
   MailQuestion,
   BellOff,
   Bell,
+  ArrowRight,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -31,8 +32,9 @@ import { LabelCombobox } from "@/components/inspector/LabelCombobox";
 import { FlagPicker } from "@/components/inspector/FlagPicker";
 import { NoteEditor } from "@/components/inspector/NoteEditor";
 import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
-import { ContactCard } from "@/components/contacts/ContactCard";
+import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
+import { pickPanelLink } from "@/design-system/tokens";
 
 function Section({
   label,
@@ -48,6 +50,46 @@ function Section({
       <div className="mb-2 text-overline uppercase text-text-tertiary">{label}</div>
       {children}
     </section>
+  );
+}
+
+// ─── Participant row ──────────────────────────────────────────────────────────
+
+function ParticipantRow({
+  email,
+  name,
+  role,
+  allParticipantEmails,
+}: {
+  email: string;
+  name: string;
+  role: "from" | "to" | "cc";
+  allParticipantEmails: string[];
+}) {
+  const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
+  const contact = localStore.lookupByEmail(email);
+  const colorSeed = pickPanelLink(email);
+  const displayName = contact?.name ?? name;
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <Avatar name={displayName} size={24} colorSeed={colorSeed} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-small text-text-primary">{displayName}</div>
+        <div className="truncate font-mono text-mono-xs text-text-tertiary">{email}</div>
+      </div>
+      {role !== "from" && (
+        <span className="shrink-0 font-mono text-mono-xs text-text-muted">{role}</span>
+      )}
+      <button
+        type="button"
+        aria-label={`Open contact: ${displayName}`}
+        onClick={() => openContactsPanel(contact?.id, allParticipantEmails)}
+        className="shrink-0 rounded-xs p-0.5 text-text-muted hover:bg-surface-3 hover:text-text-secondary"
+      >
+        <ArrowRight size={11} />
+      </button>
+    </div>
   );
 }
 
@@ -138,33 +180,43 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
       data-pinned={pinned}
     >
       <div data-scroll className="nx-scroll h-full overflow-auto">
-        {/* Sender card */}
-        <Section label="From">
-          <ContactCard
-            email={msg.fromAddr.email}
-            name={msg.fromAddr.name}
-            compact
-          />
-        </Section>
-
-        {/* Recipients */}
-        <Section label="To">
-          <div className="space-y-1 text-small text-text-secondary">
-            {msg.toAddrs.map((t) => (
-              <div key={t.email} className="flex items-baseline gap-2">
-                <span>{t.name}</span>
-                <span className="font-mono text-mono-xs text-text-tertiary">{t.email}</span>
-              </div>
-            ))}
-            {msg.ccAddrs.map((t) => (
-              <div key={t.email} className="flex items-baseline gap-2">
-                <span className="text-text-tertiary">cc</span>
-                <span>{t.name}</span>
-                <span className="font-mono text-mono-xs text-text-tertiary">{t.email}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
+        {/* All envelope participants */}
+        {(() => {
+          const allEmails = [
+            msg.fromAddr.email,
+            ...msg.toAddrs.map((t) => t.email),
+            ...msg.ccAddrs.map((t) => t.email),
+          ];
+          return (
+            <Section label="Participants">
+              <ParticipantRow
+                key={msg.fromAddr.email}
+                email={msg.fromAddr.email}
+                name={msg.fromAddr.name}
+                role="from"
+                allParticipantEmails={allEmails}
+              />
+              {msg.toAddrs.map((t) => (
+                <ParticipantRow
+                  key={t.email}
+                  email={t.email}
+                  name={t.name}
+                  role="to"
+                  allParticipantEmails={allEmails}
+                />
+              ))}
+              {msg.ccAddrs.map((t) => (
+                <ParticipantRow
+                  key={t.email}
+                  email={t.email}
+                  name={t.name}
+                  role="cc"
+                  allParticipantEmails={allEmails}
+                />
+              ))}
+            </Section>
+          );
+        })()}
 
         <Section label="Date">
           <div className="font-mono text-mono-sm text-text-secondary">

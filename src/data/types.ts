@@ -387,6 +387,8 @@ export interface MetadataFilter {
   customFieldValues?: Record<string, CustomFieldValue>;
   /** Free-text search on subject + snippet. Pre-FTS5 simple includes check (EP-3 adds FTS5). */
   textQuery?: string;
+  /** Filter to messages where this contact appears in from/to/cc (uses messagesByContact index). */
+  contactId?: string;
 
   // ── Sort / group ───────────────────────────────────────────────
   sortBy?: "receivedAt" | "priority" | "status" | "sender";
