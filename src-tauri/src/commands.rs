@@ -443,18 +443,35 @@ async fn poll_all_accounts(
     Ok(())
 }
 
+/// Expand a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" {
+        return dirs::home_dir()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).to_string_lossy().into_owned();
+        }
+    }
+    path.to_string()
+}
+
 pub fn load_saved_vault_path(_app: &tauri::AppHandle) -> Option<String> {
     dirs::data_local_dir()
         .map(|d| d.join("Nexus").join("vault_path.txt"))
         .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| expand_tilde(s.trim()))
 }
 
 fn save_vault_path_to_disk(path: &str) -> Result<()> {
+    let expanded = expand_tilde(path);
     let dir = dirs::data_local_dir()
         .ok_or_else(|| anyhow!("no local data dir"))?
         .join("Nexus");
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("vault_path.txt"), path)?;
+    std::fs::write(dir.join("vault_path.txt"), &expanded)?;
     Ok(())
 }
 
