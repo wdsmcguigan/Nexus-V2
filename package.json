@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "sh -c 'set -a; [ -f .env ] && . ./.env; set +a && tauri dev'",
     "tauri:build": "tauri build"
   },
   "dependencies": {
