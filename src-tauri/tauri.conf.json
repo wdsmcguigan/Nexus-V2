@@ -24,7 +24,7 @@
         "decorations": true,
         "transparent": false,
         "hiddenTitle": false,
-        "titleBarStyle": "Default"
+        "titleBarStyle": "Visible"
       }
     ],
     "security": {
