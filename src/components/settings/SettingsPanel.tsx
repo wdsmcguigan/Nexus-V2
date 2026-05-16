@@ -261,7 +261,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
 
               {/* Open filtered views */}
               <SectionHeader>Open filtered views</SectionHeader>
-              <div className="flex flex-col gap-1 px-4 pb-4">
+              <div className="flex flex-col gap-1 px-4 pb-1">
                 {(
                   [
                     {
@@ -304,6 +304,9 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                   </button>
                 ))}
               </div>
+              <p className="px-4 pb-4 font-mono text-mono-xs text-text-muted">
+                ⌘/Ctrl+click always does the opposite of this setting.
+              </p>
             </div>
           )}
         </div>

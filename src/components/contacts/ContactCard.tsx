@@ -340,7 +340,7 @@ function FoundContactCard({
       {msgCount > 0 && (
         <button
           type="button"
-          onClick={() => openContactMessages(contact.id)}
+          onClick={(e) => openContactMessages(contact.id, e.metaKey || e.ctrlKey)}
           className="flex items-center gap-1.5 text-small text-text-secondary hover:text-accent hover:underline"
         >
           <MessageSquare size={13} className="text-text-tertiary" />

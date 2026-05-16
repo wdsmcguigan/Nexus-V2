@@ -171,8 +171,9 @@ interface WorkspaceState {
   contactParticipantFilter: string[] | null;
   setContactParticipantFilter: (emails: string[] | null) => void;
   openContactsPanel: (contactId?: string, participantEmails?: string[]) => void;
-  /** Open a filtered email list showing all messages for a given contact. */
-  openContactMessages: (contactId: string) => void;
+  /** Open a filtered email list showing all messages for a given contact.
+   *  Pass invertBehavior=true (Cmd/Ctrl+click) to do the opposite of the preference. */
+  openContactMessages: (contactId: string, invertBehavior?: boolean) => void;
 
   // Preferences
   filteredViewBehavior: "replace" | "new-panel";
@@ -600,14 +601,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  openContactMessages: (contactId) => {
+  openContactMessages: (contactId, invertBehavior = false) => {
     const { filteredViewBehavior, setSelectedFolder, setFilterAxis } = get();
     const inboxLabel = Array.from(localStore.labels.values()).find(
       (l) => l.kind === "system" && l.systemKind === "inbox",
     );
     const inboxId = inboxLabel?.id ?? "inbox";
 
-    if (filteredViewBehavior === "replace") {
+    const effectiveMode = invertBehavior
+      ? (filteredViewBehavior === "replace" ? "new-panel" : "replace")
+      : filteredViewBehavior;
+
+    if (effectiveMode === "replace") {
       setSelectedFolder(inboxId);
       setFilterAxis({ contactId });
     } else {

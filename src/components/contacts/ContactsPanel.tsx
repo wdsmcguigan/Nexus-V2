@@ -29,7 +29,7 @@ function ContactRow({
   primaryEmail: string;
   isSelected: boolean;
   onSelect: () => void;
-  onMessageCountClick?: () => void;
+  onMessageCountClick?: (modifierKey: boolean) => void;
 }) {
   const msgCount = useContactMessageCount(contactId);
   const colorSeed = pickPanelLink(primaryEmail || contactId);
@@ -56,8 +56,8 @@ function ContactRow({
           <span
             role="button"
             tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); onMessageCountClick?.(); }}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onMessageCountClick?.(); } }}
+            onClick={(e) => { e.stopPropagation(); onMessageCountClick?.(e.metaKey || e.ctrlKey); }}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onMessageCountClick?.(false); } }}
             className="shrink-0 cursor-pointer rounded-full bg-surface-3 px-1.5 py-0.5 font-mono text-mono-xs text-text-tertiary hover:bg-accent/20 hover:text-accent"
           >
             {msgCount}
@@ -248,7 +248,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     primaryEmail={contact.emails[0] ?? email}
                     isSelected={contact.id === selectedContactId}
                     onSelect={() => setSelectedContactId(contact.id)}
-                    onMessageCountClick={() => openContactMessages(contact.id)}
+                    onMessageCountClick={(mod) => openContactMessages(contact.id, mod)}
                   />
                 ) : (
                   <ParticipantPlaceholderRow
@@ -274,7 +274,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     primaryEmail={c.emails[0] ?? ""}
                     isSelected={c.id === selectedContactId}
                     onSelect={() => setSelectedContactId(c.id)}
-                    onMessageCountClick={() => openContactMessages(c.id)}
+                    onMessageCountClick={(mod) => openContactMessages(c.id, mod)}
                   />
                 ))
               )
