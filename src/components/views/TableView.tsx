@@ -664,6 +664,14 @@ export function TableView() {
     overscan: 8,
   });
 
+  // Scroll the selected row into view when it changes (supports keyboard navigation)
+  React.useEffect(() => {
+    if (!selectedEmailId) return;
+    const idx = messages.findIndex((m) => m.id === selectedEmailId);
+    if (idx >= 0) virtualizer.scrollToIndex(idx, { align: "auto" });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEmailId]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Sticky header ────────────────────────────────────────────────────── */}
