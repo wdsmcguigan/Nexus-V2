@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value as JsonValue;
 use tauri::{Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 
 use crate::db::{queries::HydratePayload, VaultDb};
 use crate::gmail::{GmailOAuth, GmailSyncer};
@@ -464,16 +463,6 @@ fn open_browser(app: &tauri::AppHandle, url: &str) -> Result<()> {
     app.shell().open(url, None).context("opening system browser")
 }
 
-fn fire_notification(app: &tauri::AppHandle, count: u32) {
-    let body = if count == 1 {
-        "1 new message".to_string()
-    } else {
-        format!("{count} new messages")
-    };
-    let _ = app
-        .notification()
-        .builder()
-        .title("Nexus")
-        .body(&body)
-        .show();
+fn fire_notification(_app: &tauri::AppHandle, _count: u32) {
+    // Notifications wired up in Phase 4c when app is properly signed
 }
