@@ -29,6 +29,22 @@ async function hydrateFromVault(path: string) {
   const payload = await loadVaultData(path);
   localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
   ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
+
+  // After hydrating real data the inbox label ID is vault-scoped (e.g. "{vaultId}-inbox"),
+  // not the fixture default "inbox". If the current folder no longer exists in the loaded
+  // store (e.g. on first load with default "inbox" id), redirect to the real inbox label.
+  const { selectedFolderId } = useWorkspace.getState();
+  const folderExists =
+    localStore.labels.has(selectedFolderId) ||
+    localStore.folders.has(selectedFolderId);
+  if (!folderExists) {
+    const inboxLabel = Array.from(localStore.labels.values()).find(
+      (l) => l.systemKind === "inbox",
+    );
+    if (inboxLabel) {
+      useWorkspace.getState().setSelectedFolder(inboxLabel.id);
+    }
+  }
 }
 
 async function initTauri() {
