@@ -15,6 +15,7 @@ import {
   Monitor,
   AlignJustify,
   SlidersHorizontal,
+  LayoutList,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { useWorkspace } from "@/state/workspace";
 import { useAccounts } from "@/storage/useStore";
 import { isTauri, syncGmailNow, startGmailOAuth } from "@/storage/tauri";
+import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 
@@ -111,11 +113,12 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields">("accounts");
 
   const navItems = [
     { id: "accounts" as const, label: "Accounts", icon: <Mail size={14} /> },
     { id: "preferences" as const, label: "Preferences", icon: <SlidersHorizontal size={14} /> },
+    { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
   ];
 
   return (
@@ -307,6 +310,12 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               <p className="px-4 pb-4 font-mono text-mono-xs text-text-muted">
                 ⌘/Ctrl+click always does the opposite of this setting.
               </p>
+            </div>
+          )}
+
+          {activeSection === "fields" && (
+            <div className="p-4">
+              <CustomFieldsSettings />
             </div>
           )}
         </div>

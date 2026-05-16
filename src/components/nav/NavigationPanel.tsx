@@ -1,6 +1,5 @@
 import * as React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import * as Dialog from "@radix-ui/react-dialog";
 import {
   Inbox,
   Star,
@@ -14,7 +13,6 @@ import {
   Plus,
   ChevronRight,
   ChevronDown,
-  Settings as SettingsIcon,
   Pencil,
   Trash,
   Palette,
@@ -26,7 +24,6 @@ import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ColorPicker } from "@/components/ui/ColorPicker";
-import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { useWorkspace } from "@/state/workspace";
 import {
   useSystemLabels,
@@ -571,8 +568,6 @@ export function NavigationPanel() {
   const [creatingFolder, setCreatingFolder] = React.useState(false);
   const [creatingLabel, setCreatingLabel] = React.useState(false);
   const [renamingViewId, setRenamingViewId] = React.useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = React.useState(false);
-
   // Flat list of all folders for child lookups inside FolderTreeNode
   const allFolders = React.useMemo(
     () => Array.from(localStore.folders.values()),
@@ -594,54 +589,10 @@ export function NavigationPanel() {
   }
 
   return (
-    <>
-    <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
-        <Dialog.Content
-          className={cn(
-            "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2",
-            "rounded-lg border border-border-subtle bg-surface-2 shadow-xl",
-            "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-bottom-4",
-            "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-            "max-h-[80vh] overflow-auto p-6",
-          )}
-        >
-          <div className="mb-4 flex items-center justify-between">
-            <Dialog.Title className="text-body-strong text-text-primary">Settings</Dialog.Title>
-            <Dialog.Close asChild>
-              <Button variant="ghost" size="sm" iconOnly aria-label="Close">
-                ✕
-              </Button>
-            </Dialog.Close>
-          </div>
-          <CustomFieldsSettings />
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-
     <Panel
       panelId={PANEL_ID}
       type="navigation"
-      header={
-        <PanelHeader
-          title="Mail"
-          hideHandle
-          actions={
-            <Tooltip label="Settings" shortcut="⌘,">
-              <Button
-                variant="ghost"
-                size="sm"
-                iconOnly
-                aria-label="Settings"
-                onClick={() => setSettingsOpen(true)}
-              >
-                <SettingsIcon />
-              </Button>
-            </Tooltip>
-          }
-        />
-      }
+      header={<PanelHeader title="Mail" hideHandle />}
     >
       <div data-scroll className="nx-scroll h-full overflow-auto">
         {/* NAV-ACCOUNT-DOT */}
@@ -825,6 +776,5 @@ export function NavigationPanel() {
         </div>
       </div>
     </Panel>
-    </>
   );
 }
