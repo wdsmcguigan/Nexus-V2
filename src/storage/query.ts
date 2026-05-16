@@ -88,6 +88,11 @@ export function queryMessages(
     candidates = intersect(candidates, store.messagesByThread.get(filter.threadId) ?? new Set());
   }
 
+  // Contact participant (from/to/cc — uses messagesByContact index)
+  if (filter.contactId !== undefined) {
+    candidates = intersect(candidates, store.messagesByContact.get(filter.contactId) ?? new Set());
+  }
+
   // FTS (EP-3) — intersect before resolving Message objects
   if (filter.textQuery && filter.textQuery.trim().length > 0) {
     candidates = intersect(candidates, fts.searchIds(filter.textQuery));

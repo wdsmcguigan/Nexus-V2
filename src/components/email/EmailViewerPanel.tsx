@@ -10,32 +10,154 @@ import {
   Star,
   Archive,
   Trash2,
-  AlarmClock,
+  Pin,
+  PinOff,
+  PanelRight,
+  PanelRightClose,
+  ChevronDown,
+  Paperclip,
+  Download,
+  Tag as TagIcon,
+  Bell,
+  BellOff,
 } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { SnoozePopover } from "@/components/email/SnoozePopover";
+import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
-import { useWorkspace } from "@/state/workspace";
-import { useMessage } from "@/storage/useStore";
+import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
+import { useMessage, useThreadMessages } from "@/storage/useStore";
+import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
+import { localStore } from "@/storage/local";
+import { readMessage } from "@/state/mutations";
+import * as Mut from "@/state/mutations";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
+import type { Message } from "@/data/types";
 
-const PANEL_ID = "viewer";
+// ─── Collapsed thread message row ─────────────────────────────────────────────
 
-export function EmailViewerPanel() {
-  const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
-  const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
-  const msg = useMessage(selectedEmailId);
+function ThreadMessageRow({ msg }: { msg: Message }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const colorSeed = pickPanelLink(msg.fromAddr.email);
+  const body = bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`;
+
+  return (
+    <div className="border-b border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2 transition-colors duration-fast"
+      >
+        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} />
+        <div className="min-w-0 flex-1">
+          <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
+          {!expanded && (
+            <span className="ml-2 text-small text-text-tertiary truncate">{msg.snippet}</span>
+          )}
+        </div>
+        <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
+          {formatAbsoluteTime(new Date(msg.receivedAt))}
+        </span>
+        <ChevronDown
+          size={12}
+          className={cn("shrink-0 text-text-tertiary transition-transform duration-fast", expanded && "rotate-180")}
+        />
+      </button>
+      {expanded && (
+        <iframe
+          title={`Email from ${msg.fromAddr.name}`}
+          sandbox=""
+          srcDoc={`<!doctype html><html><head><style>html,body{margin:0;padding:16px 24px;background:transparent;color:#e6e8ec;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}strong{color:#fff}a{color:#76A1F5}</style></head><body>${body}</body></html>`}
+          className="block h-48 w-full bg-canvas"
+        />
+      )}
+    </div>
+  );
+}
+
+export function EmailViewerPanel({ panelId }: { panelId: string }) {
+  const globalSelectedEmailId = useWorkspace((s) => s.selectedEmailId);
+  const pinnedEmailId = useWorkspace((s) => s.viewerPinState[panelId] ?? null);
+  const isPinned = pinnedEmailId !== null;
+  const pinViewerToEmail = useWorkspace((s) => s.pinViewerToEmail);
+  const unpinViewer = useWorkspace((s) => s.unpinViewer);
+  const openComposer = useWorkspace((s) => s.openComposer);
+
+  const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
+  const msg = useMessage(effectiveEmailId);
+  const threadMsgs = useThreadMessages(msg?.threadId ?? "", effectiveEmailId ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
+  const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
+
+  // Auto-mark as read after 500ms — gives time to skip past without marking
+  React.useEffect(() => {
+    if (!effectiveEmailId) return;
+    const current = localStore.messages.get(effectiveEmailId);
+    if (!current || current.flags.read) return;
+    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), 500);
+    return () => clearTimeout(timer);
+  }, [effectiveEmailId]);
+
+  // Inspector toggle — opens/closes an inspector panel associated with this viewer.
+  const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
+  const setViewerInspector = useWorkspace((s) => s.setViewerInspector);
+  const clearViewerInspector = useWorkspace((s) => s.clearViewerInspector);
+
+  function toggleInspector() {
+    const api = getDockviewApi();
+    if (!api) return;
+
+    // Case 1: this viewer already owns an inspector.
+    if (ownedInspectorId) {
+      const owned = api.getPanel(ownedInspectorId);
+      if (owned) {
+        // Panel still exists — close it.
+        api.removePanel(owned);
+        clearViewerInspector(panelId);
+        return;
+      }
+      // Panel was closed externally (via X button). Clear the stale entry and
+      // fall through to open a fresh one.
+      clearViewerInspector(panelId);
+    }
+
+    // Case 2: find any inspector panel not yet owned by any viewer.
+    // Never adopt an already-owned inspector — only pick up truly free panels.
+    const ownedIds = new Set(Object.values(useWorkspace.getState().viewerInspectorMap));
+    const free = api.panels.find(
+      (p) => (p.id === "inspector" || p.id.startsWith("inspector-")) && !ownedIds.has(p.id),
+    );
+
+    if (free) {
+      setViewerInspector(panelId, free.id);
+    } else {
+      // All existing inspectors are owned — spawn a new one to the right.
+      const newId = newPanelId("inspector");
+      api.addPanel({
+        id: newId,
+        component: "inspector",
+        title: "Inspector",
+        initialWidth: 260,
+        minimumWidth: 200,
+        position: { direction: "right", referencePanel: panelId },
+      });
+      setViewerInspector(panelId, newId);
+    }
+  }
+
+  const inspectorOpen = ownedInspectorId !== null && !!getDockviewApi()?.getPanel(ownedInspectorId);
 
   if (!msg) {
     return (
       <Panel
-        panelId={PANEL_ID}
+        panelId={panelId}
         type="stage"
         header={<PanelHeader title="Reader" />}
       >
@@ -58,45 +180,133 @@ export function EmailViewerPanel() {
 
   return (
     <Panel
-      panelId={PANEL_ID}
+      panelId={panelId}
       type="stage"
       header={
         <PanelHeader
           title={msg.subject}
           actions={
             <>
-              <Tooltip label="Star">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Star">
+              <Tooltip label={isPinned ? "Unpin — follow navigation" : "Pin this message"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={isPinned ? "Unpin viewer" : "Pin viewer to this message"}
+                  className={isPinned ? "text-accent" : ""}
+                  onClick={() => isPinned ? unpinViewer(panelId) : pinViewerToEmail(panelId, msg.id)}
+                >
+                  {isPinned ? <PinOff size={12} /> : <Pin size={12} />}
+                </Button>
+              </Tooltip>
+              <Tooltip label={inspectorOpen ? "Close inspector" : "Open inspector"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={inspectorOpen ? "Close inspector panel" : "Open inspector panel"}
+                  className={inspectorOpen ? "text-accent" : ""}
+                  onClick={toggleInspector}
+                >
+                  {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
+                </Button>
+              </Tooltip>
+              <Tooltip label={msg.star ? "Unstar" : "Star"} shortcut="S">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Star"
+                  className={msg.star ? "text-accent" : ""}
+                  onClick={() => { if (msg.star) Mut.clearStar(localStore, msg.id); else Mut.setStar(localStore, msg.id, "yellow"); }}
+                >
                   <Star />
                 </Button>
               </Tooltip>
-              <Tooltip label="Snooze" shortcut="H">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Snooze">
-                  <AlarmClock />
-                </Button>
-              </Tooltip>
+              <SnoozePopover messageId={msg.id} />
               <Tooltip label="Archive" shortcut="E">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Archive">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Archive"
+                  onClick={() => Mut.archiveMessage(localStore, msg.id)}
+                >
                   <Archive />
                 </Button>
               </Tooltip>
               <Tooltip label="Delete" shortcut="#">
-                <Button variant="ghost" size="sm" iconOnly aria-label="Delete">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Delete"
+                  onClick={() => Mut.deleteMessage(localStore, msg.id)}
+                >
                   <Trash2 />
                 </Button>
               </Tooltip>
-              <span className="mx-1 h-4 w-px bg-border-subtle" />
-              <Tooltip label="More">
-                <Button variant="ghost" size="sm" iconOnly aria-label="More">
-                  <MoreHorizontal />
+              <Tooltip label={msg.muted ? "Unmute thread" : "Mute thread"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={msg.muted ? "Unmute" : "Mute"}
+                  className={msg.muted ? "text-accent" : ""}
+                  onClick={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
+                >
+                  {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
                 </Button>
               </Tooltip>
+              <span className="mx-1 h-4 w-px bg-border-subtle" />
+              {/* More dropdown */}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <span>
+                    <Tooltip label="More">
+                      <Button variant="ghost" size="sm" iconOnly aria-label="More actions">
+                        <MoreHorizontal />
+                      </Button>
+                    </Tooltip>
+                  </span>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={6}
+                    align="end"
+                    className="z-50 min-w-[160px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                  >
+                    <DropdownMenu.Item
+                      onSelect={() => setLabelPickerOpen(true)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <TagIcon size={12} />
+                      Label…
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+              {/* Label picker popover (controlled, opened from More menu) */}
+              <LabelPickerPopover
+                messageId={msg.id}
+                open={labelPickerOpen}
+                onOpenChange={setLabelPickerOpen}
+              />
             </>
           }
         />
       }
     >
       <div className="flex h-full flex-col">
+        {/* Earlier messages in this thread */}
+        {threadMsgs.length > 0 && (
+          <div className="shrink-0 bg-surface-1">
+            {threadMsgs.map((m) => (
+              <ThreadMessageRow key={m.id} msg={m} />
+            ))}
+          </div>
+        )}
+
         {/* Sender chrome */}
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
           <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} />
@@ -160,17 +370,48 @@ export function EmailViewerPanel() {
           </div>
         </div>
 
+        {/* Attachment chips */}
+        {msg.attachmentRefs.length > 0 && (
+          <div className="shrink-0 border-t border-border-subtle bg-surface-1 px-4 py-2">
+            <div className="mb-1.5 flex items-center gap-1.5 text-overline uppercase text-text-tertiary">
+              <Paperclip size={10} />
+              <span>{msg.attachmentRefs.length} attachment{msg.attachmentRefs.length > 1 ? "s" : ""}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {msg.attachmentRefs.map((a) => (
+                <div
+                  key={a.name}
+                  className="flex items-center gap-2 rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1.5 hover:border-border-default hover:bg-surface-3 transition-colors duration-fast"
+                >
+                  <Paperclip size={11} className="shrink-0 text-text-tertiary" />
+                  <div className="min-w-0">
+                    <div className="max-w-[160px] truncate text-small text-text-primary">{a.name}</div>
+                    <div className="font-mono text-mono-xs text-text-tertiary">{formatBytes(a.size)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Download ${a.name}`}
+                    className="ml-1 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+                  >
+                    <Download size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Footer chrome (reply bar) */}
         <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-4">
-          <Button variant="primary" size="md" onClick={() => setComposerOpen(true)}>
+          <Button variant="primary" size="md" onClick={() => openComposer({ mode: "reply", replyToMessage: msg })}>
             <Reply />
             Reply
           </Button>
-          <Button variant="secondary" size="md">
+          <Button variant="secondary" size="md" onClick={() => openComposer({ mode: "reply-all", replyToMessage: msg })}>
             <ReplyAll />
             Reply all
           </Button>
-          <Button variant="secondary" size="md">
+          <Button variant="secondary" size="md" onClick={() => openComposer({ mode: "forward", replyToMessage: msg })}>
             <Forward />
             Forward
           </Button>

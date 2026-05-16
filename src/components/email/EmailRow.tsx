@@ -37,6 +37,7 @@ interface EmailRowProps {
   labels: Label[];
   /** Pre-resolved status (null if not set). */
   status: Status | null;
+  threadCount?: number;
   onSelect: (e: React.MouseEvent) => void;
   onFocus: () => void;
   onToggleStar: () => void;
@@ -91,6 +92,7 @@ export const EmailRow = React.memo(function EmailRow({
   inSelectionSet,
   labels,
   status,
+  threadCount,
   onSelect,
   onFocus,
   onToggleStar,
@@ -98,8 +100,10 @@ export const EmailRow = React.memo(function EmailRow({
 }: EmailRowProps) {
   const showAvatar = density !== "compact";
   const showSnippet = density !== "compact";
-  const showMeta = density === "comfortable" || density === "cozy";
+  const showStatusTags = density === "comfortable" || density === "cozy";
   const cozy = density === "cozy";
+  const compact = density === "compact";
+  const maxLabels = compact ? 2 : cozy ? 4 : 3;
   const height = HEIGHT_BY_DENSITY[density];
 
   const fromColorSeed = pickPanelLink(msg.fromAddr.email);
@@ -242,8 +246,8 @@ export const EmailRow = React.memo(function EmailRow({
           </div>
         )}
 
-        {/* Meta chips (labels, status, tags) */}
-        {showMeta && (labels.length > 0 || status || msg.tags.length > 0) && (
+        {/* Status + tags (comfortable / cozy only) */}
+        {showStatusTags && (status || msg.tags.length > 0) && (
           <div className="mt-1 flex flex-wrap items-center gap-1">
             {status && (
               <span
@@ -260,11 +264,6 @@ export const EmailRow = React.memo(function EmailRow({
                 {status.name}
               </span>
             )}
-            {labels.slice(0, cozy ? 5 : 3).map((l) => (
-              <Tag key={l.id} color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8} size="sm">
-                {l.name}
-              </Tag>
-            ))}
             {msg.tags.slice(0, 2).map((tag) => (
               <span
                 key={tag}
@@ -277,6 +276,23 @@ export const EmailRow = React.memo(function EmailRow({
         )}
       </div>
 
+      {/* Labels — right-aligned, visible at all densities */}
+      {labels.length > 0 && (
+        <div
+          className={cn(
+            "flex shrink-0 items-start gap-1 pr-1",
+            compact ? "self-center" : "mt-0.5 flex-wrap justify-end self-start pt-1.5",
+            compact ? "max-w-[96px]" : "max-w-[140px]",
+          )}
+        >
+          {labels.slice(0, maxLabels).map((l) => (
+            <Tag key={l.id} color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8} size="sm">
+              {l.name}
+            </Tag>
+          ))}
+        </div>
+      )}
+
       {/* Attachment + mute indicator */}
       <div className="flex shrink-0 flex-col items-end gap-0.5 self-start pt-1.5">
         {msg.attachmentRefs.length > 0 && (
@@ -287,16 +303,19 @@ export const EmailRow = React.memo(function EmailRow({
         )}
       </div>
 
-      {/* Date */}
+      {/* Date + thread count */}
       <div
         className={cn(
-          "flex w-16 shrink-0 items-start justify-end self-start pt-1.5 font-mono",
+          "flex shrink-0 flex-col items-end gap-0.5 self-start pt-1.5 font-mono",
           density === "compact" ? "text-mono-xs" : "text-mono-sm",
           "text-text-tertiary",
           "transition-opacity duration-fast group-hover/row:opacity-dim",
         )}
       >
         {formatRelativeTime(new Date(msg.receivedAt))}
+        {threadCount && threadCount > 1 && (
+          <span className="font-mono text-mono-xs text-text-muted">{threadCount}</span>
+        )}
       </div>
     </div>
   );

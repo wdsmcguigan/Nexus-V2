@@ -319,6 +319,28 @@ function FieldRow({ def, value, onChange, onClear }: FieldEditorProps) {
   );
 }
 
+// ─── Single-field cell editor (for table view) ────────────────────────────────
+
+export function CustomFieldCellEditor({
+  def,
+  value,
+  onChange,
+  onClear,
+}: FieldEditorProps) {
+  const props: FieldEditorProps = { def, value, onChange, onClear };
+  switch (def.type) {
+    case "text": case "url": case "email": return <TextEditor {...props} />;
+    case "longtext": return <LongTextEditor {...props} />;
+    case "number": return <NumberEditor {...props} />;
+    case "date": case "datetime": return <DateEditor {...props} />;
+    case "boolean": return <BooleanEditor {...props} />;
+    case "select": return <SelectEditor {...props} />;
+    case "multi-select": return <MultiSelectEditor {...props} />;
+    case "person": return <PersonEditor {...props} />;
+    default: return <TextEditor {...props} />;
+  }
+}
+
 // ─── Public component ─────────────────────────────────────────────────────────
 
 export function CustomFieldStrip({ messageId, customFields }: CustomFieldStripProps) {

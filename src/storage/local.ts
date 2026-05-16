@@ -11,6 +11,7 @@
 
 import type {
   Account,
+  Contact,
   CustomFieldDef,
   CustomFieldValue,
   Folder,
@@ -36,6 +37,7 @@ interface StorageSnapshot {
   savedViews?: SavedView[];
   tagUsage: TagUsage[];
   mutations: Mutation[];
+  contacts?: Contact[];
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -64,6 +66,11 @@ export class LocalStore {
   messages = new Map<string, Message>();
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
+  contacts = new Map<string, Contact>();
+  /** email address → contactId (O(1) lookup from inspector) */
+  emailIndex = new Map<string, string>();
+  /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
+  messagesByContact = new Map<string, Set<string>>();
   mutations: Mutation[] = [];
 
   // ── Indexes (architecture.md §5) ────────────────────────────────
@@ -123,6 +130,9 @@ export class LocalStore {
     this.messagesByPriority.clear();
     this.messagesByThread.clear();
     this.messagesByCustomField.clear();
+    this.contacts.clear();
+    this.emailIndex.clear();
+    this.messagesByContact.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -133,6 +143,39 @@ export class LocalStore {
     for (const m of snap.mutations) this.mutations.push(m);
     for (const msg of snap.messages) this._insertMessageIndexes(msg);
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
+
+    // Load explicit contacts from snapshot
+    for (const c of (snap.contacts ?? [])) {
+      this._insertContactIndexes(c);
+    }
+
+    // Auto-seed contacts from message senders not yet in emailIndex
+    for (const msg of snap.messages) {
+      const { name, email } = msg.fromAddr;
+      if (email && !this.emailIndex.has(email)) {
+        const contactId = `contact-${email.replace(/[^a-z0-9]/gi, "-")}`;
+        const contact: Contact = {
+          id: contactId,
+          vaultId: snap.vault?.id ?? "local",
+          name,
+          emails: [email],
+          phones: [],
+          tags: [],
+          createdAt: msg.receivedAt,
+          updatedAt: msg.receivedAt,
+        };
+        this._insertContactIndexes(contact);
+      }
+    }
+
+    // Build messagesByContact index (from/to/cc for all messages)
+    for (const msg of snap.messages) {
+      const addrs = [msg.fromAddr, ...msg.toAddrs, ...msg.ccAddrs];
+      for (const addr of addrs) {
+        const cid = this.emailIndex.get(addr.email);
+        if (cid) this._setAdd(this.messagesByContact, cid, msg.id);
+      }
+    }
   }
 
   toSnapshot(): StorageSnapshot {
@@ -147,6 +190,7 @@ export class LocalStore {
       tagUsage: Array.from(this.tagUsage.values()),
       savedViews: Array.from(this.savedViews.values()),
       mutations: this.mutations,
+      contacts: Array.from(this.contacts.values()),
     };
   }
 
@@ -444,6 +488,43 @@ export class LocalStore {
     const key = this._cfvSerialize(value);
     const s = fieldMap.get(key);
     if (s) s.delete(msgId);
+  }
+
+  // ── Contact CRUD ─────────────────────────────────────────────────
+
+  putContact(contact: Contact): void {
+    const existing = this.contacts.get(contact.id);
+    if (existing) {
+      // Remove old email index entries
+      for (const e of existing.emails) {
+        if (!contact.emails.includes(e)) this.emailIndex.delete(e);
+      }
+    }
+    this._insertContactIndexes(contact);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteContact(id: string): void {
+    const c = this.contacts.get(id);
+    if (!c) return;
+    for (const e of c.emails) this.emailIndex.delete(e);
+    this.contacts.delete(id);
+    this.messagesByContact.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  lookupByEmail(email: string): Contact | null {
+    const id = this.emailIndex.get(email);
+    return id ? (this.contacts.get(id) ?? null) : null;
+  }
+
+  private _insertContactIndexes(contact: Contact): void {
+    this.contacts.set(contact.id, contact);
+    for (const e of contact.emails) {
+      this.emailIndex.set(e, contact.id);
+    }
   }
 
   // ── SavedView CRUD (EP-1) ────────────────────────────────────────

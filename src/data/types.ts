@@ -26,6 +26,24 @@ export interface Account {
   syncStatus: "idle" | "syncing" | "pending" | "error";
 }
 
+// ─── CNT — Contact ────────────────────────────────────────────────────────────
+export interface Contact {
+  id: string;
+  vaultId: string;
+  name: string;
+  /** All known email addresses. First is primary. */
+  emails: string[];
+  phones: string[];
+  company?: string;
+  title?: string;
+  website?: string;
+  location?: string;
+  notes?: string;
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ─── FLD — Folder ────────────────────────────────────────────────────────────
 // A real subdirectory of the vault. Each MSG lives in exactly one folder.
 // Is NOT a label (LBL, metadata, many-to-many).
@@ -325,7 +343,11 @@ export type MutationKind =
   // Saved view ops (EP-1)
   | "SAVE_VIEW"
   | "DELETE_VIEW"
-  | "RENAME_VIEW";
+  | "RENAME_VIEW"
+  // Contact ops
+  | "UPSERT_CONTACT"
+  | "UPDATE_CONTACT"
+  | "DELETE_CONTACT";
 
 export interface Mutation {
   id: string;
@@ -365,6 +387,8 @@ export interface MetadataFilter {
   customFieldValues?: Record<string, CustomFieldValue>;
   /** Free-text search on subject + snippet. Pre-FTS5 simple includes check (EP-3 adds FTS5). */
   textQuery?: string;
+  /** Filter to messages where this contact appears in from/to/cc (uses messagesByContact index). */
+  contactId?: string;
 
   // ── Sort / group ───────────────────────────────────────────────
   sortBy?: "receivedAt" | "priority" | "status" | "sender";

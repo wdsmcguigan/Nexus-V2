@@ -11,7 +11,7 @@ import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
-import type { Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
+import type { Contact, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -126,12 +126,85 @@ export function useFolderCount(folderId: string): number {
   );
 }
 
+/** Returns unread count for a folder. */
+export function useFolderUnreadCount(folderId: string): number {
+  const v = useStoreVersion();
+  return useMemo(() => {
+    const msgIds = localStore.messagesByFolder.get(folderId) ?? new Set();
+    let count = 0;
+    for (const id of msgIds) {
+      const msg = localStore.messages.get(id);
+      if (msg && !msg.flags.read) count++;
+    }
+    return count;
+  }, [v, folderId]);
+}
+
+/** Returns total unread count across all messages in the inbox label. */
+export function useTotalInboxUnread(): number {
+  const v = useStoreVersion();
+  return useMemo(() => {
+    let count = 0;
+    // Find the inbox system label
+    for (const label of localStore.labels.values()) {
+      if (label.kind === "system" && label.systemKind === "inbox") {
+        const msgIds = localStore.messagesByLabel.get(label.id) ?? new Set();
+        for (const id of msgIds) {
+          const msg = localStore.messages.get(id);
+          if (msg && !msg.flags.read) count++;
+        }
+        break;
+      }
+    }
+    return count;
+  }, [v]);
+}
+
+export function useContacts(): Contact[] {
+  const v = useStoreVersion();
+  void v;
+  return Array.from(localStore.contacts.values()).sort((a, b) =>
+    a.name.localeCompare(b.name)
+  );
+}
+
+export function useContactByEmail(email: string): Contact | null {
+  const v = useStoreVersion();
+  void v;
+  return localStore.lookupByEmail(email);
+}
+
+export function useContactMessageCount(contactId: string): number {
+  const v = useStoreVersion();
+  void v;
+  return localStore.messagesByContact.get(contactId)?.size ?? 0;
+}
+
 /** Returns a single message by id, or null. */
 export function useMessage(id: string | null): Message | null {
   // messages.get() returns the same object reference until mutated — stable snapshot.
   return useSyncExternalStore(subscribe, () =>
     id ? (localStore.messages.get(id) ?? null) : null,
   );
+}
+
+/** Returns all other messages in the same thread, sorted oldest→newest. */
+export function useThreadMessages(threadId: string, excludeId: string): Message[] {
+  const v = useStoreVersion();
+  void v;
+  const ids = localStore.messagesByThread.get(threadId) ?? new Set<string>();
+  return Array.from(ids)
+    .filter((id) => id !== excludeId)
+    .map((id) => localStore.messages.get(id))
+    .filter((m): m is Message => m != null)
+    .sort((a, b) => a.receivedAt - b.receivedAt);
+}
+
+/** Returns the total number of messages in a thread. */
+export function useThreadCount(threadId: string): number {
+  const v = useStoreVersion();
+  void v;
+  return localStore.messagesByThread.get(threadId)?.size ?? 1;
 }
 
 /**
@@ -198,4 +271,40 @@ export function useCustomFieldDefs(): CustomFieldDef[] {
     () => Array.from(localStore.customFieldDefs.values()).sort((a, b) => a.position - b.position),
     [v],
   );
+}
+
+/**
+ * Like useVisibleMessages but panel-aware. When the list panel is detached
+ * (has its own filter state), uses that instead of the global filter.
+ */
+export function useVisibleMessagesForPanel(
+  panelId: string,
+  sortBy: MetadataFilter["sortBy"] = "receivedAt",
+  sortDir: MetadataFilter["sortDir"] = "desc",
+): Message[] {
+  const globalFolderId = useWorkspace((s) => s.selectedFolderId);
+  const globalFilter = useWorkspace((s) => s.activeFilter);
+  const globalSavedViewId = useWorkspace((s) => s.selectedSavedViewId);
+  const panelState = useWorkspace((s) => s.listPanelState[panelId] ?? null);
+  const v = useStoreVersion();
+
+  return useMemo(() => {
+    const folderId = panelState?.selectedFolderId ?? globalFolderId;
+    const filter = panelState?.filter ?? globalFilter;
+    const savedViewId = panelState?.selectedSavedViewId ?? globalSavedViewId;
+
+    if (savedViewId) {
+      return queryMessages({ ...filter, sortBy, sortDir, limit: 500 }, localStore).items;
+    }
+    const base: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    const lbl = localStore.labels.get(folderId);
+    if (lbl) {
+      base.labelIds = [folderId];
+    } else if (localStore.folders.has(folderId)) {
+      base.folderId = folderId;
+    } else {
+      return [];
+    }
+    return queryMessages({ ...base, ...filter }, localStore).items;
+  }, [v, panelId, panelState, globalFolderId, globalFilter, globalSavedViewId, sortBy, sortDir]);
 }
