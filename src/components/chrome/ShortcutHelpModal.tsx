@@ -35,6 +35,7 @@ const SECTIONS: { title: string; items: ShortcutEntry[] }[] = [
       { keys: ["U"], label: "Toggle read / unread" },
       { keys: ["S"], label: "Toggle star" },
       { keys: ["H"], label: "Snooze to tomorrow 8am" },
+      { keys: ["V"], label: "Move to folder" },
       { keys: ["C"], label: "Compose new email" },
     ],
   },

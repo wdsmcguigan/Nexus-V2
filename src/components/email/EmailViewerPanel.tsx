@@ -18,6 +18,8 @@ import {
   Paperclip,
   Download,
   Tag as TagIcon,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
@@ -242,6 +244,18 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   onClick={() => Mut.deleteMessage(localStore, msg.id)}
                 >
                   <Trash2 />
+                </Button>
+              </Tooltip>
+              <Tooltip label={msg.muted ? "Unmute thread" : "Mute thread"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label={msg.muted ? "Unmute" : "Mute"}
+                  className={msg.muted ? "text-accent" : ""}
+                  onClick={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
+                >
+                  {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
                 </Button>
               </Tooltip>
               <span className="mx-1 h-4 w-px bg-border-subtle" />

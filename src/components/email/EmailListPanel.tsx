@@ -20,6 +20,7 @@ import {
   Mail,
   CheckCheck,
   Bookmark,
+  Tag,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
@@ -34,8 +35,9 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { EmailRow } from "./EmailRow";
 import { EmailRowContextMenu } from "./EmailRowContextMenu";
 import { LabelPickerDialog } from "@/components/email/LabelPickerPopover";
+import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useVisibleMessagesForPanel, useSelectionTitle } from "@/storage/useStore";
+import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
@@ -95,6 +97,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const [saveViewOpen, setSaveViewOpen] = React.useState(false);
   const [saveViewName, setSaveViewName] = React.useState("");
   const [labelPickerMsgId, setLabelPickerMsgId] = React.useState<string | null>(null);
+  const [folderPickerMsgId, setFolderPickerMsgId] = React.useState<string | null>(null);
 
   const activeFilter = panelLocalState?.filter ?? globalActiveFilter;
   const setFilterAxis = React.useCallback(
@@ -305,6 +308,10 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       } else if ((e.key === "l" || e.key === "L") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (activeId) setLabelPickerMsgId(activeId);
+      } else if ((e.key === "v" || e.key === "V") && !e.metaKey && !e.ctrlKey) {
+        e.preventDefault();
+        if (activeId) setFolderPickerMsgId(activeId);
+        return;
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
         if (!activeMsg) return;
         e.preventDefault();
@@ -754,7 +761,66 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         open={!!labelPickerMsgId}
         onClose={() => setLabelPickerMsgId(null)}
       />
+      {/* Folder picker dialog — opened via V key shortcut */}
+      <FolderPickerDialog
+        messageId={folderPickerMsgId}
+        open={!!folderPickerMsgId}
+        onClose={() => setFolderPickerMsgId(null)}
+      />
     </Panel>
+  );
+}
+
+// ─── Bulk label picker ────────────────────────────────────────────────────────
+
+function BulkLabelPicker({ selectedIds }: { selectedIds: Set<string> }) {
+  const [open, setOpen] = React.useState(false);
+  const labels = useUserLabels();
+
+  if (labels.length === 0) return null;
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Tooltip label="Apply label to all">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-xs px-2 py-1 text-caption text-text-secondary hover:bg-surface-4 hover:text-text-primary"
+          >
+            <Tag size={13} />
+            Label
+          </button>
+        </Tooltip>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          sideOffset={8}
+          align="center"
+          side="top"
+          className="z-50 w-52 overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+        >
+          {labels.map((lbl) => (
+            <button
+              key={lbl.id}
+              type="button"
+              onClick={() => {
+                for (const id of selectedIds) {
+                  Mut.addLabel(localStore, id, lbl.id);
+                }
+                setOpen(false);
+              }}
+              className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-body text-text-secondary hover:bg-surface-3 hover:text-text-primary"
+            >
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: `var(--color-link-${lbl.color})` }}
+              />
+              <span className="flex-1 text-left">{lbl.name}</span>
+            </button>
+          ))}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 
@@ -828,6 +894,8 @@ function BulkActionBar({
           Delete
         </button>
       </Tooltip>
+
+      <BulkLabelPicker selectedIds={selectedIds} />
 
       <span className="h-4 w-px bg-border-subtle" />
 
