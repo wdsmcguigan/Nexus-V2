@@ -27,6 +27,7 @@ pub fn run() {
             commands::apply_mutation,
             commands::get_message_body,
             commands::list_accounts,
+            commands::disconnect_account,
             commands::start_gmail_oauth,
             commands::sync_gmail_now,
             commands::start_watcher,

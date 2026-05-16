@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  LogOut,
   Sun,
   Moon,
   Monitor,
@@ -22,7 +23,7 @@ import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
 import { useWorkspace } from "@/state/workspace";
 import { useAccounts } from "@/storage/useStore";
-import { isTauri, syncGmailNow, startGmailOAuth } from "@/storage/tauri";
+import { isTauri, syncGmailNow, startGmailOAuth, disconnectAccount } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
@@ -41,18 +42,32 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 
 // ─── Account row ──────────────────────────────────────────────────────────────
 
-function AccountRow({ email, syncStatus }: { email: string; syncStatus: string }) {
+function AccountRow({ accountId, email, syncStatus }: { accountId: string; email: string; syncStatus: string }) {
   const [syncing, setSyncing] = React.useState(false);
+  const [disconnecting, setDisconnecting] = React.useState(false);
 
   async function handleSync() {
     if (!isTauri()) return;
     setSyncing(true);
     try {
-      await syncGmailNow(email);
+      await syncGmailNow(accountId);
     } catch (e) {
       console.warn("sync_gmail_now error:", e);
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!isTauri()) return;
+    if (!confirm(`Disconnect ${email}? This will remove all synced messages from the local vault.`)) return;
+    setDisconnecting(true);
+    try {
+      await disconnectAccount(accountId);
+    } catch (e) {
+      console.warn("disconnect_account error:", e);
+    } finally {
+      setDisconnecting(false);
     }
   }
 
@@ -86,9 +101,19 @@ function AccountRow({ email, syncStatus }: { email: string; syncStatus: string }
         iconOnly
         aria-label="Sync now"
         onClick={handleSync}
-        disabled={syncing}
+        disabled={syncing || disconnecting}
       >
         <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        iconOnly
+        aria-label="Disconnect account"
+        onClick={handleDisconnect}
+        disabled={syncing || disconnecting}
+      >
+        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
       </Button>
     </div>
   );
@@ -173,7 +198,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               ) : (
                 <div className="divide-y divide-border-subtle">
                   {accounts.map((acc) => (
-                    <AccountRow key={acc.id} email={acc.email} syncStatus={acc.syncStatus} />
+                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} syncStatus={acc.syncStatus} />
                   ))}
                 </div>
               )}

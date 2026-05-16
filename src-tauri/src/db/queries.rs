@@ -73,6 +73,35 @@ impl VaultDb {
         rows.map(|r| r.context("loading account row")).collect()
     }
 
+    /// Delete an account and all messages/labels associated with it.
+    pub fn delete_account(&self, vault_id: &str, account_id: &str) -> Result<()> {
+        // Delete message_labels for messages belonging to this account
+        self.conn.execute(
+            "DELETE FROM message_labels WHERE message_id IN (
+                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+            )",
+            params![vault_id, account_id],
+        )?;
+        // Delete message_tags for messages belonging to this account
+        self.conn.execute(
+            "DELETE FROM message_tags WHERE message_id IN (
+                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+            )",
+            params![vault_id, account_id],
+        )?;
+        // Delete the messages themselves
+        self.conn.execute(
+            "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
+            params![vault_id, account_id],
+        )?;
+        // Delete the account record (tokens are columns on the account row)
+        self.conn.execute(
+            "DELETE FROM accounts WHERE id = ?1 AND vault_id = ?2",
+            params![account_id, vault_id],
+        )?;
+        Ok(())
+    }
+
     fn load_folders(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, parent_id, name, disk_slug, color, icon, system_kind, position

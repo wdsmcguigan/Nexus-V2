@@ -72,6 +72,10 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
+export async function disconnectAccount(accountId: string): Promise<void> {
+  return invoke<void>("disconnect_account", { accountId });
+}
+
 // ─── Watcher ──────────────────────────────────────────────────────────────────
 
 export async function startWatcher(vaultPath: string): Promise<void> {

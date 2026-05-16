@@ -81,6 +81,25 @@ pub async fn set_vault_path(
     save_vault_path_to_disk(&expanded).map_err(|e| e.to_string())
 }
 
+/// Remove an account and all its associated messages from the vault.
+/// After removal, emits `vault:hydrate-needed` so the frontend refreshes.
+#[tauri::command]
+pub async fn disconnect_account(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.delete_account(&vault_id, &account_id)
+            .map_err(|e| e.to_string())?;
+    }
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
+}
+
 // ─── Gmail OAuth + sync commands ──────────────────────────────────────────────
 
 #[tauri::command]
