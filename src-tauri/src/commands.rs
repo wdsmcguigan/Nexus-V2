@@ -452,17 +452,17 @@ async fn poll_all_accounts(
 
         match syncer.incremental_sync_with_db(&db_path).await {
             Ok(stats) => {
-                if stats.inserted > 0 {
-                    log::info!("Poll: {} new messages for {account_id}", stats.inserted);
-                    new_count += stats.inserted;
-                }
+                log::info!("Poll: {} new, {} updated for {account_id}", stats.inserted, stats.updated);
+                new_count += stats.inserted;
             }
             Err(e) => log::warn!("Incremental sync failed for {account_id}: {e}"),
         }
     }
 
+    // Always re-hydrate after every poll so labels and other metadata stay fresh,
+    // even on runs where no new messages arrived (e.g. first poll after restart).
+    let _ = app.emit("vault:hydrate-needed", ());
     if new_count > 0 {
-        let _ = app.emit("vault:hydrate-needed", ());
         fire_notification(app, new_count);
     }
 

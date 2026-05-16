@@ -57,6 +57,10 @@ impl GmailSyncer {
         let client = reqwest::Client::new();
         let token = self.access_token.read().await.clone();
 
+        // Snapshot the current historyId BEFORE fetching messages so incremental
+        // sync can start from a known-good point after the initial load completes.
+        let history_id = self.fetch_current_history_id(&client, &token).await.ok();
+
         let labels = self.fetch_labels(&client, &token).await?;
         let label_infos = map_gmail_labels(&labels, &self.vault_id);
 
@@ -69,7 +73,7 @@ impl GmailSyncer {
         Ok(FetchResult {
             label_infos,
             messages,
-            history_id: None,
+            history_id,
         })
     }
 
@@ -160,6 +164,10 @@ impl GmailSyncer {
                 inserted += 1;
             }
         }
+        // Persist historyId so subsequent polls use incremental sync (not full re-fetch).
+        if let Some(hid) = &result.history_id {
+            db.update_history_id(&self.account_id, hid)?;
+        }
         Ok(SyncStats {
             fetched: total,
             inserted,
@@ -227,6 +235,22 @@ impl GmailSyncer {
     }
 
     // ─── Gmail API helpers ────────────────────────────────────────────────────
+
+    async fn fetch_current_history_id(&self, client: &reqwest::Client, token: &str) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct Profile { #[serde(rename = "historyId")] history_id: String }
+        let url = format!("{GMAIL_API}/profile");
+        let resp: Profile = client
+            .get(&url)
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("fetching profile")?
+            .json()
+            .await
+            .context("parsing profile")?;
+        Ok(resp.history_id)
+    }
 
     async fn fetch_labels(
         &self,

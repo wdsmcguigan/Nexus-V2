@@ -13,6 +13,7 @@ import {
   onSyncProgress,
   onNewMessages,
   startWatcher,
+  syncGmailNow,
 } from "@/storage/tauri";
 import { useWorkspace } from "@/state/workspace";
 
@@ -71,6 +72,16 @@ async function initTauri() {
   // Load real data from SQLite
   try {
     await hydrateFromVault(savedPath);
+
+    // If the vault has accounts but no labels the initial Gmail sync
+    // has not yet committed to the DB (or ran without saving historyId).
+    // Force a sync now so labels + messages arrive before the 60s poller fires.
+    if (localStore.accounts.size > 0 && localStore.labels.size === 0) {
+      const firstAccount = Array.from(localStore.accounts.values())[0]!;
+      syncGmailNow(firstAccount.id).catch((e) =>
+        console.warn("Auto-sync failed:", e),
+      );
+    }
 
     // Start filesystem watcher
     await startWatcher(savedPath).catch((e) =>
