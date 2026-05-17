@@ -497,6 +497,78 @@ impl VaultDb {
         Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
     }
 
+    /// Insert a message parsed from a .eml file dragged into the vault.
+    /// `folder_id` is derived from the directory name; `eml_path` is the absolute path.
+    pub fn insert_eml_message(
+        &self,
+        vault_id: &str,
+        id: &str,
+        body_ref: &str,
+        folder_id: &str,
+        subject: &str,
+        snippet: &str,
+        from_json: &str,
+        to_json: &str,
+        received_at: i64,
+        body_html: Option<&str>,
+        eml_path: &str,
+    ) -> Result<bool> {
+        let inserted = self.conn.execute(
+            "INSERT OR IGNORE INTO messages (
+                id, vault_id, folder_id, thread_id, subject, snippet, body_ref, received_at,
+                from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
+                attachment_refs_json, custom_fields_json,
+                flags_read, flags_answered, flags_draft, flags_flagged,
+                eml_path
+            ) VALUES (
+                ?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7,
+                ?8, '[]', '[]', '[]', '[]', '{}',
+                0, 0, 0, 0, ?9
+            )",
+            params![id, vault_id, folder_id, subject, snippet, body_ref, received_at, from_json, eml_path],
+        )? > 0;
+        if inserted {
+            if let Some(html) = body_html {
+                self.upsert_body(body_ref, html)?;
+            }
+        }
+        Ok(inserted)
+    }
+
+    /// Soft-delete a message by its on-disk eml_path. Returns the deleted message id.
+    pub fn delete_message_by_path(&self, eml_path: &str) -> Result<Option<String>> {
+        let msg_id: Option<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id FROM messages WHERE eml_path = ?1 LIMIT 1",
+            )?;
+            stmt.query_row(params![eml_path], |r| r.get(0)).optional()?
+        };
+        if let Some(id) = &msg_id {
+            self.conn.execute("DELETE FROM message_labels WHERE message_id = ?1", params![id])?;
+            self.conn.execute("DELETE FROM message_tags WHERE message_id = ?1", params![id])?;
+            self.conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        }
+        Ok(msg_id)
+    }
+
+    /// Update a message's folder when its .eml is moved to a new directory.
+    pub fn update_message_folder_by_path(&self, eml_path: &str, new_folder_id: &str) -> Result<bool> {
+        let updated = self.conn.execute(
+            "UPDATE messages SET folder_id = ?1, eml_path = ?2 WHERE eml_path = ?3",
+            params![new_folder_id, eml_path, eml_path],
+        )? > 0;
+        Ok(updated)
+    }
+
+    /// Look up the system label ID whose disk_slug matches the given folder name.
+    pub fn find_label_by_slug(&self, vault_id: &str, slug: &str) -> Result<Option<String>> {
+        let normalized = slug.to_lowercase();
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM labels WHERE vault_id = ?1 AND (LOWER(name) = ?2 OR system_kind = ?2) LIMIT 1",
+        )?;
+        Ok(stmt.query_row(params![vault_id, normalized], |r| r.get(0)).optional()?)
+    }
+
     pub fn get_body(&self, body_ref: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT html FROM message_bodies WHERE body_ref = ?1",

@@ -37,6 +37,7 @@ import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
+import { isTauri, getMessageBody } from "@/storage/tauri";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
@@ -46,7 +47,19 @@ import type { Message } from "@/data/types";
 function ThreadMessageRow({ msg }: { msg: Message }) {
   const [expanded, setExpanded] = React.useState(false);
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const body = bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`;
+  const [body, setBody] = React.useState<string>(
+    () => bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`
+  );
+  React.useEffect(() => {
+    const cached = bodyStore.get(msg.bodyRef);
+    if (cached) { setBody(cached); return; }
+    if (!isTauri()) return;
+    let cancelled = false;
+    getMessageBody(msg.bodyRef).then((html) => {
+      if (html && !cancelled) { bodyStore.set(msg.bodyRef, html); setBody(html); }
+    });
+    return () => { cancelled = true; };
+  }, [msg.bodyRef]);
 
   return (
     <div className="border-b border-border-subtle">
@@ -104,6 +117,26 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), 500);
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
+
+  // Async body loading: serve from cache or fetch via IPC on miss
+  const [bodyHtml, setBodyHtml] = React.useState<string>(() =>
+    msg ? (bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`) : ""
+  );
+  React.useEffect(() => {
+    if (!msg) return;
+    const cached = bodyStore.get(msg.bodyRef);
+    if (cached) { setBodyHtml(cached); return; }
+    setBodyHtml(`<p>${msg.snippet}</p>`);
+    if (!isTauri()) return;
+    let cancelled = false;
+    getMessageBody(msg.bodyRef).then((html) => {
+      if (html && !cancelled) {
+        bodyStore.set(msg.bodyRef, html);
+        setBodyHtml(html);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [msg?.bodyRef]);
 
   // Inspector toggle — opens/closes an inspector panel associated with this viewer.
   const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
@@ -172,11 +205,6 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
   const hasRemoteImages = msg.id.endsWith("0") || msg.id.endsWith("5");
-
-  // EP-3: retrieve full body from bodyStore. Falls back to snippet if not cached
-  // (e.g. messages arrived via sync before EP-4 body retrieval pipeline exists).
-  const storedBody = bodyStore.get(msg.bodyRef);
-  const bodyHtml = storedBody ?? `<p>${msg.snippet}</p>`;
 
   return (
     <Panel
