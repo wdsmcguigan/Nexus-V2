@@ -429,6 +429,62 @@ pub async fn download_attachment(
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// Re-fetch the HTML body for a single message from the Gmail API and store it.
+/// Called by the viewer when get_message_body returns null (body was cleared by migration
+/// after the base64 padding fix, or was never stored).
+#[tauri::command]
+pub async fn refetch_message_body(
+    state: State<'_, AppState>,
+    message_id: String, // Nexus message ID (e.g. "msg-xxxx")
+) -> std::result::Result<Option<String>, String> {
+    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
+    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
+
+    let (provider_id, account_id, refresh_token) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let (pid, aid) = db
+            .get_provider_id(&message_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Message not found".to_string())?;
+        let rt = db
+            .get_refresh_token(&aid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No refresh token".to_string())?;
+        (pid, aid, rt)
+    };
+
+    let oauth = GmailOAuth::new(client_id, client_secret);
+    let (access_token, expires_in) = oauth
+        .refresh_access_token(&refresh_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let expires_at = chrono::Utc::now().timestamp() + expires_in;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let html = crate::gmail::sync::fetch_message_html(&access_token, &provider_id, &account_id, &vault_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(ref h) = html {
+        let body_ref = format!("body-{provider_id}");
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.upsert_body(&body_ref, h).map_err(|e| e.to_string())?;
+    }
+
+    Ok(html)
+}
+
 // ─── EP-5 Relay commands ──────────────────────────────────────────────────────
 
 #[derive(Serialize)]

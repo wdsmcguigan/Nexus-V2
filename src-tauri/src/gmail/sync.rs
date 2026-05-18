@@ -433,6 +433,18 @@ pub struct IncrementalResult {
 
 // ─── Message fetching + parsing ───────────────────────────────────────────────
 
+/// Fetch a single message and return only the HTML body (used by the on-demand body refetch command).
+pub async fn fetch_message_html(
+    token: &str,
+    provider_id: &str,
+    account_id: &str,
+    vault_id: &str,
+) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+    let parsed = fetch_and_parse_message(&client, token, provider_id, account_id, vault_id).await?;
+    Ok(parsed.body_html)
+}
+
 /// Fetch a single message using format=full (headers + body, no raw attachment bytes).
 /// This is much more reliable than format=raw for large messages.
 async fn fetch_and_parse_message(
@@ -557,6 +569,13 @@ fn extract_body_from_payload(payload: &GmailPayload) -> (Option<String>, Option<
     (text, html)
 }
 
+fn decode_b64url(data: &str) -> Option<Vec<u8>> {
+    // Gmail spec: base64url, may include `=` padding. URL_SAFE_NO_PAD is strict —
+    // strip trailing `=` before decoding so both padded and unpadded strings work.
+    let stripped = data.trim_end_matches('=');
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(stripped).ok()
+}
+
 fn collect_body_from_payload(
     payload: &GmailPayload,
     text: &mut Option<String>,
@@ -566,7 +585,7 @@ fn collect_body_from_payload(
 
     if mime == "text/plain" && text.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
-            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+            if let Some(bytes) = decode_b64url(data) {
                 if let Ok(s) = String::from_utf8(bytes) {
                     if !s.trim().is_empty() {
                         *text = Some(s);
@@ -576,7 +595,7 @@ fn collect_body_from_payload(
         }
     } else if mime == "text/html" && html.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
-            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+            if let Some(bytes) = decode_b64url(data) {
                 if let Ok(s) = String::from_utf8(bytes) {
                     if !s.trim().is_empty() {
                         *html = Some(s);
