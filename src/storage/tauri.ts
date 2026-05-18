@@ -155,6 +155,8 @@ export async function sendMessage(params: {
   accountId: string;
   from: string;
   to: string[];
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   bodyHtml: string;
   replyToMessageId?: string;
@@ -170,6 +172,8 @@ export async function sendMessage(params: {
 function buildRfc822(params: {
   from: string;
   to: string[];
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   bodyHtml: string;
   replyToMessageId?: string;
@@ -177,6 +181,8 @@ function buildRfc822(params: {
   const lines: string[] = [];
   lines.push(`From: ${params.from}`);
   lines.push(`To: ${params.to.join(", ")}`);
+  if (params.cc && params.cc.length > 0) lines.push(`Cc: ${params.cc.join(", ")}`);
+  if (params.bcc && params.bcc.length > 0) lines.push(`Bcc: ${params.bcc.join(", ")}`);
   lines.push(`Subject: ${params.subject}`);
   lines.push(`MIME-Version: 1.0`);
   lines.push(`Content-Type: text/html; charset=UTF-8`);
