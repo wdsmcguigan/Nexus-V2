@@ -64,7 +64,7 @@ export function recordMutation(
 
   // Fire-and-forget persistence to SQLite in Tauri mode
   if (isTauri()) {
-    applyMutationIpc(kind, payload).catch((e) =>
+    applyMutationIpc(kind, payload, mutation.deviceId, mutation.lamport).catch((e) =>
       console.warn("IPC mutation persist failed:", e),
     );
   }

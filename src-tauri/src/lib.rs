@@ -1,15 +1,17 @@
 mod commands;
+pub mod crypto;
 mod db;
 mod gmail;
+mod relay;
 mod watcher;
 
-use std::sync::Mutex;
-use tauri::Manager;
+use std::sync::{Arc, Mutex};
 
 /// Shared application state, held behind a Mutex so commands can mutate it.
 pub struct AppState {
     pub db: Mutex<Option<db::VaultDb>>,
     pub vault_path: Mutex<Option<String>>,
+    pub relay: Arc<Mutex<relay::RelayState>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,6 +23,7 @@ pub fn run() {
         .manage(AppState {
             db: Mutex::new(None),
             vault_path: Mutex::new(None),
+            relay: Arc::new(Mutex::new(relay::RelayState::default())),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
@@ -34,6 +37,13 @@ pub fn run() {
             commands::send_message,
             commands::get_vault_path,
             commands::set_vault_path,
+            // EP-5 relay commands
+            commands::get_relay_status,
+            commands::set_relay_url,
+            commands::get_vault_key_hex,
+            commands::start_enrollment_session,
+            commands::complete_enrollment,
+            commands::start_relay_hosting,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

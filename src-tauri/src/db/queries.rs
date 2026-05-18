@@ -667,16 +667,28 @@ impl VaultDb {
         Ok(())
     }
 
-    pub fn apply_mutation(&self, vault_id: &str, kind: &str, payload: &str) -> Result<()> {
+    pub fn apply_mutation(
+        &self,
+        vault_id: &str,
+        kind: &str,
+        payload: &str,
+        device_id: &str,
+        lamport: i64,
+    ) -> Result<()> {
         let id = uuid::Uuid::new_v4().to_string();
         let ts = chrono::Utc::now().timestamp_millis();
         self.conn.execute(
-            "INSERT INTO mutations (id, vault_id, kind, payload_json, ts)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, vault_id, kind, payload, ts],
+            "INSERT INTO mutations (id, vault_id, kind, payload_json, ts, device_id, lamport)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, vault_id, kind, payload, ts, device_id, lamport],
         )?;
 
-        // Apply the mutation to the main tables
+        self.apply_mutation_to_tables(kind, payload)
+    }
+
+    /// Apply an inbound remote mutation to local tables WITHOUT recording it in the
+    /// mutations log (avoids echoing back to the relay on next push).
+    pub fn apply_remote_mutation(&self, kind: &str, payload: &str) -> Result<()> {
         self.apply_mutation_to_tables(kind, payload)
     }
 
@@ -849,7 +861,7 @@ impl VaultDb {
         Ok(())
     }
 
-    /// Returns (mutation_id, kind, payload_json, vault_id) for all unsynced mutations.
+    /// Returns (mutation_id, kind, payload_json, vault_id) for mutations not yet synced to Gmail.
     pub fn pending_outbound_mutations(&self) -> Result<Vec<(String, String, String, String)>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, kind, payload_json, vault_id FROM mutations WHERE synced_at IS NULL ORDER BY ts LIMIT 100",
@@ -863,6 +875,173 @@ impl VaultDb {
             ))
         })?;
         rows.map(|r| r.context("loading pending mutation")).collect()
+    }
+
+    /// Returns (id, kind, payload_json, device_id, lamport) for mutations not yet pushed to relay.
+    pub fn pending_relay_mutations(&self) -> Result<Vec<(String, String, String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, payload_json, device_id, lamport FROM mutations \
+             WHERE relay_seq IS NULL ORDER BY lamport LIMIT 200",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?;
+        rows.map(|r| r.context("loading pending relay mutation")).collect()
+    }
+
+    pub fn mark_relay_pushed(&self, mutation_id: &str, seq: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE mutations SET relay_seq = ?1 WHERE id = ?2",
+            params![seq, mutation_id],
+        )?;
+        Ok(())
+    }
+
+    // ─── Vault key ────────────────────────────────────────────────────────────────
+
+    /// Returns the vault's 32-byte encryption key, generating it on first call.
+    pub fn get_or_create_vault_key(&self, vault_id: &str) -> Result<[u8; 32]> {
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT key_hex FROM vault_key WHERE vault_id = ?1",
+            params![vault_id],
+            |r| r.get(0),
+        ).optional()?;
+
+        if let Some(hex) = existing {
+            let bytes = decode_hex(&hex).context("decoding vault key hex")?;
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            return Ok(key);
+        }
+
+        // Generate a new random key (two UUID v4 values = 32 cryptographically random bytes)
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let mut key = [0u8; 32];
+        key[..16].copy_from_slice(a.as_bytes());
+        key[16..].copy_from_slice(b.as_bytes());
+        let hex = encode_hex(&key);
+        self.conn.execute(
+            "INSERT OR IGNORE INTO vault_key (vault_id, key_hex) VALUES (?1, ?2)",
+            params![vault_id, hex],
+        )?;
+        Ok(key)
+    }
+
+    pub fn get_vault_key_hex(&self, vault_id: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row(
+            "SELECT key_hex FROM vault_key WHERE vault_id = ?1",
+            params![vault_id],
+            |r| r.get(0),
+        ).optional()?)
+    }
+
+    pub fn import_vault_key(&self, vault_id: &str, key_hex: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO vault_key (vault_id, key_hex) VALUES (?1, ?2)",
+            params![vault_id, key_hex],
+        )?;
+        Ok(())
+    }
+
+    // ─── Device ID ────────────────────────────────────────────────────────────────
+
+    /// Returns the stable device ID for this installation, generating it on first call.
+    pub fn get_or_create_device_id(&self) -> Result<String> {
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT device_id FROM devices ORDER BY enrolled_at LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?;
+
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+
+        let id = format!("dev-{}", uuid::Uuid::new_v4().simple());
+        let nickname = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| "Nexus Device".to_string());
+        let now = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            "INSERT OR IGNORE INTO devices (device_id, nickname, enrolled_at) VALUES (?1, ?2, ?3)",
+            params![id, nickname, now],
+        )?;
+        Ok(id)
+    }
+
+    // ─── Relay state ──────────────────────────────────────────────────────────────
+
+    pub fn get_relay_url(&self) -> Result<Option<String>> {
+        Ok(self.conn.query_row(
+            "SELECT relay_url FROM relay_state LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?)
+    }
+
+    pub fn set_relay_url(&self, url: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO relay_state (relay_url, last_seq, last_sync_at) VALUES (?1, 0, NULL)",
+            params![url],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_relay_cursor(&self, relay_url: &str) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT last_seq FROM relay_state WHERE relay_url = ?1",
+            params![relay_url],
+            |r| r.get(0),
+        ).optional()?.unwrap_or(0))
+    }
+
+    pub fn update_relay_cursor(&self, relay_url: &str, seq: i64, now_ms: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE relay_state SET last_seq = ?1, last_sync_at = ?2 WHERE relay_url = ?3",
+            params![seq, now_ms, relay_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_relay_last_sync_at(&self) -> Result<Option<i64>> {
+        Ok(self.conn.query_row(
+            "SELECT last_sync_at FROM relay_state ORDER BY last_sync_at DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?.flatten())
+    }
+
+    pub fn pending_relay_count(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM mutations WHERE relay_seq IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    // ─── Enrollment sessions ─────────────────────────────────────────────────────
+
+    pub fn store_enroll_session(
+        &self,
+        code_hash: &str,
+        vault_id: &str,
+        encrypted_vault_key: &[u8],
+        expires_at: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO enroll_sessions (code_hash, vault_id, encrypted_vault_key, expires_at, attempts) \
+             VALUES (?1, ?2, ?3, ?4, 0)",
+            params![code_hash, vault_id, encrypted_vault_key, expires_at],
+        )?;
+        Ok(())
     }
 
     /// Returns true if the stored access token has not yet expired.
@@ -929,6 +1108,22 @@ impl VaultDb {
         })?;
         rows.map(|r| r.context("loading gmail account row")).collect()
     }
+}
+
+// ─── Hex helpers (avoids adding a hex crate dep) ─────────────────────────────
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn decode_hex(s: &str) -> Result<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return Err(anyhow::anyhow!("odd-length hex string"));
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!("hex decode: {e}")))
+        .collect()
 }
 
 // Allow rusqlite's optional() on queries returning no rows

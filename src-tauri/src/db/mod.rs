@@ -37,7 +37,22 @@ impl VaultDb {
     fn run_migrations(&self) -> Result<()> {
         self.conn
             .execute_batch(schema::SCHEMA_SQL)
-            .context("running migrations")?;
+            .context("running schema DDL")?;
+        self.run_column_migrations()
+            .context("running column migrations")?;
+        Ok(())
+    }
+
+    /// Safely add new columns to existing tables (ignores "duplicate column" errors).
+    fn run_column_migrations(&self) -> Result<()> {
+        let alters = [
+            "ALTER TABLE mutations ADD COLUMN device_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE mutations ADD COLUMN lamport INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE mutations ADD COLUMN relay_seq INTEGER",
+        ];
+        for sql in &alters {
+            let _ = self.conn.execute_batch(sql);
+        }
         Ok(())
     }
 }
