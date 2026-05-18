@@ -1,7 +1,7 @@
 import * as React from "react";
 import { DockviewReact, DockviewDefaultTab } from "dockview";
 import type { DockviewReadyEvent, IDockviewPanelProps, IDockviewPanelHeaderProps } from "dockview";
-import { GripVertical } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
@@ -43,15 +43,22 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 };
 
 // ─── Custom tab component ─────────────────────────────────────────────────────
-// Renders a grip icon in the actual dockview tab area so users know where to
-// grab to drag panels. The whole tab element is the drag handle (dockview
-// controls this); the grip is purely a visual affordance.
+// Renders a grip affordance and our own close button so we control the styling.
+// The whole tab element is dockview's drag handle; grip is purely visual.
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
   return (
-    <div className="flex h-full items-center gap-1 pl-1">
-      <GripVertical size={11} className="shrink-0 text-text-muted opacity-40" />
+    <div className="group/tab flex h-full items-center pl-1">
+      <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
       <DockviewDefaultTab {...props} hideClose />
+      <button
+        type="button"
+        aria-label="Close panel"
+        onClick={() => props.api.close()}
+        className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover/tab:opacity-100"
+      >
+        <X size={10} strokeWidth={2.5} />
+      </button>
     </div>
   );
 }
@@ -159,6 +166,21 @@ export function Workspace() {
   React.useEffect(() => {
     document.title = unread > 0 ? `(${unread}) Nexus` : "Nexus";
   }, [unread]);
+
+  // During any drag operation, disable pointer-events on iframes so they don't
+  // swallow dragover/drop events fired at the parent document.
+  React.useEffect(() => {
+    const add = () => document.body.classList.add("nx-dragging");
+    const rem = () => document.body.classList.remove("nx-dragging");
+    window.addEventListener("dragstart", add);
+    window.addEventListener("dragend", rem);
+    window.addEventListener("drop", rem);
+    return () => {
+      window.removeEventListener("dragstart", add);
+      window.removeEventListener("dragend", rem);
+      window.removeEventListener("drop", rem);
+    };
+  }, []);
 
   // Global `?` key opens shortcut help
   React.useEffect(() => {
