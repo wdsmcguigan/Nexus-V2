@@ -30,9 +30,9 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
-import { isTauri, sendMessage } from "@/storage/tauri";
+import { isTauri, sendMessage, type AttachmentPayload } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
@@ -225,6 +225,22 @@ function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInp
   );
 }
 
+// ─── Attachment helpers ───────────────────────────────────────────────────────
+
+function readFileAsBase64(file: File): Promise<AttachmentPayload> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // result = "data:<mime>;base64,<data>"
+      const data = result.split(",")[1] ?? "";
+      resolve({ name: file.name, mimeType: file.type || "application/octet-stream", data });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─── Quoted block ─────────────────────────────────────────────────────────────
 
 function buildQuotedHtml(msg: {
@@ -264,6 +280,8 @@ export function EmailComposerPanel() {
   const _draftKey = draftKey(replyMsg?.id ?? null);
   const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
   const sendAndArchiveRef = React.useRef(false);
+  const [attachments, setAttachments] = React.useState<File[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // ── Recipients ────────────────────────────────────────────────────────────
 
@@ -349,6 +367,9 @@ export function EmailComposerPanel() {
       const gmailAccount = accounts.find((a) => a.provider === "gmail");
       if (!gmailAccount) { toast.error("No Gmail account connected"); return; }
       try {
+        const attachmentPayloads = attachments.length > 0
+          ? await Promise.all(attachments.map(readFileAsBase64))
+          : undefined;
         await sendMessage({
           accountId: gmailAccount.id,
           from: gmailAccount.email,
@@ -358,6 +379,7 @@ export function EmailComposerPanel() {
           subject,
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
+          attachments: attachmentPayloads,
         });
         clearDraft(_draftKey);
         toast.success("Sent");
@@ -371,7 +393,7 @@ export function EmailComposerPanel() {
       if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
     }
     setComposerOpen(false);
-  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, setComposerOpen, archive]);
+  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive]);
 
   const startSend = React.useCallback(() => {
     setSending(true);
@@ -442,7 +464,7 @@ export function EmailComposerPanel() {
     // Consider it dirty if: has recipients, non-empty subject, or editor
     // has more than the initial quoted block (check text content length)
     const text = editor?.getText() ?? "";
-    const isDirty = recipients.length > 0 || subject.trim() !== "" || text.trim().length > 0;
+    const isDirty = recipients.length > 0 || subject.trim() !== "" || text.trim().length > 0 || attachments.length > 0;
     if (isDirty) {
       setDiscardOpen(true);
     } else {
@@ -581,10 +603,47 @@ export function EmailComposerPanel() {
         </div>
 
         {/* Attachments strip */}
-        <div className="flex h-9 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-3">
-          <Paperclip size={12} className="text-text-tertiary" />
-          <span className="flex-1 font-mono text-mono-sm text-text-muted">No attachments</span>
-          <Button variant="ghost" size="xs">+ Attach</Button>
+        <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-1 px-3 py-1.5">
+          <Paperclip size={12} className="shrink-0 text-text-tertiary" />
+          {attachments.length === 0 && (
+            <span className="flex-1 font-mono text-mono-sm text-text-muted">No attachments</span>
+          )}
+          {attachments.map((file, i) => (
+            <span
+              key={`${file.name}-${i}`}
+              className="flex items-center gap-1 rounded-xs border border-border-default bg-surface-2 px-2 py-0.5 font-mono text-mono-xs text-text-secondary"
+            >
+              {file.name}
+              <span className="text-text-muted">({formatBytes(file.size)})</span>
+              <button
+                type="button"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                className="ml-1 rounded-xs text-text-muted hover:text-text-primary"
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            + Attach
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) setAttachments((prev) => [...prev, ...files]);
+              e.target.value = ""; // reset so same file can be re-attached
+            }}
+          />
         </div>
 
         {/* Send footer */}
