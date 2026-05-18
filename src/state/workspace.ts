@@ -587,7 +587,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   openContactsPanel: (contactId, participantEmails) => {
     const api = getDockviewApi();
     if (!api) return;
-    if (contactId) set({ selectedContactId: contactId });
+    set({ selectedContactId: contactId ?? null });
     // participantEmails scopes the left column; undefined → clear filter (standalone open)
     set({ contactParticipantFilter: participantEmails ?? null });
     const existing = api.panels.find((p) => p.id === "contacts");

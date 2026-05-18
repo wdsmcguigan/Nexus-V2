@@ -245,7 +245,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     key={email}
                     contactId={contact.id}
                     name={contact.name}
-                    primaryEmail={contact.emails[0] ?? email}
+                    primaryEmail={(contact.emails ?? [])[0] ?? email}
                     isSelected={contact.id === selectedContactId}
                     onSelect={() => setSelectedContactId(contact.id)}
                     onMessageCountClick={(mod) => openContactMessages(contact.id, mod)}
@@ -271,7 +271,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     key={c.id}
                     contactId={c.id}
                     name={c.name}
-                    primaryEmail={c.emails[0] ?? ""}
+                    primaryEmail={(c.emails ?? [])[0] ?? ""}
                     isSelected={c.id === selectedContactId}
                     onSelect={() => setSelectedContactId(c.id)}
                     onMessageCountClick={(mod) => openContactMessages(c.id, mod)}
@@ -286,7 +286,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
         <div className="flex-1 overflow-y-auto">
           {selectedContact ? (
             <ContactCard
-              email={selectedContact.emails[0] ?? ""}
+              email={(selectedContact.emails ?? [])[0] ?? ""}
               name={selectedContact.name}
               compact={false}
             />
