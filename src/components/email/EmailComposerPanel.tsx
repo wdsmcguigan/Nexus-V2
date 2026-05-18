@@ -15,6 +15,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import UnderlineExt from "@tiptap/extension-underline";
@@ -35,6 +36,7 @@ import { isTauri, sendMessage } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
+import { loadSignature } from "@/lib/signature";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
@@ -255,11 +257,13 @@ function setLink(editor: ReturnType<typeof useEditor>) {
 export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
   const composerContext = useWorkspace((s) => s.composerContext);
+  const archive = useWorkspace((s) => s.archive);
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
   const _draftKey = draftKey(replyMsg?.id ?? null);
   const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
+  const sendAndArchiveRef = React.useRef(false);
 
   // ── Recipients ────────────────────────────────────────────────────────────
 
@@ -293,7 +297,18 @@ export function EmailComposerPanel() {
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
 
-  const initialContent = _draft?.bodyHtml ?? (replyMsg ? buildQuotedHtml(replyMsg) : "");
+  const _sigHtml = React.useMemo(() => {
+    const acct = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
+    const sig = acct ? loadSignature(acct.id) : "";
+    const sigHtml = sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+    return sigHtml ? `<div class="nexus-signature"><br/>-- <br/>${sigHtml}</div>` : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const initialContent = _draft?.bodyHtml ?? (
+    replyMsg
+      ? buildQuotedHtml(replyMsg) + _sigHtml
+      : (_sigHtml ? `<p></p>${_sigHtml}` : "")
+  );
 
   const editor = useEditor({
     extensions: [
@@ -321,6 +336,9 @@ export function EmailComposerPanel() {
   const [sending, setSending] = React.useState(false);
   const [countdown, setCountdown] = React.useState(0);
   const sendTimeoutRef = React.useRef<number | null>(null);
+  const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
+  const [schedulePickerOpen, setSchedulePickerOpen] = React.useState(false);
+  const scheduledSendRef = React.useRef<number | null>(null);
 
   const doActualSend = React.useCallback(async () => {
     setSending(false);
@@ -343,15 +361,17 @@ export function EmailComposerPanel() {
         });
         clearDraft(_draftKey);
         toast.success("Sent");
+        if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
       } catch (e) {
         toast.error(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
         return;
       }
     } else {
       toast.success("Sent (web mode — not actually delivered)");
+      if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
     }
     setComposerOpen(false);
-  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, setComposerOpen]);
+  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, setComposerOpen, archive]);
 
   const startSend = React.useCallback(() => {
     setSending(true);
@@ -379,6 +399,15 @@ export function EmailComposerPanel() {
 
   React.useEffect(() => () => { if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current); }, []);
 
+  // Fire scheduled send when time arrives
+  React.useEffect(() => {
+    if (!scheduledAt) return;
+    const delay = scheduledAt - Date.now();
+    if (delay <= 0) { doActualSend(); return; }
+    scheduledSendRef.current = window.setTimeout(doActualSend, delay);
+    return () => { if (scheduledSendRef.current) window.clearTimeout(scheduledSendRef.current); };
+  }, [scheduledAt, doActualSend]);
+
   // Auto-save draft on change (debounced 1s)
   const saveTimerRef = React.useRef<number | null>(null);
   React.useEffect(() => {
@@ -392,17 +421,20 @@ export function EmailComposerPanel() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject, recipients, ccRecipients, bccRecipients, editor, sending]);
 
-  // ⌘↵ to send
+  // ⌘↵ to send, ⌘⇧↵ to send + archive
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        if (!sending) startSend();
+        if (!sending) {
+          sendAndArchiveRef.current = e.shiftKey && (mode === "reply" || mode === "reply-all");
+          startSend();
+        }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sending, startSend]);
+  }, [sending, startSend, mode]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -557,12 +589,75 @@ export function EmailComposerPanel() {
 
         {/* Send footer */}
         <div className="flex h-12 shrink-0 items-center gap-3 border-t border-border-subtle bg-surface-1 px-3">
-          {!sending ? (
-            <Button variant="primary" size="md" onClick={startSend}>
-              {mode === "forward" ? "Forward" : "Send"}
-              <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
-            </Button>
+          {scheduledAt ? (
+            /* Scheduled-send banner */
+            <div className="flex flex-1 items-center gap-3">
+              <span className="text-body text-text-secondary">
+                Scheduled for {formatAbsoluteTime(new Date(scheduledAt))}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (scheduledSendRef.current) window.clearTimeout(scheduledSendRef.current);
+                  setScheduledAt(null);
+                  toast("Scheduled send cancelled");
+                }}
+                className="font-mono text-mono-xs text-text-tertiary hover:text-text-primary underline"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : !sending ? (
+            /* Normal send: split button (Send | ▾ dropdown) */
+            <div className="flex items-stretch">
+              <Button
+                variant="primary"
+                size="md"
+                className="rounded-r-none border-r border-r-white/20"
+                onClick={() => { sendAndArchiveRef.current = false; startSend(); }}
+              >
+                {mode === "forward" ? "Forward" : "Send"}
+                <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
+              </Button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    variant="primary"
+                    size="md"
+                    iconOnly
+                    className="rounded-l-none px-1.5"
+                    aria-label="More send options"
+                  >
+                    <ChevronDown size={13} />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={4}
+                    align="start"
+                    className="z-50 min-w-[200px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                  >
+                    {(mode === "reply" || mode === "reply-all") && (
+                      <DropdownMenu.Item
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                        onSelect={() => { sendAndArchiveRef.current = true; startSend(); }}
+                      >
+                        Send + Archive
+                        <span className="ml-auto font-mono text-mono-xs text-text-muted">⌘⇧↵</span>
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Item
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      onSelect={() => setSchedulePickerOpen(true)}
+                    >
+                      Send later…
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
           ) : (
+            /* Undo countdown */
             <button
               type="button"
               onClick={undoSend}
@@ -577,6 +672,14 @@ export function EmailComposerPanel() {
             Discard
           </Button>
         </div>
+
+        {/* Send later datetime picker */}
+        {schedulePickerOpen && (
+          <ScheduleDatePicker
+            onConfirm={(ts) => { setScheduledAt(ts); setSchedulePickerOpen(false); }}
+            onCancel={() => setSchedulePickerOpen(false)}
+          />
+        )}
       </div>
     </Panel>
 
@@ -615,6 +718,65 @@ export function EmailComposerPanel() {
       </AlertDialog.Portal>
     </AlertDialog.Root>
     </>
+  );
+}
+
+// ─── Schedule date picker ─────────────────────────────────────────────────────
+
+function ScheduleDatePicker({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (ts: number) => void;
+  onCancel: () => void;
+}) {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const defaultTime = `${pad(now.getHours() + 1)}:00`;
+
+  const [dateVal, setDateVal] = React.useState(defaultDate);
+  const [timeVal, setTimeVal] = React.useState(defaultTime);
+
+  function handleConfirm() {
+    const ts = new Date(`${dateVal}T${timeVal}`).getTime();
+    if (isNaN(ts) || ts <= Date.now()) {
+      alert("Please choose a time in the future.");
+      return;
+    }
+    onConfirm(ts);
+  }
+
+  return (
+    <div className="absolute inset-x-0 bottom-12 z-10 flex items-center gap-2 border-t border-border-subtle bg-surface-2 px-3 py-2 shadow-lg">
+      <span className="shrink-0 text-body text-text-secondary">Send at</span>
+      <input
+        type="date"
+        value={dateVal}
+        onChange={(e) => setDateVal(e.target.value)}
+        className="rounded-xs border border-border-default bg-surface-1 px-2 py-1 font-mono text-mono-sm text-text-primary outline-none focus:border-accent"
+      />
+      <input
+        type="time"
+        value={timeVal}
+        onChange={(e) => setTimeVal(e.target.value)}
+        className="rounded-xs border border-border-default bg-surface-1 px-2 py-1 font-mono text-mono-sm text-text-primary outline-none focus:border-accent"
+      />
+      <button
+        type="button"
+        onClick={handleConfirm}
+        className="rounded-xs bg-accent px-3 py-1 text-body-strong text-text-on-accent hover:bg-accent/90"
+      >
+        Schedule
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="font-mono text-mono-xs text-text-tertiary hover:text-text-primary"
+      >
+        Cancel
+      </button>
+    </div>
   );
 }
 

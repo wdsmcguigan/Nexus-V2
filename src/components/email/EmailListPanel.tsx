@@ -21,6 +21,7 @@ import {
   CheckCheck,
   Bookmark,
   Tag,
+  MessagesSquare,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
@@ -93,6 +94,8 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const _setListPanelAxis = useWorkspace((s) => s.setListPanelAxis);
   const _removeListPanelAxis = useWorkspace((s) => s.removeListPanelAxis);
   const saveCurrentFilter = useWorkspace((s) => s.saveCurrentFilter);
+  const threadedView = useWorkspace((s) => s.threadedView);
+  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
 
   const [saveViewOpen, setSaveViewOpen] = React.useState(false);
   const [saveViewName, setSaveViewName] = React.useState("");
@@ -148,7 +151,18 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const [groupBySta, setGroupBySta] = React.useState(false);
 
   const title = useSelectionTitle();
-  const messages = useVisibleMessagesForPanel(panelId, sortBy);
+  const allMessages = useVisibleMessagesForPanel(panelId, sortBy);
+
+  // Collapse to one row per threadId when threaded view is active
+  const messages = React.useMemo(() => {
+    if (!threadedView) return allMessages;
+    const seen = new Set<string>();
+    return allMessages.filter((msg) => {
+      if (seen.has(msg.threadId)) return false;
+      seen.add(msg.threadId);
+      return true;
+    });
+  }, [allMessages, threadedView]);
 
   // Resolve label/status for each message (looked up from localStore at render time)
   const resolvedLabels = React.useMemo((): Map<string, Label[]> => {
@@ -628,6 +642,25 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
           >
             <Layers size={11} />
             {groupBySta ? "Grouped" : "Group by Status"}
+          </button>
+        </Tooltip>
+
+        {/* Threaded view toggle */}
+        <Tooltip label={threadedView ? "Showing conversations — click for flat view" : "Showing all messages — click for conversation view"}>
+          <button
+            type="button"
+            onClick={toggleThreadedView}
+            className={cn(
+              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
+              "transition-colors hover:bg-surface-2",
+              threadedView
+                ? "bg-accent-soft text-text-primary"
+                : "text-text-tertiary hover:text-text-secondary",
+            )}
+            aria-pressed={threadedView}
+          >
+            <MessagesSquare size={11} />
+            {threadedView ? "Threaded" : "Flat"}
           </button>
         </Tooltip>
 

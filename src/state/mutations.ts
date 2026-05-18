@@ -587,6 +587,16 @@ export const unreadMessage = (s: LocalStore, messageId: string) =>
   recordMutation("UNREAD", { messageId }, s);
 export const archiveMessage = (s: LocalStore, messageId: string) =>
   recordMutation("ARCHIVE", { messageId }, s);
+export const unarchiveMessage = (s: LocalStore, messageId: string) => {
+  const msg = s.messages.get(messageId);
+  if (!msg) return;
+  const inboxId = _systemLabelId(s, "inbox");
+  const archiveId = _systemLabelId(s, "archive");
+  if (inboxId && !msg.labelIds.includes(inboxId))
+    recordMutation("ADD_LABEL", { messageId, labelId: inboxId }, s);
+  if (archiveId && msg.labelIds.includes(archiveId))
+    recordMutation("REMOVE_LABEL", { messageId, labelId: archiveId }, s);
+};
 export const trashMessage = (s: LocalStore, messageId: string) =>
   recordMutation("TRASH", { messageId }, s);
 export const snoozeMessage = (s: LocalStore, messageId: string, until: number) =>

@@ -37,6 +37,7 @@ import { useMessage, useThreadMessages, useContactByEmail } from "@/storage/useS
 import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
+import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
 import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
@@ -107,6 +108,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const pinViewerToEmail = useWorkspace((s) => s.pinViewerToEmail);
   const unpinViewer = useWorkspace((s) => s.unpinViewer);
   const openComposer = useWorkspace((s) => s.openComposer);
+  const unarchive = useWorkspace((s) => s.unarchive);
 
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
@@ -269,7 +271,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   size="sm"
                   iconOnly
                   aria-label="Archive"
-                  onClick={() => Mut.archiveMessage(localStore, msg.id)}
+                  onClick={() => {
+                    const id = msg.id;
+                    Mut.archiveMessage(localStore, id);
+                    toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
+                  }}
                 >
                   <Archive />
                 </Button>
@@ -280,7 +286,10 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   size="sm"
                   iconOnly
                   aria-label="Delete"
-                  onClick={() => Mut.deleteMessage(localStore, msg.id)}
+                  onClick={() => {
+                    Mut.deleteMessage(localStore, msg.id);
+                    toast("Moved to Trash");
+                  }}
                 >
                   <Trash2 />
                 </Button>

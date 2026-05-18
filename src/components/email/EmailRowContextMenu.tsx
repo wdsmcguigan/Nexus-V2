@@ -22,6 +22,7 @@ import {
   BellOff,
   Bell,
 } from "lucide-react";
+import { toast } from "sonner";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
@@ -52,6 +53,7 @@ interface Props {
 
 export function EmailRowContextMenu({ message: msg, children, onArchive, onDelete }: Props) {
   const openComposer = useWorkspace((s) => s.openComposer);
+  const unarchive = useWorkspace((s) => s.unarchive);
 
   const isRead = msg.flags.read;
   const isStarred = !!msg.star;
@@ -208,12 +210,25 @@ export function EmailRowContextMenu({ message: msg, children, onArchive, onDelet
           <ContextMenu.Separator className={separatorCls} />
 
           {/* Archive / delete */}
-          <ContextMenu.Item className={itemCls} onSelect={onArchive}>
+          <ContextMenu.Item
+            className={itemCls}
+            onSelect={() => {
+              const id = msg.id;
+              onArchive();
+              toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
+            }}
+          >
             <Archive size={12} className="absolute left-2 text-text-tertiary" />
             Archive
             <span className={shortcutCls}>E</span>
           </ContextMenu.Item>
-          <ContextMenu.Item className={destructCls} onSelect={onDelete}>
+          <ContextMenu.Item
+            className={destructCls}
+            onSelect={() => {
+              onDelete();
+              toast("Moved to Trash");
+            }}
+          >
             <Trash2 size={12} className="absolute left-2" />
             Delete
             <span className={shortcutCls}>#</span>

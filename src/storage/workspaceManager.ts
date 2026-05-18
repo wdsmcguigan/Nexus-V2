@@ -34,6 +34,8 @@ export interface WorkspaceSnapshot {
   tableColumnWidths: Record<string, number>;
   /** Controls whether contextual "jump to filtered messages" opens in-place or a new panel. */
   filteredViewBehavior: "replace" | "new-panel";
+  /** When true, the list collapses messages into one row per threadId (default: true). */
+  threadedView: boolean;
 }
 
 export interface WorkspacesData {
@@ -80,5 +82,6 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     tableColumnOrder: [],
     tableColumnWidths: {},
     filteredViewBehavior: "replace",
+    threadedView: true,
   };
 }

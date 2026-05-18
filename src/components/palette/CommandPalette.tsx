@@ -37,6 +37,7 @@ import {
   LayoutPanelTop,
   Columns2,
   User,
+  MessagesSquare,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
@@ -81,6 +82,7 @@ export function CommandPalette() {
   const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
   const togglePin = useWorkspace((s) => s.togglePin);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
+  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
   const setDensity = useWorkspace((s) => s.setDensity);
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
   const openSettingsPanel = useWorkspace((s) => s.openSettingsPanel);
@@ -404,6 +406,7 @@ export function CommandPalette() {
     // ── Workspace ───────────────────────────────────────────────────
     all.push({ id: "pin-inspector", label: "Pin / unpin Inspector", group: "Workspace", icon: Pin, shortcut: "P", perform: togglePin });
     all.push({ id: "theme", label: "Toggle theme", group: "Workspace", icon: Sun, shortcut: "⌘⇧L", perform: toggleTheme });
+    all.push({ id: "threaded-view", label: "Toggle threaded / flat view", group: "Workspace", icon: MessagesSquare, perform: toggleThreadedView });
     all.push({ id: "density-compact", label: "Density: Compact", group: "Workspace", icon: Rows4, perform: () => setDensity("compact" as Density) });
     all.push({ id: "density-comfortable", label: "Density: Comfortable", group: "Workspace", icon: Rows3, perform: () => setDensity("comfortable" as Density) });
     all.push({ id: "density-cozy", label: "Density: Cozy", group: "Workspace", icon: Rows2, perform: () => setDensity("cozy" as Density) });
@@ -482,7 +485,7 @@ export function CommandPalette() {
   }, [
     selectedEmailId,
     workspaces, activeWorkspaceId, saveWorkspace, switchWorkspace,
-    setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity,
+    setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, toggleThreadedView, setDensity,
     archive, trash, snooze, setPinnedAction, setMuted, setFlag, clearFlag,
     setPriority, clearPriority, setStar, clearStar,
     addLabel, removeLabel, addTag, removeTag, setStatus, clearStatus, moveToFolder, setRead,

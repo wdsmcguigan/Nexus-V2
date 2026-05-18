@@ -49,6 +49,7 @@ import {
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
+import { loadSignature, saveSignature } from "@/lib/signature";
 
 // ─── Section header ───────────────────────────────────────────────────────────
 
@@ -608,6 +609,37 @@ function RelaySection() {
   );
 }
 
+// ─── Signature editor ─────────────────────────────────────────────────────────
+
+function SignatureEditor({ accountId, email }: { accountId: string; email: string }) {
+  const [value, setValue] = React.useState(() => loadSignature(accountId));
+
+  function handleBlur() {
+    saveSignature(accountId, value.trim());
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-small text-text-secondary">{email}</label>
+      <textarea
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleBlur}
+        rows={4}
+        placeholder="Type your signature here…"
+        className={cn(
+          "w-full resize-y rounded-sm border border-border-default bg-surface-1 px-3 py-2",
+          "font-mono text-mono-sm text-text-primary outline-none placeholder:text-text-muted",
+          "focus:border-accent",
+        )}
+      />
+      <p className="text-caption text-text-muted">
+        Plain text. Appended to new messages and replies automatically.
+      </p>
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ panelId }: { panelId: string }) {
@@ -692,6 +724,17 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     Add account
                   </Button>
                 </div>
+              )}
+
+              {accounts.length > 0 && (
+                <>
+                  <SectionHeader>Signatures</SectionHeader>
+                  <div className="flex flex-col gap-4 px-4 pb-4">
+                    {accounts.map((acc) => (
+                      <SignatureEditor key={acc.id} accountId={acc.id} email={acc.email} />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}
