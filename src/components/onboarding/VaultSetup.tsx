@@ -19,7 +19,7 @@ interface Props {
 
 export function VaultSetup({ onComplete }: Props) {
   const [step, setStep] = useState<Step>(() => {
-    const saved = sessionStorage.getItem(STEP_KEY) as Step | null;
+    const saved = localStorage.getItem(STEP_KEY) as Step | null;
     return saved === "mode" || saved === "gmail" ? saved : "vault";
   });
   const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
@@ -29,9 +29,9 @@ export function VaultSetup({ onComplete }: Props) {
 
   function advanceTo(s: Step) {
     if (s === "done") {
-      sessionStorage.removeItem(STEP_KEY);
+      localStorage.removeItem(STEP_KEY);
     } else {
-      sessionStorage.setItem(STEP_KEY, s);
+      localStorage.setItem(STEP_KEY, s);
     }
     setStep(s);
   }

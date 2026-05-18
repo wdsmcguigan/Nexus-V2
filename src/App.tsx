@@ -48,7 +48,7 @@ export default function App() {
     getVaultPath().then((path) => {
       // If a vault path is set but onboarding was interrupted mid-flow
       // (e.g. mode selection or Gmail step), resume onboarding.
-      const pendingStep = sessionStorage.getItem("nexus-onboarding-step");
+      const pendingStep = localStorage.getItem("nexus-onboarding-step");
       const hasPendingStep = pendingStep === "mode" || pendingStep === "gmail";
       setShowOnboarding(!path || hasPendingStep);
     });
