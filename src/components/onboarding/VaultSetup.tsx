@@ -2,6 +2,8 @@ import { useState } from "react";
 import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive } from "lucide-react";
 import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
+import { ftsIndex } from "@/storage/fts";
+import { bodyStore } from "@/storage/bodyStore";
 import { useWorkspace } from "@/state/workspace";
 import type { ClientMode } from "@/lib/clientMode";
 import { seedDefaultCustomFields } from "@/lib/defaultCustomFields";
@@ -9,16 +11,30 @@ import { GmailConnect } from "./GmailConnect";
 
 type Step = "vault" | "mode" | "gmail" | "done";
 
+const STEP_KEY = "nexus-onboarding-step";
+
 interface Props {
   onComplete: () => void;
 }
 
 export function VaultSetup({ onComplete }: Props) {
-  const [step, setStep] = useState<Step>("vault");
+  const [step, setStep] = useState<Step>(() => {
+    const saved = sessionStorage.getItem(STEP_KEY) as Step | null;
+    return saved === "mode" || saved === "gmail" ? saved : "vault";
+  });
   const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const setClientMode = useWorkspace((s) => s.setClientMode);
+
+  function advanceTo(s: Step) {
+    if (s === "done") {
+      sessionStorage.removeItem(STEP_KEY);
+    } else {
+      sessionStorage.setItem(STEP_KEY, s);
+    }
+    setStep(s);
+  }
 
   async function handleVaultContinue() {
     setLoading(true);
@@ -27,8 +43,26 @@ export function VaultSetup({ onComplete }: Props) {
       await setVaultPath(vaultPath);
       const payload = await loadVaultData(vaultPath);
       localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+      ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
+
+      // Redirect selectedFolderId to the real inbox label (vault-scoped ID).
+      // Without this, the Workspace would show an empty list because the
+      // default "inbox" folder ID doesn't match the real vault label ID.
+      const { selectedFolderId } = useWorkspace.getState();
+      const folderExists =
+        localStore.labels.has(selectedFolderId) ||
+        localStore.folders.has(selectedFolderId);
+      if (!folderExists) {
+        const inboxLabel = Array.from(localStore.labels.values()).find(
+          (l) => l.systemKind === "inbox",
+        );
+        if (inboxLabel) {
+          useWorkspace.getState().setSelectedFolder(inboxLabel.id);
+        }
+      }
+
       seedDefaultCustomFields();
-      setStep("mode");
+      advanceTo("mode");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -38,16 +72,16 @@ export function VaultSetup({ onComplete }: Props) {
 
   function handleModeSelect(mode: ClientMode) {
     setClientMode(mode);
-    setStep("gmail");
+    advanceTo("gmail");
   }
 
   function handleGmailConnected(_accountId: string, _email: string) {
-    setStep("done");
+    advanceTo("done");
     setTimeout(onComplete, 800);
   }
 
   function handleSkipGmail() {
-    setStep("done");
+    advanceTo("done");
     setTimeout(onComplete, 0);
   }
 

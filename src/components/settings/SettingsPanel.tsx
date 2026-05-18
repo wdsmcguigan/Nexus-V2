@@ -759,6 +759,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                       size="md"
                       onClick={async () => {
                         if (!window.confirm("Forget vault location and return to onboarding? Your vault data on disk will not be deleted.")) return;
+                        sessionStorage.removeItem("nexus-onboarding-step");
                         await resetVault();
                         window.location.reload();
                       }}
