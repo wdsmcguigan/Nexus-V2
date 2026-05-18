@@ -1,5 +1,4 @@
 import * as React from "react";
-import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PanelHeaderProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "title"> {
@@ -7,7 +6,7 @@ interface PanelHeaderProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "t
   meta?: React.ReactNode;
   /** Right-aligned actions slot. */
   actions?: React.ReactNode;
-  /** Hide the drag handle (e.g. for Navigation). */
+  /** @deprecated no-op — drag handle is now in the dockview tab bar */
   hideHandle?: boolean;
   /** Compact 28px header (HUD). */
   compact?: boolean;
@@ -18,7 +17,6 @@ export function PanelHeader({
   title,
   meta,
   actions,
-  hideHandle,
   compact,
   className,
   ...props
@@ -26,32 +24,15 @@ export function PanelHeader({
   return (
     <header
       className={cn(
-        "flex items-center gap-2 border-b border-border-subtle bg-surface-1 px-2",
+        "flex items-center gap-2 border-b border-border-subtle bg-surface-1 px-3",
         compact ? "h-7" : "h-8",
-        // panel-focused border boost
         "panel-focused:border-border-default",
-        // accent strip on top inside when focused
         "relative",
         "panel-focused:before:absolute panel-focused:before:inset-x-0 panel-focused:before:top-0 panel-focused:before:h-0.5 panel-focused:before:bg-accent",
         className,
       )}
       {...props}
     >
-      {!hideHandle && (
-        <button
-          aria-label="Drag panel"
-          tabIndex={-1}
-          className={cn(
-            "shrink-0 cursor-grab active:cursor-grabbing",
-            "text-text-tertiary opacity-dim-strong",
-            "transition-opacity duration-fast",
-            "hover:opacity-full focus-visible:opacity-full focus-visible:shadow-focus",
-            "rounded-xs",
-          )}
-        >
-          <GripVertical size={14} />
-        </button>
-      )}
       <h2
         className={cn(
           "truncate font-sans text-h3 font-semibold",

@@ -702,7 +702,7 @@ export function TableView() {
                 draggable
                 onDragStart={(e) => handleDragStart(col.key, e)}
                 onDragEnd={handleDragEnd}
-                className="flex shrink-0 cursor-grab items-center px-1 text-text-muted opacity-0 group-hover:opacity-60 active:cursor-grabbing active:opacity-100"
+                className="flex shrink-0 cursor-grab items-center px-1 text-text-muted opacity-30 group-hover:opacity-70 active:cursor-grabbing active:opacity-100"
               >
                 <GripVertical size={10} />
               </div>
