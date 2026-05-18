@@ -4,6 +4,7 @@ import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { useWorkspace } from "@/state/workspace";
 import type { ClientMode } from "@/lib/clientMode";
+import { seedDefaultCustomFields } from "@/lib/defaultCustomFields";
 import { GmailConnect } from "./GmailConnect";
 
 type Step = "vault" | "mode" | "gmail" | "done";
@@ -26,6 +27,7 @@ export function VaultSetup({ onComplete }: Props) {
       await setVaultPath(vaultPath);
       const payload = await loadVaultData(vaultPath);
       localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+      seedDefaultCustomFields();
       setStep("mode");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

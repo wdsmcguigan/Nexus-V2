@@ -92,9 +92,9 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
       {expanded && (
         <iframe
           title={`Email from ${msg.fromAddr.name}`}
-          sandbox=""
-          srcDoc={`<!doctype html><html><head><style>html,body{margin:0;padding:16px 24px;background:transparent;color:#e6e8ec;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}strong{color:#fff}a{color:#76A1F5}</style></head><body>${body}</body></html>`}
-          className="block h-48 w-full bg-canvas"
+          sandbox="allow-same-origin"
+          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%;height:auto}</style></head><body>${body}</body></html>`}
+          className="block h-48 w-full"
         />
       )}
     </div>
@@ -116,6 +116,8 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const senderContact = useContactByEmail(msg?.fromAddr.email ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
+  const [bodyHeight, setBodyHeight] = React.useState(400);
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   // Auto-mark as read after 500ms — gives time to skip past without marking
   React.useEffect(() => {
@@ -479,16 +481,22 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Iframe sandbox boundary */}
         <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
-          <div className="mx-auto max-w-[680px] rounded-md border border-border-default bg-surface-1 shadow-l1">
+          <div className="mx-auto max-w-[680px] overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
             <iframe
+              ref={iframeRef}
               title={`Email body from ${msg.fromAddr.name}`}
-              sandbox=""
-              srcDoc={`<!doctype html><html><head><style>
-                html,body{margin:0;padding:24px;background:transparent;color:#e6e8ec;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}
-                p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px;color:#fff}ul,ol{margin:0 0 12px 24px}
-                strong{color:#fff}a{color:#76A1F5}
+              sandbox="allow-same-origin"
+              srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>
+                html,body{margin:0;padding:24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}
+                p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px}ul,ol{margin:0 0 12px 24px}
+                a{color:#2563eb}img{max-width:100%;height:auto}
               </style></head><body>${bodyHtml}</body></html>`}
-              className="block h-[420px] w-full rounded-md bg-canvas"
+              className="block w-full"
+              style={{ height: bodyHeight }}
+              onLoad={() => {
+                const h = iframeRef.current?.contentDocument?.body?.scrollHeight;
+                if (h) setBodyHeight(h + 48);
+              }}
             />
           </div>
         </div>

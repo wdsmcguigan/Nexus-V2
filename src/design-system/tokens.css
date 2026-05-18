@@ -267,9 +267,9 @@
   color: var(--color-text-secondary);
   box-shadow: none;
 }
-/* Hide close button — panels are not dismissible */
-.dv-theme-nexus .tab .action {
-  display: none !important;
+/* Suppress iframes during drag so they don't swallow dragover/drop events */
+body.nx-dragging iframe {
+  pointer-events: none !important;
 }
 /* Sash (resize handle) — wider hit target, subtle appearance */
 .dv-theme-nexus .sash {
