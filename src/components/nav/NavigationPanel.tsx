@@ -27,7 +27,8 @@ import { ColorPicker } from "@/components/ui/ColorPicker";
 import { useWorkspace } from "@/state/workspace";
 import {
   useSystemLabels,
-  useUserLabels,
+  useRootUserLabels,
+  useLabelChildren,
   useRootFolders,
   useAccounts,
   useLabelUnreadCount,
@@ -324,7 +325,16 @@ function SystemLabelRow({ label }: { label: LabelType }) {
 
 // ─── User label row ───────────────────────────────────────────────────────────
 
-function UserLabelRow({ label }: { label: LabelType }) {
+// ─── Label tree row ───────────────────────────────────────────────────────────
+// Mirrors FolderTreeNode: supports arbitrary nesting depth, expand/collapse,
+// inline rename/recolor, and context menu. Display name is the last path segment
+// (e.g. "Social Media/TikTok" → "TikTok") since parents are rendered above it.
+
+function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number }) {
+  const children = useLabelChildren(label.id);
+  const hasChildren = children.length > 0;
+  const [expanded, setExpanded] = React.useState(false);
+
   const folderId = useWorkspace((s) => s.selectedFolderId);
   const setFolder = useWorkspace((s) => s.setSelectedFolder);
   const renameLabel = useWorkspace((s) => s.renameLabel);
@@ -336,96 +346,102 @@ function UserLabelRow({ label }: { label: LabelType }) {
   const [renaming, setRenaming] = React.useState(false);
   const [recoloring, setRecoloring] = React.useState(false);
 
+  // Show only the last segment so nested labels don't repeat the full path.
+  const displayName = label.name.includes("/")
+    ? (label.name.split("/").at(-1) ?? label.name)
+    : label.name;
+
+  const indentPx = depth * 12;
+
   const ctxItems: CtxItem[] = [
-    {
-      label: "Rename",
-      icon: Pencil,
-      onSelect: () => setRenaming(true),
-    },
-    {
-      label: "Recolor",
-      icon: Palette,
-      onSelect: () => setRecoloring(true),
-    },
-    {
-      label: "Delete",
-      icon: Trash,
-      destructive: true,
-      onSelect: () => deleteLabel(label.id),
-    },
+    { label: "Rename",  icon: Pencil,  onSelect: () => setRenaming(true) },
+    { label: "Recolor", icon: Palette, onSelect: () => setRecoloring(true) },
+    { label: "Delete",  icon: Trash,   destructive: true, onSelect: () => deleteLabel(label.id) },
   ];
 
-  if (renaming) {
-    return (
-      <InlineRename
-        initial={label.name}
-        onCommit={(name) => {
-          renameLabel(label.id, name);
-          setRenaming(false);
-        }}
-        onCancel={() => setRenaming(false)}
-      />
-    );
-  }
-
-  if (recoloring) {
-    return (
-      <InlineRecolor
-        current={label.color}
-        onCommit={(color) => {
-          recolorLabel(label.id, color);
-          setRecoloring(false);
-        }}
-        onCancel={() => setRecoloring(false)}
-      />
-    );
-  }
-
   return (
-    <ContextMenu items={ctxItems}>
-      <button
-        type="button"
-        onClick={() => setFolder(label.id)}
-        data-label-id={label.id}
-        className={cn(
-          "group/row relative flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left",
-          "transition-colors duration-fast ease-out",
-          "focus-visible:outline-none focus-visible:shadow-focus",
-          active
-            ? "bg-accent-soft text-text-primary"
-            : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
-        )}
-      >
-        {active && (
-          <span
-            aria-hidden
-            className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-xs bg-accent"
+    <>
+      {renaming ? (
+        <div style={{ paddingLeft: indentPx + 8 }}>
+          <InlineRename
+            initial={displayName}
+            onCommit={(name) => { renameLabel(label.id, name); setRenaming(false); }}
+            onCancel={() => setRenaming(false)}
           />
-        )}
-        <span
-          className="size-2 shrink-0 rounded-full"
-          style={labelDotStyle(label.color)}
-          aria-hidden
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-body",
-            unread > 0 && !active && "font-semibold text-text-primary",
-          )}
-        >
-          {label.name}
-        </span>
-        {unread > 0 ? (
-          <span className="rounded-xs bg-surface-3 px-1 py-px font-mono text-mono-xs font-semibold text-text-secondary">
-            {unread}
-          </span>
-        ) : count > 0 ? (
-          <span className="font-mono text-mono-xs text-text-tertiary opacity-dim">
-            {count}
-          </span>
-        ) : null}
-      </button>
-    </ContextMenu>
+        </div>
+      ) : recoloring ? (
+        <div style={{ paddingLeft: indentPx + 8 }}>
+          <InlineRecolor
+            current={label.color}
+            onCommit={(color) => { recolorLabel(label.id, color); setRecoloring(false); }}
+            onCancel={() => setRecoloring(false)}
+          />
+        </div>
+      ) : (
+        <ContextMenu items={ctxItems}>
+          <button
+            type="button"
+            onClick={() => setFolder(label.id)}
+            data-label-id={label.id}
+            style={{ paddingLeft: indentPx + 8 }}
+            className={cn(
+              "group/row relative flex h-8 w-full items-center gap-2 rounded-sm pr-2 text-left",
+              "transition-colors duration-fast ease-out",
+              "focus-visible:outline-none focus-visible:shadow-focus",
+              active
+                ? "bg-accent-soft text-text-primary"
+                : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+            )}
+          >
+            {active && (
+              <span
+                aria-hidden
+                className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-xs bg-accent"
+              />
+            )}
+            {hasChildren ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+                className="flex size-4 shrink-0 items-center justify-center text-text-tertiary hover:text-text-secondary"
+                aria-label={expanded ? "Collapse" : "Expand"}
+              >
+                {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              </button>
+            ) : (
+              <span className="size-4 shrink-0" />
+            )}
+            <span
+              className="size-2 shrink-0 rounded-full"
+              style={labelDotStyle(label.color)}
+              aria-hidden
+            />
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-body",
+                unread > 0 && !active && "font-semibold text-text-primary",
+              )}
+            >
+              {displayName}
+            </span>
+            {unread > 0 ? (
+              <span className="rounded-xs bg-surface-3 px-1 py-px font-mono text-mono-xs font-semibold text-text-secondary">
+                {unread}
+              </span>
+            ) : count > 0 ? (
+              <span className="font-mono text-mono-xs text-text-tertiary opacity-dim">
+                {count}
+              </span>
+            ) : null}
+          </button>
+        </ContextMenu>
+      )}
+      {hasChildren && expanded &&
+        children.map((child) => (
+          <LabelTreeNode key={child.id} label={child} depth={depth + 1} />
+        ))
+      }
+    </>
   );
 }
 
@@ -579,7 +595,7 @@ function FolderTreeNode({
 
 export function NavigationPanel() {
   const systemLabels = useSystemLabels();
-  const userLabels = useUserLabels();
+  const rootUserLabels = useRootUserLabels();
   const rootFolders = useRootFolders();
   const accounts = useAccounts();
   const savedViews = useSavedViews();
@@ -779,8 +795,8 @@ export function NavigationPanel() {
           </div>
           {labelsExpanded && (
             <>
-              {userLabels.map((label) => (
-                <UserLabelRow key={label.id} label={label} />
+              {rootUserLabels.map((label) => (
+                <LabelTreeNode key={label.id} label={label} depth={0} />
               ))}
               {creatingLabel && (
                 <InlineCreate

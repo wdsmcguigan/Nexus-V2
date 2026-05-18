@@ -671,17 +671,23 @@ impl VaultDb {
         vault_id: &str,
         gmail_labels: &[crate::gmail::label_map::GmailLabelInfo],
     ) -> Result<()> {
-        for gl in gmail_labels {
+        // Process shallowest labels first so parent rows exist before children are inserted,
+        // satisfying the parent_id foreign-key relationship in the application layer.
+        let mut sorted: Vec<&crate::gmail::label_map::GmailLabelInfo> = gmail_labels.iter().collect();
+        sorted.sort_by_key(|gl| gl.name.matches('/').count());
+
+        for gl in sorted {
             self.conn.execute(
-                "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, provider_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, parent_id, provider_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET
                    name = excluded.name,
                    color = excluded.color,
+                   parent_id = excluded.parent_id,
                    provider_id = excluded.provider_id",
                 params![
                     gl.nexus_id, vault_id, gl.name, gl.color, gl.kind, gl.system_kind,
-                    gl.position, gl.gmail_id
+                    gl.position, gl.parent_nexus_id, gl.gmail_id
                 ],
             )?;
         }

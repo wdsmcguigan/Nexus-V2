@@ -5,11 +5,15 @@ use super::types::GmailLabel;
 pub struct GmailLabelInfo {
     pub gmail_id: String,
     pub nexus_id: String,
+    /// Full Gmail path, e.g. "Social Media/TikTok". Display name is the last segment.
     pub name: String,
     pub kind: &'static str,        // 'system' | 'user'
     pub system_kind: Option<&'static str>,
     pub position: i64,
-    pub color: i64,                // 1-8, maps to --color-link-N
+    pub color: i64,                // 1-21, maps to design token color slots
+    /// Nexus label id of the parent label, or None for root labels.
+    /// Derived by matching the prefix before the last "/" to another Gmail label's full name.
+    pub parent_nexus_id: Option<String>,
 }
 
 /// Parse a #rrggbb hex string and return the RGB hue (0-360).
@@ -83,28 +87,48 @@ fn user_label_color(gl: &GmailLabel) -> i64 {
 
 /// Map a list of Gmail labels to Nexus label records.
 /// System labels get deterministic IDs; user labels get `lbl-<gmail_id>`.
+/// Nested labels (Gmail uses "/" in names, e.g. "Work/Projects") have their
+/// `parent_nexus_id` set by matching the prefix before the last "/" to another
+/// label's full name, enabling tree rendering in the navigation panel.
 pub fn map_gmail_labels(labels: &[GmailLabel], vault_id: &str) -> Vec<GmailLabelInfo> {
+    // Build full-name → nexus_id lookup for all user labels so we can resolve parents.
+    let name_to_nexus: std::collections::HashMap<&str, String> = labels
+        .iter()
+        .filter(|gl| gl.label_type.as_deref() == Some("user"))
+        .map(|gl| (gl.name.as_str(), format!("lbl-{}", gl.id)))
+        .collect();
+
     let mut out = Vec::new();
+    let mut user_pos: i64 = 100; // user labels start after system label positions
+
     for gl in labels {
         let info = match gl.id.as_str() {
-            "INBOX"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-inbox"),    name: "Inbox".into(),     kind: "system", system_kind: Some("inbox"),    position: 0, color: 5 },
-            "SENT"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-sent"),     name: "Sent".into(),      kind: "system", system_kind: Some("sent"),     position: 1, color: 5 },
-            "DRAFT"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-drafts"),   name: "Drafts".into(),    kind: "system", system_kind: Some("drafts"),   position: 2, color: 8 },
-            "TRASH"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-trash"),    name: "Trash".into(),     kind: "system", system_kind: Some("trash"),    position: 3, color: 1 },
-            "SPAM"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-spam"),     name: "Spam".into(),      kind: "system", system_kind: None,             position: 4, color: 1 },
-            "STARRED"   => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-starred"),  name: "Starred".into(),   kind: "system", system_kind: Some("starred"),  position: 5, color: 2 },
-            "IMPORTANT" => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-important"),name: "Important".into(), kind: "system", system_kind: Some("important"),position: 6, color: 3 },
+            "INBOX"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-inbox"),    name: "Inbox".into(),     kind: "system", system_kind: Some("inbox"),    position: 0, color: 5, parent_nexus_id: None },
+            "SENT"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-sent"),     name: "Sent".into(),      kind: "system", system_kind: Some("sent"),     position: 1, color: 5, parent_nexus_id: None },
+            "DRAFT"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-drafts"),   name: "Drafts".into(),    kind: "system", system_kind: Some("drafts"),   position: 2, color: 8, parent_nexus_id: None },
+            "TRASH"     => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-trash"),    name: "Trash".into(),     kind: "system", system_kind: Some("trash"),    position: 3, color: 1, parent_nexus_id: None },
+            "SPAM"      => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-spam"),     name: "Spam".into(),      kind: "system", system_kind: None,             position: 4, color: 1, parent_nexus_id: None },
+            "STARRED"   => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-starred"),  name: "Starred".into(),   kind: "system", system_kind: Some("starred"),  position: 5, color: 2, parent_nexus_id: None },
+            "IMPORTANT" => GmailLabelInfo { gmail_id: gl.id.clone(), nexus_id: format!("{vault_id}-important"),name: "Important".into(), kind: "system", system_kind: Some("important"),position: 6, color: 3, parent_nexus_id: None },
             "CATEGORY_PERSONAL" | "CATEGORY_SOCIAL" | "CATEGORY_PROMOTIONS" |
-            "CATEGORY_UPDATES" | "CATEGORY_FORUMS" => continue, // skip category tabs
+            "CATEGORY_UPDATES" | "CATEGORY_FORUMS" => continue, // skip Gmail category tabs
             _ if gl.label_type.as_deref() == Some("user") => {
+                // Parent is the label whose name is the path prefix before the last "/".
+                // e.g. "Work/Projects/Q4" → parent prefix = "Work/Projects"
+                let parent_nexus_id = gl.name.rfind('/')
+                    .and_then(|idx| name_to_nexus.get(&gl.name[..idx]))
+                    .cloned();
+                let pos = user_pos;
+                user_pos += 1;
                 GmailLabelInfo {
                     gmail_id: gl.id.clone(),
                     nexus_id: format!("lbl-{}", gl.id),
                     name: gl.name.clone(),
                     kind: "user",
                     system_kind: None,
-                    position: 100,
+                    position: pos,
                     color: user_label_color(gl),
+                    parent_nexus_id,
                 }
             }
             _ => continue,
