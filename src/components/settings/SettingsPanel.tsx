@@ -24,7 +24,11 @@ import {
   Link,
   ExternalLink,
   Shield,
+  HardDrive,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
@@ -58,11 +62,151 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ─── Disconnect modal ─────────────────────────────────────────────────────────
+
+type DataAction = "keep" | "delete_messages" | "delete_all";
+
+const DATA_ACTION_OPTIONS: {
+  value: DataAction;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  destructive: boolean;
+}[] = [
+  {
+    value: "delete_messages",
+    label: "Remove messages",
+    description:
+      "Emails are deleted from Nexus. Label structure is kept so reconnecting this account will re-populate your inbox.",
+    icon: Trash2,
+    destructive: true,
+  },
+  {
+    value: "keep",
+    label: "Keep local copy",
+    description:
+      "Messages stay in Nexus for offline reading. New mail won't sync until you reconnect.",
+    icon: HardDrive,
+    destructive: false,
+  },
+  {
+    value: "delete_all",
+    label: "Delete everything",
+    description:
+      "Messages, message content, and all Gmail-synced labels are permanently removed from this vault.",
+    icon: AlertTriangle,
+    destructive: true,
+  },
+];
+
+function DisconnectModal({
+  open,
+  email,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  email: string;
+  onClose: () => void;
+  onConfirm: (action: DataAction) => void;
+}) {
+  const [selected, setSelected] = React.useState<DataAction>("delete_messages");
+
+  const chosen = DATA_ACTION_OPTIONS.find((o) => o.value === selected)!;
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+        <Dialog.Content
+          className="fixed left-1/2 top-1/2 z-50 w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border-default bg-surface-2 shadow-l4 focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+        >
+          <div className="px-5 pb-5 pt-4">
+            <Dialog.Title className="text-body-strong text-text-primary">
+              Disconnect account
+            </Dialog.Title>
+            <Dialog.Description className="mt-0.5 text-small text-text-tertiary">
+              {email}
+            </Dialog.Description>
+
+            <p className="mt-4 text-small font-medium text-text-secondary">
+              What should happen to your local data?
+            </p>
+
+            <div className="mt-2 space-y-2">
+              {DATA_ACTION_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                const isSelected = selected === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
+                      isSelected
+                        ? "border-accent bg-accent-soft"
+                        : "border-border-subtle bg-surface-1 hover:border-border-default hover:bg-surface-2",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="data-action"
+                      value={opt.value}
+                      checked={isSelected}
+                      onChange={() => setSelected(opt.value)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={cn(
+                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2",
+                        isSelected ? "border-accent bg-accent" : "border-border-default bg-transparent",
+                      )}
+                    >
+                      {isSelected && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Icon
+                          size={13}
+                          className={cn(isSelected ? "text-accent" : "text-text-tertiary")}
+                        />
+                        <span className="text-small font-medium text-text-primary">
+                          {opt.label}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-small text-text-tertiary leading-snug">
+                        {opt.description}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="sm">Cancel</Button>
+              </Dialog.Close>
+              <Button
+                variant={chosen.destructive ? "destructive" : "secondary"}
+                size="sm"
+                onClick={() => onConfirm(selected)}
+              >
+                {selected === "keep" ? "Disconnect" : "Disconnect & delete"}
+              </Button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 // ─── Account row ──────────────────────────────────────────────────────────────
 
 function AccountRow({ accountId, email, syncStatus }: { accountId: string; email: string; syncStatus: string }) {
   const [syncing, setSyncing] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
+  const [modalOpen, setModalOpen] = React.useState(false);
 
   async function handleSync() {
     if (!isTauri()) return;
@@ -76,12 +220,11 @@ function AccountRow({ accountId, email, syncStatus }: { accountId: string; email
     }
   }
 
-  async function handleDisconnect() {
-    if (!isTauri()) return;
-    if (!confirm(`Disconnect ${email}? This will remove all synced messages from the local vault.`)) return;
+  async function handleDisconnectConfirm(action: DataAction) {
+    setModalOpen(false);
     setDisconnecting(true);
     try {
-      await disconnectAccount(accountId);
+      await disconnectAccount(accountId, action);
     } catch (e) {
       console.warn("disconnect_account error:", e);
     } finally {
@@ -102,38 +245,47 @@ function AccountRow({ accountId, email, syncStatus }: { accountId: string; email
     syncing ? "Syncing…" : syncStatus === "error" ? "Error" : syncStatus === "syncing" ? "Syncing…" : "Synced";
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft">
-        <Mail size={14} className="text-accent" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-body text-text-primary">{email}</div>
-        <div className="mt-0.5 flex items-center gap-1 text-small text-text-tertiary">
-          {statusIcon}
-          <span>{statusLabel}</span>
+    <>
+      <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft">
+          <Mail size={14} className="text-accent" />
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-body text-text-primary">{email}</div>
+          <div className="mt-0.5 flex items-center gap-1 text-small text-text-tertiary">
+            {statusIcon}
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Sync now"
+          onClick={handleSync}
+          disabled={syncing || disconnecting}
+        >
+          <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Disconnect account"
+          onClick={() => setModalOpen(true)}
+          disabled={syncing || disconnecting}
+        >
+          {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
+        </Button>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        iconOnly
-        aria-label="Sync now"
-        onClick={handleSync}
-        disabled={syncing || disconnecting}
-      >
-        <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        iconOnly
-        aria-label="Disconnect account"
-        onClick={handleDisconnect}
-        disabled={syncing || disconnecting}
-      >
-        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
-      </Button>
-    </div>
+
+      <DisconnectModal
+        open={modalOpen}
+        email={email}
+        onClose={() => setModalOpen(false)}
+        onConfirm={handleDisconnectConfirm}
+      />
+    </>
   );
 }
 

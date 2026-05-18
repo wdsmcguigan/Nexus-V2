@@ -76,27 +76,44 @@ impl VaultDb {
     }
 
     /// Delete an account and all messages/labels associated with it.
-    pub fn delete_account(&self, vault_id: &str, account_id: &str) -> Result<()> {
-        // Delete message_labels for messages belonging to this account
-        self.conn.execute(
-            "DELETE FROM message_labels WHERE message_id IN (
-                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
-            )",
-            params![vault_id, account_id],
-        )?;
-        // Delete message_tags for messages belonging to this account
-        self.conn.execute(
-            "DELETE FROM message_tags WHERE message_id IN (
-                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
-            )",
-            params![vault_id, account_id],
-        )?;
-        // Delete the messages themselves
-        self.conn.execute(
-            "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
-            params![vault_id, account_id],
-        )?;
-        // Delete the account record (tokens are columns on the account row)
+    pub fn delete_account(&self, vault_id: &str, account_id: &str, data_action: &str) -> Result<()> {
+        if data_action != "keep" {
+            // Delete junction rows first (message_labels, message_tags) then bodies and messages.
+            self.conn.execute(
+                "DELETE FROM message_labels WHERE message_id IN (
+                    SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            self.conn.execute(
+                "DELETE FROM message_tags WHERE message_id IN (
+                    SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            // Fix previously-leaking orphaned body blobs.
+            self.conn.execute(
+                "DELETE FROM message_bodies WHERE body_ref IN (
+                    SELECT body_ref FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            self.conn.execute(
+                "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
+                params![vault_id, account_id],
+            )?;
+
+            if data_action == "delete_all" {
+                // Remove all Gmail-synced labels (identified by having a provider_id column set).
+                // User-created Nexus labels (no provider_id) are preserved.
+                self.conn.execute(
+                    "DELETE FROM labels WHERE vault_id = ?1 AND provider_id IS NOT NULL",
+                    params![vault_id],
+                )?;
+            }
+        }
+
+        // Always remove the account row (contains all OAuth credentials).
         self.conn.execute(
             "DELETE FROM accounts WHERE id = ?1 AND vault_id = ?2",
             params![account_id, vault_id],

@@ -77,8 +77,11 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
-export async function disconnectAccount(accountId: string): Promise<void> {
-  return invoke<void>("disconnect_account", { accountId });
+export async function disconnectAccount(
+  accountId: string,
+  dataAction: "keep" | "delete_messages" | "delete_all",
+): Promise<void> {
+  return invoke<void>("disconnect_account", { accountId, dataAction });
 }
 
 // ─── Watcher ──────────────────────────────────────────────────────────────────
