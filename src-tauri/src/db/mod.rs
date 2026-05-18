@@ -53,6 +53,16 @@ impl VaultDb {
         for sql in &alters {
             let _ = self.conn.execute_batch(sql);
         }
+        // One-time fix: received_at was stored in seconds; TypeScript expects ms.
+        // Values < 1e10 are seconds-era rows; values >= 1e10 are already ms.
+        let _ = self.conn.execute_batch(
+            "UPDATE messages SET received_at = received_at * 1000 WHERE received_at < 10000000000;"
+        );
+        // One-time fix: bodies stored as <pre>plain text</pre> due to base64 padding bug.
+        // Clearing them forces a fresh fetch with the fixed decoder on next view.
+        let _ = self.conn.execute_batch(
+            "DELETE FROM message_bodies WHERE html LIKE '<pre>%';"
+        );
         Ok(())
     }
 }

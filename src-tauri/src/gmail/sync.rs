@@ -259,6 +259,60 @@ impl GmailSyncer {
         }
     }
 
+    /// Re-fetch and store HTML bodies for any messages missing from message_bodies.
+    /// Uses the same 10-concurrent semaphore pattern as the initial sync.
+    pub async fn repair_missing_bodies(&self, db_path: &str) -> Result<usize> {
+        let missing = {
+            let db = VaultDb::open(db_path, "nexus")?;
+            db.get_messages_missing_bodies(&self.account_id)?
+        };
+        if missing.is_empty() {
+            return Ok(0);
+        }
+
+        let client = reqwest::Client::new();
+        let token = self.access_token.read().await.clone();
+        let sem = Arc::new(Semaphore::new(CONCURRENT_FETCHES));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::with_capacity(missing.len());
+
+        for (_nexus_id, provider_id) in missing {
+            let client = client.clone();
+            let token = token.clone();
+            let account_id = self.account_id.clone();
+            let vault_id = self.vault_id.clone();
+            let sem = Arc::clone(&sem);
+            let completed = Arc::clone(&completed);
+            let db_path = db_path.to_string();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                let body_ref = format!("body-{provider_id}");
+                let stored = match fetch_and_parse_message(&client, &token, &provider_id, &account_id, &vault_id).await {
+                    Ok(parsed) => {
+                        if let Some(html) = parsed.body_html {
+                            if let Ok(db) = VaultDb::open(&db_path, "nexus") {
+                                db.upsert_body(&body_ref, &html).is_ok()
+                            } else { false }
+                        } else { false }
+                    }
+                    Err(e) => {
+                        log::warn!("body repair: fetch failed for {provider_id}: {e}");
+                        false
+                    }
+                };
+                completed.fetch_add(1, Ordering::Relaxed);
+                stored
+            }));
+        }
+
+        let mut fixed = 0usize;
+        for h in handles {
+            if let Ok(true) = h.await { fixed += 1; }
+        }
+        Ok(fixed)
+    }
+
     // ─── Gmail API helpers ────────────────────────────────────────────────────
 
     async fn fetch_current_history_id(&self, client: &reqwest::Client, token: &str) -> Result<String> {
@@ -480,13 +534,17 @@ fn parse_gmail_message_full(
         .and_then(|p| get_payload_header(p, "Date"))
         .unwrap_or_default();
 
-    let received_at = parse_rfc2822_date(&date_raw)
-        .or_else(|| meta.internal_date.as_deref().and_then(|s| s.parse::<i64>().ok().map(|ms| ms / 1000)))
+    // internalDate is a guaranteed ms timestamp from Gmail's servers; prefer it
+    // over the RFC2822 Date header which is caller-supplied and can be malformed.
+    let received_at = meta.internal_date
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| parse_rfc2822_date(&date_raw))
         .unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs() as i64
+                .as_millis() as i64
         });
 
     let from_addr = parse_address_json(&from_raw);
@@ -557,6 +615,13 @@ fn extract_body_from_payload(payload: &GmailPayload) -> (Option<String>, Option<
     (text, html)
 }
 
+fn decode_b64url(data: &str) -> Option<Vec<u8>> {
+    // Gmail spec: base64url, may include `=` padding. URL_SAFE_NO_PAD is strict —
+    // strip trailing `=` before decoding so both padded and unpadded strings work.
+    let stripped = data.trim_end_matches('=');
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(stripped).ok()
+}
+
 fn collect_body_from_payload(
     payload: &GmailPayload,
     text: &mut Option<String>,
@@ -566,7 +631,7 @@ fn collect_body_from_payload(
 
     if mime == "text/plain" && text.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
-            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+            if let Some(bytes) = decode_b64url(data) {
                 if let Ok(s) = String::from_utf8(bytes) {
                     if !s.trim().is_empty() {
                         *text = Some(s);
@@ -576,7 +641,7 @@ fn collect_body_from_payload(
         }
     } else if mime == "text/html" && html.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
-            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+            if let Some(bytes) = decode_b64url(data) {
                 if let Ok(s) = String::from_utf8(bytes) {
                     if !s.trim().is_empty() {
                         *html = Some(s);
@@ -624,7 +689,7 @@ fn derive_folder_id(label_ids: &[String], vault_id: &str) -> String {
 }
 
 fn parse_rfc2822_date(s: &str) -> Option<i64> {
-    mailparse::dateparse(s).ok()
+    mailparse::dateparse(s).ok().map(|secs| secs * 1000)
 }
 
 fn parse_address_json(raw: &str) -> serde_json::Value {

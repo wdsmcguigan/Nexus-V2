@@ -62,7 +62,8 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
     if (!isTauri()) return;
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
-      if (html && !cancelled) { bodyStore.set(msg.bodyRef, html); setBody(html); }
+      if (cancelled) return;
+      if (html) { bodyStore.set(msg.bodyRef, html); setBody(html); }
     });
     return () => { cancelled = true; };
   }, [msg.bodyRef]);
@@ -140,10 +141,8 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     if (!isTauri()) return;
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
-      if (html && !cancelled) {
-        bodyStore.set(msg.bodyRef, html);
-        setBodyHtml(html);
-      }
+      if (cancelled) return;
+      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); }
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);

@@ -37,6 +37,7 @@ pub fn run() {
             commands::send_message,
             commands::save_file_to_downloads,
             commands::download_attachment,
+            commands::repair_message_bodies,
             commands::get_vault_path,
             commands::set_vault_path,
             commands::reset_vault,
