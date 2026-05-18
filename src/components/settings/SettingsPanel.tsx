@@ -44,6 +44,7 @@ import {
   getVaultKeyHex,
   startEnrollmentSession,
   startRelayHosting,
+  resetVault,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -742,6 +743,28 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     {accounts.map((acc) => (
                       <SignatureEditor key={acc.id} accountId={acc.id} email={acc.email} />
                     ))}
+                  </div>
+                </>
+              )}
+
+              {isTauri() && (
+                <>
+                  <SectionHeader>Vault</SectionHeader>
+                  <div className="px-4 pb-4">
+                    <p className="mb-3 text-small text-text-tertiary">
+                      Forget the vault location to return to onboarding. Your vault data on disk is not deleted.
+                    </p>
+                    <Button
+                      variant="destructive"
+                      size="md"
+                      onClick={async () => {
+                        if (!window.confirm("Forget vault location and return to onboarding? Your vault data on disk will not be deleted.")) return;
+                        await resetVault();
+                        window.location.reload();
+                      }}
+                    >
+                      Forget vault &amp; return to onboarding
+                    </Button>
                   </div>
                 </>
               )}

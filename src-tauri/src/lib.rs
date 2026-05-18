@@ -39,6 +39,7 @@ pub fn run() {
             commands::download_attachment,
             commands::get_vault_path,
             commands::set_vault_path,
+            commands::reset_vault,
             // EP-5 relay commands
             commands::get_relay_status,
             commands::set_relay_url,

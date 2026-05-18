@@ -62,6 +62,12 @@ export async function setVaultPath(path: string): Promise<void> {
   return invoke<void>("set_vault_path", { path });
 }
 
+/** Forget the vault path so the app returns to onboarding on next launch.
+ *  Vault data on disk is left untouched. */
+export async function resetVault(): Promise<void> {
+  return invoke<void>("reset_vault");
+}
+
 // ─── Gmail OAuth + sync ───────────────────────────────────────────────────────
 
 export interface OAuthResult {
