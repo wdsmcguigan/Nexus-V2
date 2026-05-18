@@ -51,9 +51,9 @@ impl GmailSyncer {
 
     // ─── Phase 1: fetch-only (fully async, no DB) ─────────────────────────────
 
-    /// Fetch labels and all inbox + sent messages from the API.
-    /// Uses format=full (headers + body, no attachment bytes) for reliability.
-    /// No DB access — safe to await freely.
+    /// Fetch labels and ALL messages (inbox, sent, archived, labeled) from the API.
+    /// Excludes only trash and spam. Uses format=full (headers + body, no attachment
+    /// bytes) for reliability. No DB access — safe to await freely.
     pub async fn fetch_initial(&self) -> Result<FetchResult> {
         tokio::fs::create_dir_all(&self.mail_dir).await.ok();
 
@@ -67,23 +67,12 @@ impl GmailSyncer {
         let labels = self.fetch_labels(&client, &token).await?;
         let label_infos = map_gmail_labels(&labels, &self.vault_id);
 
-        // Fetch inbox and sent in parallel; merge and deduplicate by id.
-        let (inbox_ids, sent_ids) = tokio::join!(
-            self.list_message_ids(&client, &token, "in:inbox", None),
-            self.list_message_ids(&client, &token, "in:sent", None),
-        );
-
-        let inbox_ids = inbox_ids?;
-        let sent_ids = sent_ids?;
-
-        // Deduplicate (some messages appear in both inbox and sent).
-        let mut seen = std::collections::HashSet::new();
-        let mut all_ids: Vec<GmailListEntry> = Vec::with_capacity(inbox_ids.len() + sent_ids.len());
-        for entry in inbox_ids.into_iter().chain(sent_ids) {
-            if seen.insert(entry.id.clone()) {
-                all_ids.push(entry);
-            }
-        }
+        // Fetch everything except trash and spam in one pass. Each message carries
+        // its own labelIds (INBOX, SENT, user labels, etc.) so derive_folder_id
+        // assigns the correct folder without needing separate queries.
+        let all_ids = self
+            .list_message_ids(&client, &token, "-in:trash -in:spam", None)
+            .await?;
 
         let messages = self.fetch_messages_parallel(&client, token.clone(), all_ids).await;
 
