@@ -40,7 +40,7 @@ import { localStore } from "@/storage/local";
 import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody, refetchMessageBody, downloadAttachment } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
 import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
@@ -63,13 +63,10 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBody(html); return; }
-      refetchMessageBody(msg.id).then((fetched) => {
-        if (fetched && !cancelled) { bodyStore.set(msg.bodyRef, fetched); setBody(fetched); }
-      }).catch(() => {});
+      if (html) { bodyStore.set(msg.bodyRef, html); setBody(html); }
     });
     return () => { cancelled = true; };
-  }, [msg.bodyRef, msg.id]);
+  }, [msg.bodyRef]);
 
   return (
     <div className="border-b border-border-subtle">
@@ -145,13 +142,10 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); return; }
-      refetchMessageBody(msg.id).then((fetched) => {
-        if (fetched && !cancelled) { bodyStore.set(msg.bodyRef, fetched); setBodyHtml(fetched); }
-      }).catch(() => {});
+      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); }
     });
     return () => { cancelled = true; };
-  }, [msg?.bodyRef, msg?.id]);
+  }, [msg?.bodyRef]);
 
   // Auto-show images if sender is trusted
   React.useEffect(() => {

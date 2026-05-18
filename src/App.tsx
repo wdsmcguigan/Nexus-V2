@@ -1,7 +1,7 @@
 import { Component, useState, useEffect, type ReactNode } from "react";
 import { Workspace } from "@/components/Workspace";
 import { VaultSetup } from "@/components/onboarding/VaultSetup";
-import { isTauri, getVaultPath } from "@/storage/tauri";
+import { isTauri, getVaultPath, repairMessageBodies } from "@/storage/tauri";
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -46,11 +46,12 @@ export default function App() {
       return;
     }
     getVaultPath().then((path) => {
-      // If a vault path is set but onboarding was interrupted mid-flow
-      // (e.g. mode selection or Gmail step), resume onboarding.
       const pendingStep = localStorage.getItem("nexus-onboarding-step");
       const hasPendingStep = pendingStep === "mode" || pendingStep === "gmail";
       setShowOnboarding(!path || hasPendingStep);
+      if (path && !hasPendingStep) {
+        repairMessageBodies().catch(() => {});
+      }
     });
   }, []);
 

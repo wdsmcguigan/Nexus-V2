@@ -191,6 +191,49 @@ pub async fn start_gmail_oauth(
     })
 }
 
+/// Get a valid access token for an account, refreshing only if the stored one is expired.
+async fn get_valid_token(
+    state: &AppState,
+    account_id: &str,
+) -> std::result::Result<String, String> {
+    let (refresh_token, access_token, is_valid) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let rt = db.get_refresh_token(account_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No refresh token stored".to_string())?;
+        let at = db.get_access_token(account_id)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let valid = db.token_is_valid(account_id).unwrap_or(false);
+        (rt, at, valid)
+    };
+
+    if is_valid && !access_token.is_empty() {
+        return Ok(access_token);
+    }
+
+    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
+    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
+
+    let oauth = GmailOAuth::new(client_id, client_secret);
+    let (new_token, expires_in) = oauth
+        .refresh_access_token(&refresh_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let expires_at = chrono::Utc::now().timestamp() + expires_in;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.save_tokens(account_id, &new_token, &refresh_token, expires_at)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(new_token)
+}
+
 #[tauri::command]
 pub async fn sync_gmail_now(
     state: State<'_, AppState>,
@@ -205,37 +248,7 @@ pub async fn sync_gmail_now(
         .ok_or("No vault loaded")?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
 
-    // Refresh access token (involves holding db lock briefly, then releasing before await)
-    let (access_token, refresh_token) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        let rt = db.get_refresh_token(&account_id).map_err(|e| e.to_string())?
-            .ok_or_else(|| "No refresh token stored".to_string())?;
-        let at = db.get_access_token(&account_id).map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        (at, rt)
-    };
-
-    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
-    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
-
-    // Refresh token (async — no DB reference held)
-    let oauth = GmailOAuth::new(client_id, client_secret);
-    let (new_token, expires_in) = oauth
-        .refresh_access_token(&refresh_token)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let expires_at = chrono::Utc::now().timestamp() + expires_in;
-    {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.save_tokens(&account_id, &new_token, &refresh_token, expires_at)
-            .map_err(|e| e.to_string())?;
-    }
-    drop(access_token); // replaced by new_token
+    let token = get_valid_token(&state, &account_id).await?;
 
     let db_path = std::path::Path::new(&vault_path)
         .join("nexus.db")
@@ -245,7 +258,7 @@ pub async fn sync_gmail_now(
     let syncer = GmailSyncer::new(
         account_id,
         vault_id,
-        new_token,
+        token,
         std::path::Path::new(&vault_path),
         app.clone(),
     );
@@ -257,6 +270,46 @@ pub async fn sync_gmail_now(
 
     let _ = app.emit("vault:hydrate-needed", ());
     Ok(stats)
+}
+
+/// Batch re-fetch HTML bodies for all messages missing from message_bodies.
+/// Uses 10 concurrent requests (same as initial sync). Fire-and-forget safe.
+#[tauri::command]
+pub async fn repair_message_bodies(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> std::result::Result<usize, String> {
+    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault loaded")?;
+    let db_path = std::path::Path::new(&vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    let accounts = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.all_gmail_accounts().map_err(|e| e.to_string())?
+    };
+
+    let mut total = 0usize;
+    for (account_id, vault_id) in accounts {
+        let token = match get_valid_token(&state, &account_id).await {
+            Ok(t) => t,
+            Err(e) => { log::warn!("body repair: token error for {account_id}: {e}"); continue; }
+        };
+        let syncer = GmailSyncer::new(
+            account_id.clone(),
+            vault_id,
+            token,
+            std::path::Path::new(&vault_path),
+            app.clone(),
+        );
+        match syncer.repair_missing_bodies(&db_path).await {
+            Ok(n) => { log::info!("body repair: fixed {n} bodies for {account_id}"); total += n; }
+            Err(e) => log::warn!("body repair failed for {account_id}: {e}"),
+        }
+    }
+    Ok(total)
 }
 
 // ─── Watcher command ──────────────────────────────────────────────────────────
@@ -360,42 +413,20 @@ pub async fn save_file_to_downloads(
 pub async fn download_attachment(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
-    message_id: String,   // Nexus message ID (e.g. "msg-...")
+    message_id: String,    // Nexus message ID (e.g. "msg-...")
     attachment_id: String, // Gmail attachment part ID
     filename: String,
 ) -> std::result::Result<String, String> {
-    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
-    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
-
-    let (provider_msg_id, account_id, refresh_token) = {
+    let (provider_msg_id, account_id) = {
         let db = state.db.lock().unwrap();
         let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        let (pid, aid) = db.get_provider_id(&message_id)
+        db.get_provider_id(&message_id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Message not found".to_string())?;
-        let rt = db.get_refresh_token(&aid)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "No refresh token".to_string())?;
-        (pid, aid, rt)
+            .ok_or_else(|| "Message not found".to_string())?
     };
 
-    let oauth = GmailOAuth::new(client_id, client_secret);
-    let (access_token, expires_in) = oauth
-        .refresh_access_token(&refresh_token)
-        .await
-        .map_err(|e| e.to_string())?;
+    let access_token = get_valid_token(&state, &account_id).await?;
 
-    let expires_at = chrono::Utc::now().timestamp() + expires_in;
-    {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
-            .map_err(|e| e.to_string())?;
-    }
-
-    // Fetch the attachment bytes from Gmail
     let client = reqwest::Client::new();
     let url = format!(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/attachments/{}",
@@ -414,11 +445,11 @@ pub async fn download_attachment(
 
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
     let data_b64 = body["data"].as_str().ok_or("Missing data field")?;
+    let data_b64 = data_b64.trim_end_matches('=');
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(data_b64)
         .map_err(|e| e.to_string())?;
 
-    // Write to ~/Downloads
     let downloads_dir = app
         .path()
         .download_dir()
@@ -427,62 +458,6 @@ pub async fn download_attachment(
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
 
     Ok(dest.to_string_lossy().into_owned())
-}
-
-/// Re-fetch the HTML body for a single message from the Gmail API and store it.
-/// Called by the viewer when get_message_body returns null (body was cleared by migration
-/// after the base64 padding fix, or was never stored).
-#[tauri::command]
-pub async fn refetch_message_body(
-    state: State<'_, AppState>,
-    message_id: String, // Nexus message ID (e.g. "msg-xxxx")
-) -> std::result::Result<Option<String>, String> {
-    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
-    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
-        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
-
-    let (provider_id, account_id, refresh_token) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        let (pid, aid) = db
-            .get_provider_id(&message_id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Message not found".to_string())?;
-        let rt = db
-            .get_refresh_token(&aid)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "No refresh token".to_string())?;
-        (pid, aid, rt)
-    };
-
-    let oauth = GmailOAuth::new(client_id, client_secret);
-    let (access_token, expires_in) = oauth
-        .refresh_access_token(&refresh_token)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let expires_at = chrono::Utc::now().timestamp() + expires_in;
-    {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
-            .map_err(|e| e.to_string())?;
-    }
-
-    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let html = crate::gmail::sync::fetch_message_html(&access_token, &provider_id, &account_id, &vault_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if let Some(ref h) = html {
-        let body_ref = format!("body-{provider_id}");
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_body(&body_ref, h).map_err(|e| e.to_string())?;
-    }
-
-    Ok(html)
 }
 
 // ─── EP-5 Relay commands ──────────────────────────────────────────────────────

@@ -259,6 +259,60 @@ impl GmailSyncer {
         }
     }
 
+    /// Re-fetch and store HTML bodies for any messages missing from message_bodies.
+    /// Uses the same 10-concurrent semaphore pattern as the initial sync.
+    pub async fn repair_missing_bodies(&self, db_path: &str) -> Result<usize> {
+        let missing = {
+            let db = VaultDb::open(db_path, "nexus")?;
+            db.get_messages_missing_bodies(&self.account_id)?
+        };
+        if missing.is_empty() {
+            return Ok(0);
+        }
+
+        let client = reqwest::Client::new();
+        let token = self.access_token.read().await.clone();
+        let sem = Arc::new(Semaphore::new(CONCURRENT_FETCHES));
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::with_capacity(missing.len());
+
+        for (_nexus_id, provider_id) in missing {
+            let client = client.clone();
+            let token = token.clone();
+            let account_id = self.account_id.clone();
+            let vault_id = self.vault_id.clone();
+            let sem = Arc::clone(&sem);
+            let completed = Arc::clone(&completed);
+            let db_path = db_path.to_string();
+
+            handles.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.unwrap();
+                let body_ref = format!("body-{provider_id}");
+                let stored = match fetch_and_parse_message(&client, &token, &provider_id, &account_id, &vault_id).await {
+                    Ok(parsed) => {
+                        if let Some(html) = parsed.body_html {
+                            if let Ok(db) = VaultDb::open(&db_path, "nexus") {
+                                db.upsert_body(&body_ref, &html).is_ok()
+                            } else { false }
+                        } else { false }
+                    }
+                    Err(e) => {
+                        log::warn!("body repair: fetch failed for {provider_id}: {e}");
+                        false
+                    }
+                };
+                completed.fetch_add(1, Ordering::Relaxed);
+                stored
+            }));
+        }
+
+        let mut fixed = 0usize;
+        for h in handles {
+            if let Ok(true) = h.await { fixed += 1; }
+        }
+        Ok(fixed)
+    }
+
     // ─── Gmail API helpers ────────────────────────────────────────────────────
 
     async fn fetch_current_history_id(&self, client: &reqwest::Client, token: &str) -> Result<String> {
@@ -433,18 +487,6 @@ pub struct IncrementalResult {
 
 // ─── Message fetching + parsing ───────────────────────────────────────────────
 
-/// Fetch a single message and return only the HTML body (used by the on-demand body refetch command).
-pub async fn fetch_message_html(
-    token: &str,
-    provider_id: &str,
-    account_id: &str,
-    vault_id: &str,
-) -> Result<Option<String>> {
-    let client = reqwest::Client::new();
-    let parsed = fetch_and_parse_message(&client, token, provider_id, account_id, vault_id).await?;
-    Ok(parsed.body_html)
-}
-
 /// Fetch a single message using format=full (headers + body, no raw attachment bytes).
 /// This is much more reliable than format=raw for large messages.
 async fn fetch_and_parse_message(
@@ -492,8 +534,12 @@ fn parse_gmail_message_full(
         .and_then(|p| get_payload_header(p, "Date"))
         .unwrap_or_default();
 
-    let received_at = parse_rfc2822_date(&date_raw)
-        .or_else(|| meta.internal_date.as_deref().and_then(|s| s.parse::<i64>().ok()))
+    // internalDate is a guaranteed ms timestamp from Gmail's servers; prefer it
+    // over the RFC2822 Date header which is caller-supplied and can be malformed.
+    let received_at = meta.internal_date
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .or_else(|| parse_rfc2822_date(&date_raw))
         .unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

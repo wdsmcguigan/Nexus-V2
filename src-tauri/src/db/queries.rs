@@ -1488,6 +1488,20 @@ impl VaultDb {
         })?;
         rows.map(|r| r.context("loading gmail account row")).collect()
     }
+
+    /// Return (nexus_id, provider_id) for messages that have no body stored.
+    /// Used by the post-migration body repair pass.
+    pub fn get_messages_missing_bodies(&self, account_id: &str) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT m.id, m.provider_id FROM messages m
+             LEFT JOIN message_bodies mb ON m.body_ref = mb.body_ref
+             WHERE mb.body_ref IS NULL AND m.provider_account_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![account_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        rows.map(|r| r.context("loading missing body row")).collect()
+    }
 }
 
 // ─── Hex helpers (avoids adding a hex crate dep) ─────────────────────────────

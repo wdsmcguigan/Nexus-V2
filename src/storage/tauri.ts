@@ -50,8 +50,8 @@ export async function getMessageBody(bodyRef: string): Promise<string | null> {
   return invoke<string | null>("get_message_body", { bodyRef });
 }
 
-export async function refetchMessageBody(messageId: string): Promise<string | null> {
-  return invoke<string | null>("refetch_message_body", { messageId });
+export async function repairMessageBodies(): Promise<number> {
+  return invoke<number>("repair_message_bodies");
 }
 
 export async function listAccounts(): Promise<unknown[]> {
