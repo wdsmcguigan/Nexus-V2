@@ -225,7 +225,9 @@ interface WorkspaceState {
   // Sync status (updated from Tauri events or manual triggers)
   lastSyncedAt: number | null;
   isSyncing: boolean;
+  syncProgress: { fetched: number; total: number; accountId: string } | null;
   setSyncStatus: (syncing: boolean, syncedAt?: number) => void;
+  setSyncProgress: (progress: { fetched: number; total: number; accountId: string } | null) => void;
 
   // HUD strip
   hudExpanded: boolean;
@@ -748,10 +750,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   lastSyncedAt: null,
   isSyncing: false,
+  syncProgress: null,
   setSyncStatus: (syncing, syncedAt) =>
     set(syncing
       ? { isSyncing: true }
-      : { isSyncing: false, lastSyncedAt: syncedAt ?? get().lastSyncedAt }),
+      : { isSyncing: false, syncProgress: null, lastSyncedAt: syncedAt ?? get().lastSyncedAt }),
+  setSyncProgress: (progress) => set({ syncProgress: progress }),
 
   // ── HUD strip ─────────────────────────────────────────────────────────────
 

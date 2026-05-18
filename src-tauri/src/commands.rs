@@ -161,6 +161,7 @@ pub async fn start_gmail_oauth(
             vault_id_clone,
             access_token,
             std::path::Path::new(&vault_path),
+            app_handle.clone(),
         );
 
         match syncer.initial_sync_with_db(&db_path).await {
@@ -234,6 +235,7 @@ pub async fn sync_gmail_now(
         vault_id,
         new_token,
         std::path::Path::new(&vault_path),
+        app.clone(),
     );
 
     let stats = syncer
@@ -575,6 +577,7 @@ async fn poll_all_accounts(
             vault_id,
             access_token,
             std::path::Path::new(vault_path),
+            app.clone(),
         );
 
         match syncer.incremental_sync_with_db(&db_path).await {

@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::sync::Semaphore;
 
 use super::label_map::{gmail_to_nexus_label, map_gmail_labels};
@@ -27,6 +29,7 @@ pub struct GmailSyncer {
     pub vault_id: String,
     access_token: Arc<tokio::sync::RwLock<String>>,
     mail_dir: PathBuf,
+    app: tauri::AppHandle,
 }
 
 impl GmailSyncer {
@@ -35,6 +38,7 @@ impl GmailSyncer {
         vault_id: String,
         access_token: String,
         vault_path: &std::path::Path,
+        app: tauri::AppHandle,
     ) -> Self {
         let mail_dir = vault_path.join("mail");
         Self {
@@ -42,11 +46,23 @@ impl GmailSyncer {
             vault_id,
             access_token: Arc::new(tokio::sync::RwLock::new(access_token)),
             mail_dir,
+            app,
         }
     }
 
     pub async fn update_access_token(&self, new_token: String) {
         *self.access_token.write().await = new_token;
+    }
+
+    fn emit_progress(&self, fetched: usize, total: usize) {
+        let _ = self.app.emit(
+            "gmail:sync-progress",
+            serde_json::json!({
+                "accountId": self.account_id,
+                "fetched": fetched,
+                "total": total,
+            }),
+        );
     }
 
     // ─── Phase 1: fetch-only (fully async, no DB) ─────────────────────────────
@@ -73,6 +89,9 @@ impl GmailSyncer {
         let all_ids = self
             .list_message_ids(&client, &token, "-in:trash -in:spam", None)
             .await?;
+
+        // Emit total so the HUD can show "0 / N" before fetching starts.
+        self.emit_progress(0, all_ids.len());
 
         let messages = self.fetch_messages_parallel(&client, token.clone(), all_ids).await;
 
@@ -334,8 +353,10 @@ impl GmailSyncer {
         token: String,
         ids: Vec<GmailListEntry>,
     ) -> Vec<ParsedMessage> {
+        let total = ids.len();
+        let completed = Arc::new(AtomicUsize::new(0));
         let sem = Arc::new(Semaphore::new(CONCURRENT_FETCHES));
-        let mut handles = Vec::with_capacity(ids.len());
+        let mut handles = Vec::with_capacity(total);
 
         for entry in ids {
             let client = client.clone();
@@ -343,10 +364,27 @@ impl GmailSyncer {
             let account_id = self.account_id.clone();
             let vault_id = self.vault_id.clone();
             let sem = Arc::clone(&sem);
+            let completed = Arc::clone(&completed);
+            let app = self.app.clone();
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                fetch_and_parse_message(&client, &token, &entry.id, &account_id, &vault_id).await
+                let result = fetch_and_parse_message(&client, &token, &entry.id, &account_id, &vault_id).await;
+
+                // Emit progress every 10 messages so the HUD updates in real time.
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if done % 10 == 0 || done == total {
+                    let _ = app.emit(
+                        "gmail:sync-progress",
+                        serde_json::json!({
+                            "accountId": account_id,
+                            "fetched": done,
+                            "total": total,
+                        }),
+                    );
+                }
+
+                result
             }));
         }
 
