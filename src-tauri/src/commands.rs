@@ -317,6 +317,43 @@ pub async fn send_message(
     Ok(gmail_id)
 }
 
+// ─── File system helpers ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn save_file_to_downloads(
+    app: tauri::AppHandle,
+    filename: String,
+    content: String,
+) -> std::result::Result<String, String> {
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| e.to_string())?;
+
+    // Avoid clobbering — append (1), (2), etc. if file exists
+    let mut dest = downloads_dir.join(&filename);
+    if dest.exists() {
+        let stem = std::path::Path::new(&filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&filename);
+        let ext = std::path::Path::new(&filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{s}"))
+            .unwrap_or_default();
+        let mut n = 1u32;
+        loop {
+            dest = downloads_dir.join(format!("{stem} ({n}){ext}"));
+            if !dest.exists() { break; }
+            n += 1;
+        }
+    }
+
+    std::fs::write(&dest, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
 // ─── Attachment download ──────────────────────────────────────────────────────
 
 #[tauri::command]

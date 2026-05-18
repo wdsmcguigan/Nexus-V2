@@ -147,6 +147,15 @@ export async function startRelayHosting(port?: number): Promise<number> {
   return invoke<number>("start_relay_hosting", { port: port ?? 3030 });
 }
 
+// ─── File system helpers ──────────────────────────────────────────────────────
+
+export async function saveFileToDownloads(params: {
+  filename: string;
+  content: string;
+}): Promise<string> {
+  return invoke<string>("save_file_to_downloads", params);
+}
+
 // ─── Attachment download ──────────────────────────────────────────────────────
 
 export async function downloadAttachment(params: {

@@ -20,6 +20,8 @@ import {
   Tag as TagIcon,
   Bell,
   BellOff,
+  Printer,
+  FileDown,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
@@ -38,6 +40,9 @@ import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
 import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
+import { printMessages } from "@/lib/print";
+import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
+import { loadBodies } from "@/lib/loadBodies";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
@@ -308,7 +313,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   <DropdownMenu.Content
                     sideOffset={6}
                     align="end"
-                    className="z-50 min-w-[160px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                    className="z-50 min-w-[180px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
                   >
                     <DropdownMenu.Item
                       onSelect={() => setLabelPickerOpen(true)}
@@ -317,6 +322,54 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                       <TagIcon size={12} />
                       Label…
                     </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        const bodies = await loadBodies([msg]);
+                        printMessages([msg], bodies);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Printer size={12} />
+                      Print message
+                    </DropdownMenu.Item>
+                    {threadMsgs.length > 0 && (
+                      <DropdownMenu.Item
+                        onSelect={async () => {
+                          const all = [...threadMsgs, msg].sort((a, b) => a.receivedAt - b.receivedAt);
+                          const bodies = await loadBodies(all);
+                          printMessages(all, bodies);
+                        }}
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      >
+                        <Printer size={12} />
+                        Print thread
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        const bodies = await loadBodies([msg]);
+                        await exportMessageEml(msg, bodies.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <FileDown size={12} />
+                      Export as EML
+                    </DropdownMenu.Item>
+                    {threadMsgs.length > 0 && (
+                      <DropdownMenu.Item
+                        onSelect={async () => {
+                          const all = [...threadMsgs, msg].sort((a, b) => a.receivedAt - b.receivedAt);
+                          const bodies = await loadBodies(all);
+                          await exportMessagesAsMbox(all, bodies, msg.subject);
+                        }}
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      >
+                        <FileDown size={12} />
+                        Export thread as MBOX
+                      </DropdownMenu.Item>
+                    )}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
