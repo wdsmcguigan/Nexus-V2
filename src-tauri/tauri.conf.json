@@ -25,7 +25,7 @@
         "transparent": false,
         "hiddenTitle": false,
         "titleBarStyle": "Visible",
-        "fileDropEnabled": false
+        "dragDropEnabled": false
       }
     ],
     "security": {

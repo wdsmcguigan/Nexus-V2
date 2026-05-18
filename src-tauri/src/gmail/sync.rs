@@ -481,12 +481,12 @@ fn parse_gmail_message_full(
         .unwrap_or_default();
 
     let received_at = parse_rfc2822_date(&date_raw)
-        .or_else(|| meta.internal_date.as_deref().and_then(|s| s.parse::<i64>().ok().map(|ms| ms / 1000)))
+        .or_else(|| meta.internal_date.as_deref().and_then(|s| s.parse::<i64>().ok()))
         .unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs() as i64
+                .as_millis() as i64
         });
 
     let from_addr = parse_address_json(&from_raw);
@@ -624,7 +624,7 @@ fn derive_folder_id(label_ids: &[String], vault_id: &str) -> String {
 }
 
 fn parse_rfc2822_date(s: &str) -> Option<i64> {
-    mailparse::dateparse(s).ok()
+    mailparse::dateparse(s).ok().map(|secs| secs * 1000)
 }
 
 fn parse_address_json(raw: &str) -> serde_json::Value {

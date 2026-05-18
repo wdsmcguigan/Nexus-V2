@@ -33,8 +33,9 @@ export class FTSIndex {
     storeFields: ["id"],
     searchOptions: {
       boost: { subject: 3, notes: 2, body: 1 },
-      prefix: true,
-      fuzzy: 0.15,
+      prefix: false,
+      fuzzy: 0.1,
+      combineWith: "AND",
     },
   });
 

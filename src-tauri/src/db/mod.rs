@@ -53,6 +53,11 @@ impl VaultDb {
         for sql in &alters {
             let _ = self.conn.execute_batch(sql);
         }
+        // One-time fix: received_at was stored in seconds; TypeScript expects ms.
+        // Values < 1e10 are seconds-era rows; values >= 1e10 are already ms.
+        let _ = self.conn.execute_batch(
+            "UPDATE messages SET received_at = received_at * 1000 WHERE received_at < 10000000000;"
+        );
         Ok(())
     }
 }
