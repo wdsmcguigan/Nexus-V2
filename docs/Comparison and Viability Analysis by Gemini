@@ -1,3 +1,5 @@
+https://g.co/gemini/share/b1324954fe8a
+https://docs.google.com/document/d/18C3zD_YunRbqOWsSSsRh2REHp9swdyacXbL3p6_zhMo/edit?usp=drivesdk
 Strategic Viability Assessment and Comparative Analysis of Nexus-V2 within the Self-Hosted Email Ecosystem
 Self-hosting email infrastructure is widely recognized as one of the most operationally challenging domains in system administration. While the decentralized nature of email is theoretically designed to support autonomous operations, the contemporary reality of spam mitigation, IP reputation enforcement, and complex cryptographic standards has concentrated email trust within a handful of dominant hyperscale providers. [1][2][3]
 This strategic report evaluates the competitive landscape of self-hosted email complete solutions as curated by the awesome-selfhosted registry. It addresses the architectural paradigms currently dominating the market, evaluates the specific technical hurdles of modern email delivery, and provides a multi-path evaluation framework for the developing app, Nexus-V2, to determine its strategic viability and whether continued development is warranted. [1][2][3]
