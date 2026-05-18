@@ -755,6 +755,21 @@ fn save_vault_path_to_disk(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Forget the vault path so the app returns to onboarding on next launch.
+/// The vault data on disk is left untouched — this only clears the stored path.
+#[tauri::command]
+pub async fn reset_vault(state: State<'_, AppState>) -> std::result::Result<(), String> {
+    *state.vault_path.lock().unwrap() = None;
+    let path = dirs::data_local_dir()
+        .ok_or_else(|| "no local data dir".to_string())?
+        .join("Nexus")
+        .join("vault_path.txt");
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn open_browser(app: &tauri::AppHandle, url: &str) -> Result<()> {
     use tauri_plugin_shell::ShellExt;
     app.shell().open(url, None).context("opening system browser")

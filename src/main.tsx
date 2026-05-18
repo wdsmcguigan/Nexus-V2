@@ -49,9 +49,11 @@ async function hydrateFromVault(path: string) {
 }
 
 async function initTauri() {
-  // Register the hydrate listener unconditionally so the first-run
-  // onboarding→main transition works even when we fall through to fixtures below.
-  onHydrateNeeded(async () => {
+  // Register the hydrate listener before any IPC calls so we never miss an
+  // event that fires during startup (e.g. the one emitted by init_vault in
+  // lib.rs::setup).  Must be awaited — the registration is itself async
+  // (dynamic import of @tauri-apps/api/event).
+  await onHydrateNeeded(async () => {
     const path = await getVaultPath();
     if (!path) return;
     await hydrateFromVault(path).catch((e) =>
