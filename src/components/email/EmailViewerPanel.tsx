@@ -31,13 +31,13 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useMessage, useThreadMessages } from "@/storage/useStore";
+import { useMessage, useThreadMessages, useContactByEmail } from "@/storage/useStore";
 import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
@@ -106,6 +106,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
   const threadMsgs = useThreadMessages(msg?.threadId ?? "", effectiveEmailId ?? "");
+  const senderContact = useContactByEmail(msg?.fromAddr.email ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
 
@@ -137,6 +138,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
+
+  // Auto-show images if sender is trusted
+  React.useEffect(() => {
+    setImagesShown(senderContact?.alwaysShowImages === true);
+  }, [effectiveEmailId, senderContact?.alwaysShowImages]);
 
   // Inspector toggle — opens/closes an inspector panel associated with this viewer.
   const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
@@ -204,7 +210,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = msg.id.endsWith("0") || msg.id.endsWith("5");
+  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml);
 
   return (
     <Panel
@@ -377,7 +383,34 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
               <Button variant="ghost" size="sm" onClick={() => setImagesShown(true)}>
                 Show images
               </Button>
-              <Button variant="ghost" size="sm">Always allow</Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const email = msg.fromAddr.email;
+                  if (!email) return;
+                  setImagesShown(true);
+                  const existing = localStore.lookupByEmail(email);
+                  if (existing) {
+                    Mut.updateContact(existing.id, { alwaysShowImages: true });
+                  } else {
+                    const id = `cnt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                    Mut.upsertContact({
+                      id,
+                      vaultId: localStore.vault?.id ?? "local",
+                      name: msg.fromAddr.name ?? email,
+                      emails: [email],
+                      phones: [],
+                      tags: [],
+                      alwaysShowImages: true,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                    });
+                  }
+                }}
+              >
+                Always allow
+              </Button>
             </div>
           </div>
         )}
@@ -420,6 +453,14 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                     type="button"
                     aria-label={`Download ${a.name}`}
                     className="ml-1 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+                    onClick={() => {
+                      if (!isTauri() || !a.attachmentId || !msg) return;
+                      downloadAttachment({
+                        messageId: msg.id,
+                        attachmentId: a.attachmentId,
+                        filename: a.name,
+                      }).catch((e) => console.warn("Download failed:", e));
+                    }}
                   >
                     <Download size={11} />
                   </button>

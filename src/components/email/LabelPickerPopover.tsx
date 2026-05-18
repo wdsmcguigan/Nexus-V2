@@ -27,14 +27,19 @@ function getMsgLabelIds(messageId: string): Set<string> {
 // ─── Inner picker UI (shared between popover and dialog) ─────────────────────
 
 interface PickerBodyProps {
-  messageId: string | null;
+  /** Single message ID (legacy usage). */
+  messageId?: string | null;
+  /** Multiple message IDs — used from bulk-action bar. */
+  messageIds?: string[];
   onClose?: () => void;
 }
 
-function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
+function LabelPickerBody({ messageId, messageIds, onClose }: PickerBodyProps) {
   const labels = useUserLabels();
-  useMessage(messageId);
+  useMessage(messageId ?? null);
+  // For single-message mode, show current state; for bulk, no pre-selection.
   const msgLabelIds = messageId ? getMsgLabelIds(messageId) : new Set<string>();
+  const effectiveIds: string[] = messageIds ?? (messageId ? [messageId] : []);
 
   const [query, setQuery] = React.useState("");
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -54,9 +59,11 @@ function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
   const canCreate = q.length > 0 && !exactMatch;
 
   function handleToggle(labelId: string, active: boolean) {
-    if (!messageId) return;
-    if (active) removeLabel(localStore, messageId, labelId);
-    else addLabel(localStore, messageId, labelId);
+    if (effectiveIds.length === 0) return;
+    for (const mid of effectiveIds) {
+      if (active) removeLabel(localStore, mid, labelId);
+      else addLabel(localStore, mid, labelId);
+    }
   }
 
   function handleCreate() {
@@ -67,7 +74,7 @@ function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
     const position = labels.length;
     const color = (position % 21) + 1;
     createLabel(localStore, { id, vaultId, name, color, kind: "user", position });
-    if (messageId) addLabel(localStore, messageId, id);
+    for (const mid of effectiveIds) addLabel(localStore, mid, id);
     setQuery("");
     onClose?.();
   }
@@ -138,14 +145,17 @@ function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
 // ─── LabelPickerPopover ───────────────────────────────────────────────────────
 
 interface PopoverProps {
-  messageId: string | null;
-  variant?: "icon" | "menu-item";
+  messageId?: string | null;
+  /** Multiple message IDs for bulk label actions. */
+  messageIds?: string[];
+  variant?: "icon" | "menu-item" | "button";
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
 }
 
 export function LabelPickerPopover({
   messageId,
+  messageIds,
   variant = "icon",
   open,
   onOpenChange,
@@ -159,6 +169,11 @@ export function LabelPickerPopover({
           </Button>
         </Tooltip>
       </span>
+    ) : variant === "button" ? (
+      <Button variant="ghost" size="xs" aria-label="Tag">
+        <TagIcon />
+        Tag
+      </Button>
     ) : (
       <button
         type="button"
@@ -184,6 +199,7 @@ export function LabelPickerPopover({
         >
           <LabelPickerBody
             messageId={messageId}
+            messageIds={messageIds}
             onClose={() => onOpenChange?.(false)}
           />
         </Popover.Content>

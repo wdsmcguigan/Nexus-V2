@@ -274,6 +274,7 @@ interface WorkspaceState {
 
   // Message ops
   archive: (messageId: string) => void;
+  trash: (messageId: string) => void;
   snooze: (messageId: string, until: number) => void;
   setRead: (messageId: string, read: boolean) => void;
   setStarred: (messageId: string, starred: boolean) => void;
@@ -801,6 +802,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   archive: (messageId) => { Mut.archiveMessage(localStore, messageId); },
+  trash: (messageId) => { Mut.trashMessage(localStore, messageId); },
   snooze: (messageId, until) => { Mut.snoozeMessage(localStore, messageId, until); },
   setRead: (messageId, read) => {
     if (read) Mut.readMessage(localStore, messageId);

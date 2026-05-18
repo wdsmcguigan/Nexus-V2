@@ -147,6 +147,16 @@ export async function startRelayHosting(port?: number): Promise<number> {
   return invoke<number>("start_relay_hosting", { port: port ?? 3030 });
 }
 
+// ─── Attachment download ──────────────────────────────────────────────────────
+
+export async function downloadAttachment(params: {
+  messageId: string;
+  attachmentId: string;
+  filename: string;
+}): Promise<string> {
+  return invoke<string>("download_attachment", params);
+}
+
 // ─── Send message ─────────────────────────────────────────────────────────────
 
 /**

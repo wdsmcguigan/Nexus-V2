@@ -1,14 +1,35 @@
-import { Wifi, Keyboard, Archive, Trash2, FolderInput, Tags } from "lucide-react";
+import * as React from "react";
+import { Wifi, Keyboard, Archive, Trash2, FolderInput } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
+import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
+import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 
 export function StatusBar() {
   const selected = useWorkspace((s) => s.selectedEmailIds);
   const density = useWorkspace((s) => s.density);
   const cycleDensity = useWorkspace((s) => s.cycleDensity);
+  const archive = useWorkspace((s) => s.archive);
+  const trash = useWorkspace((s) => s.trash);
+  const clearSelection = useWorkspace((s) => s.clearSelection);
   const count = selected.size;
+
+  const [tagOpen, setTagOpen] = React.useState(false);
+  const [moveOpen, setMoveOpen] = React.useState(false);
+
+  const selectedIds = React.useMemo(() => Array.from(selected), [selected]);
+
+  function handleArchive() {
+    for (const id of selectedIds) archive(id);
+    clearSelection();
+  }
+
+  function handleTrash() {
+    for (const id of selectedIds) trash(id);
+    clearSelection();
+  }
 
   return (
     <footer
@@ -29,24 +50,32 @@ export function StatusBar() {
 
       {count > 0 && (
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="xs">
+          <Button variant="ghost" size="xs" onClick={handleArchive}>
             <Archive />
             Archive
           </Button>
-          <Button variant="ghost" size="xs">
+          <Button variant="ghost" size="xs" onClick={() => setMoveOpen(true)}>
             <FolderInput />
             Move
           </Button>
-          <Button variant="ghost" size="xs">
-            <Tags />
-            Tag
-          </Button>
-          <Button variant="ghost" size="xs">
+          <LabelPickerPopover
+            messageIds={selectedIds}
+            variant="button"
+            open={tagOpen}
+            onOpenChange={setTagOpen}
+          />
+          <Button variant="ghost" size="xs" onClick={handleTrash}>
             <Trash2 />
             Delete
           </Button>
         </div>
       )}
+
+      <FolderPickerDialog
+        messageIds={selectedIds}
+        open={moveOpen}
+        onClose={() => setMoveOpen(false)}
+      />
 
       <div className="ml-auto flex items-center gap-3">
         <button

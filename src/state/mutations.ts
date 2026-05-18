@@ -413,6 +413,18 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       }
       break;
     }
+    case "TRASH": {
+      const { messageId } = m.payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (msg) {
+        const inboxId = _systemLabelId(store, "inbox");
+        const trashId = _systemLabelId(store, "trash");
+        let labelIds = msg.labelIds.filter((l) => l !== inboxId);
+        if (trashId && !labelIds.includes(trashId)) labelIds = [...labelIds, trashId];
+        _updateMessage(store, messageId, { labelIds });
+      }
+      break;
+    }
     case "SNOOZE": {
       const { messageId, until } = m.payload as { messageId: string; until: number };
       const msg = store.messages.get(messageId);
@@ -575,6 +587,8 @@ export const unreadMessage = (s: LocalStore, messageId: string) =>
   recordMutation("UNREAD", { messageId }, s);
 export const archiveMessage = (s: LocalStore, messageId: string) =>
   recordMutation("ARCHIVE", { messageId }, s);
+export const trashMessage = (s: LocalStore, messageId: string) =>
+  recordMutation("TRASH", { messageId }, s);
 export const snoozeMessage = (s: LocalStore, messageId: string, until: number) =>
   recordMutation("SNOOZE", { messageId, until }, s);
 export const deleteMessage = (s: LocalStore, messageId: string) =>
@@ -647,7 +661,7 @@ export function upsertContact(
 
 export function updateContact(
   id: string,
-  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags">>,
+  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags" | "alwaysShowImages">>,
   store: LocalStore = _defaultStore,
 ): void {
   const existing = store.contacts.get(id);

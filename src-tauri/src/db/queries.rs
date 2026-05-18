@@ -660,7 +660,7 @@ impl VaultDb {
                 serde_json::to_string(&msg.to_addrs)?,
                 serde_json::to_string(&msg.cc_addrs)?,
                 serde_json::to_string::<Vec<serde_json::Value>>(&vec![])?,
-                serde_json::to_string::<Vec<serde_json::Value>>(&vec![])?,
+                serde_json::to_string(&msg.attachments)?,
                 if msg.flags_read { 1 } else { 0 },
                 msg.provider_id, msg.account_id,
                 msg.eml_path
@@ -815,6 +815,21 @@ impl VaultDb {
                 self.conn.execute(
                     "DELETE FROM message_labels WHERE message_id = ?1
                      AND label_id IN (SELECT id FROM labels WHERE system_kind = 'inbox')",
+                    params![msg_id],
+                )?;
+            }
+            "TRASH" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                // Remove from INBOX label
+                self.conn.execute(
+                    "DELETE FROM message_labels WHERE message_id = ?1
+                     AND label_id IN (SELECT id FROM labels WHERE system_kind = 'inbox')",
+                    params![msg_id],
+                )?;
+                // Add to TRASH label if it exists
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                     SELECT ?1, id FROM labels WHERE system_kind = 'trash' LIMIT 1",
                     params![msg_id],
                 )?;
             }

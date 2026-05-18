@@ -38,6 +38,37 @@ import { formatAbsoluteTime } from "@/lib/utils";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
+const DRAFT_KEY_PREFIX = "nexus-draft-";
+
+interface DraftData {
+  subject: string;
+  recipients: string[];
+  ccRecipients: string[];
+  bccRecipients: string[];
+  bodyHtml: string;
+  savedAt: number;
+}
+
+function draftKey(replyMsgId: string | null): string {
+  return replyMsgId ? `${DRAFT_KEY_PREFIX}reply-${replyMsgId}` : `${DRAFT_KEY_PREFIX}new`;
+}
+
+function loadDraft(key: string): DraftData | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as DraftData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key: string, data: DraftData): void {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignore quota */ }
+}
+
+function clearDraft(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
 
 // ─── Field row ────────────────────────────────────────────────────────────────
 
@@ -227,28 +258,33 @@ export function EmailComposerPanel() {
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
+  const _draftKey = draftKey(replyMsg?.id ?? null);
+  const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
 
   // ── Recipients ────────────────────────────────────────────────────────────
 
   const [recipients, setRecipients] = React.useState<string[]>(() => {
+    if (_draft) return _draft.recipients;
     if (!replyMsg || mode === "forward") return [];
     if (mode === "reply") return [replyMsg.fromAddr.email];
     const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";
     return [replyMsg.fromAddr.email, ...replyMsg.toAddrs.map((t) => t.email).filter((e) => e !== self)];
   });
   const [ccRecipients, setCcRecipients] = React.useState<string[]>(() => {
+    if (_draft) return _draft.ccRecipients;
     if (mode === "reply-all" && replyMsg) return replyMsg.ccAddrs.map((t) => t.email);
     return [];
   });
-  const [bccRecipients, setBccRecipients] = React.useState<string[]>([]);
+  const [bccRecipients, setBccRecipients] = React.useState<string[]>(() => _draft?.bccRecipients ?? []);
   const [draftInput, setDraftInput] = React.useState("");
   const [ccDraftInput, setCcDraftInput] = React.useState("");
   const [bccDraftInput, setBccDraftInput] = React.useState("");
-  const [showCc, setShowCc] = React.useState(mode === "reply-all");
+  const [showCc, setShowCc] = React.useState(mode === "reply-all" || ((_draft?.ccRecipients.length ?? 0) > 0));
 
   // ── Subject ───────────────────────────────────────────────────────────────
 
   const [subject, setSubject] = React.useState(() => {
+    if (_draft) return _draft.subject;
     if (!replyMsg) return "";
     if (mode === "forward") return `Fwd: ${replyMsg.subject}`;
     const s = replyMsg.subject;
@@ -257,7 +293,7 @@ export function EmailComposerPanel() {
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
 
-  const initialContent = replyMsg ? buildQuotedHtml(replyMsg) : "";
+  const initialContent = _draft?.bodyHtml ?? (replyMsg ? buildQuotedHtml(replyMsg) : "");
 
   const editor = useEditor({
     extensions: [
@@ -305,6 +341,7 @@ export function EmailComposerPanel() {
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
         });
+        clearDraft(_draftKey);
         toast.success("Sent");
       } catch (e) {
         toast.error(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -341,6 +378,19 @@ export function EmailComposerPanel() {
   }, []);
 
   React.useEffect(() => () => { if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current); }, []);
+
+  // Auto-save draft on change (debounced 1s)
+  const saveTimerRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (sending) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      const bodyHtml = editor?.getHTML() ?? "";
+      saveDraft(_draftKey, { subject, recipients, ccRecipients, bccRecipients, bodyHtml, savedAt: Date.now() });
+    }, 1000);
+    return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, recipients, ccRecipients, bccRecipients, editor, sending]);
 
   // ⌘↵ to send
   React.useEffect(() => {
@@ -556,7 +606,7 @@ export function EmailComposerPanel() {
               variant="ghost"
               size="md"
               className="text-error hover:bg-error/10 hover:text-error"
-              onClick={() => { setDiscardOpen(false); setComposerOpen(false); }}
+              onClick={() => { clearDraft(_draftKey); setDiscardOpen(false); setComposerOpen(false); }}
             >
               Discard
             </Button>

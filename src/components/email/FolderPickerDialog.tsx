@@ -6,12 +6,14 @@ import { cn } from "@/lib/utils";
 import React from "react";
 
 interface Props {
-  messageId: string | null;
+  messageId?: string | null;
+  /** Multiple message IDs for bulk move. */
+  messageIds?: string[];
   open: boolean;
   onClose: () => void;
 }
 
-export function FolderPickerDialog({ messageId, open, onClose }: Props) {
+export function FolderPickerDialog({ messageId, messageIds, open, onClose }: Props) {
   const [query, setQuery] = React.useState("");
 
   // Reset query when dialog closes
@@ -31,8 +33,9 @@ export function FolderPickerDialog({ messageId, open, onClose }: Props) {
     : folders;
 
   function handleSelect(folderId: string) {
-    if (messageId) {
-      moveToFolder(localStore, messageId, folderId);
+    const ids = messageIds ?? (messageId ? [messageId] : []);
+    for (const mid of ids) {
+      moveToFolder(localStore, mid, folderId);
     }
     onClose();
   }

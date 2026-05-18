@@ -91,6 +91,7 @@ export function CommandPalette() {
 
   // Workspace mutation actions
   const archive = useWorkspace((s) => s.archive);
+  const trash = useWorkspace((s) => s.trash);
   const snooze = useWorkspace((s) => s.snooze);
   const setPinnedAction = useWorkspace((s) => s.setPinned);
   const setMuted = useWorkspace((s) => s.setMuted);
@@ -207,7 +208,7 @@ export function CommandPalette() {
         label: "Delete selected",
         group: "Message",
         icon: Trash2,
-        perform: () => {},
+        perform: () => trash(mid),
       });
       all.push({
         id: "mark-read",
@@ -482,7 +483,7 @@ export function CommandPalette() {
     selectedEmailId,
     workspaces, activeWorkspaceId, saveWorkspace, switchWorkspace,
     setFolder, setComposerOpen, setActivePanel, togglePin, toggleTheme, setDensity,
-    archive, snooze, setPinnedAction, setMuted, setFlag, clearFlag,
+    archive, trash, snooze, setPinnedAction, setMuted, setFlag, clearFlag,
     setPriority, clearPriority, setStar, clearStar,
     addLabel, removeLabel, addTag, removeTag, setStatus, clearStatus, moveToFolder, setRead,
   ]);

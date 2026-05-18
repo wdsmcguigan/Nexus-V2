@@ -518,6 +518,11 @@ fn parse_gmail_message_full(
     let body_ref = format!("body-{}", meta.id);
     let snippet = meta.snippet.clone().unwrap_or_default();
 
+    let mut attachments = Vec::new();
+    if let Some(p) = meta.payload.as_ref() {
+        collect_attachments(p, &mut attachments);
+    }
+
     Ok(ParsedMessage {
         id: nexus_id,
         provider_id: meta.id,
@@ -535,6 +540,7 @@ fn parse_gmail_message_full(
         label_ids,
         flags_read,
         eml_path: None,
+        attachments,
     })
 }
 
@@ -582,6 +588,28 @@ fn collect_body_from_payload(
 
     for part in payload.parts.as_deref().unwrap_or_default() {
         collect_body_from_payload(part, text, html);
+    }
+}
+
+fn collect_attachments(payload: &crate::gmail::types::GmailPayload, out: &mut Vec<crate::gmail::types::ParsedAttachment>) {
+    use crate::gmail::types::ParsedAttachment;
+    let filename = payload.filename.as_deref().unwrap_or("").trim();
+    if !filename.is_empty() {
+        if let Some(body) = &payload.body {
+            if let Some(att_id) = body.attachment_id.as_ref().filter(|s| !s.is_empty()) {
+                let mime = payload.mime_type.as_deref().unwrap_or("application/octet-stream");
+                out.push(ParsedAttachment::from_gmail(
+                    filename.to_string(),
+                    body.size.unwrap_or(0),
+                    mime,
+                    att_id.clone(),
+                ));
+                return; // attachment parts don't recurse
+            }
+        }
+    }
+    for part in payload.parts.as_deref().unwrap_or_default() {
+        collect_attachments(part, out);
     }
 }
 

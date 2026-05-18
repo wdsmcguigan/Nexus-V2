@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use base64::Engine;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -314,6 +315,81 @@ pub async fn send_message(
         .map_err(|e| e.to_string())?;
 
     Ok(gmail_id)
+}
+
+// ─── Attachment download ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn download_attachment(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    message_id: String,   // Nexus message ID (e.g. "msg-...")
+    attachment_id: String, // Gmail attachment part ID
+    filename: String,
+) -> std::result::Result<String, String> {
+    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
+    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
+
+    let (provider_msg_id, account_id, refresh_token) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let (pid, aid) = db.get_provider_id(&message_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Message not found".to_string())?;
+        let rt = db.get_refresh_token(&aid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No refresh token".to_string())?;
+        (pid, aid, rt)
+    };
+
+    let oauth = GmailOAuth::new(client_id, client_secret);
+    let (access_token, expires_in) = oauth
+        .refresh_access_token(&refresh_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let expires_at = chrono::Utc::now().timestamp() + expires_in;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Fetch the attachment bytes from Gmail
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/attachments/{}",
+        provider_msg_id, attachment_id
+    );
+    let resp = client
+        .get(&url)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Gmail API error: {}", resp.status()));
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let data_b64 = body["data"].as_str().ok_or("Missing data field")?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(data_b64)
+        .map_err(|e| e.to_string())?;
+
+    // Write to ~/Downloads
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| e.to_string())?;
+    let dest = downloads_dir.join(&filename);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 // ─── EP-5 Relay commands ──────────────────────────────────────────────────────
