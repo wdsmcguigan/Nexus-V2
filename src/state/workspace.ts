@@ -21,6 +21,8 @@ import {
   makeDefaultWorkspace,
 } from "@/storage/workspaceManager";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
+import { loadClientMode, saveClientMode } from "@/lib/clientMode";
+import type { ClientMode } from "@/lib/clientMode";
 import type {
   CustomFieldValue,
   FlagState,
@@ -283,6 +285,10 @@ interface WorkspaceState {
   // Thread view
   threadedView: boolean;
   toggleThreadedView: () => void;
+
+  // Client mode (installation-level, not per-workspace)
+  clientMode: ClientMode;
+  setClientMode: (mode: ClientMode) => void;
 
   // Folder ops
   createFolder: (folder: Folder) => void;
@@ -552,6 +558,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   threadedView: _activeWs.threadedView ?? true,
   toggleThreadedView: () => set((s) => ({ threadedView: !s.threadedView })),
+
+  // ── Client mode (installation-level, not in WorkspaceSnapshot) ────────────
+
+  clientMode: loadClientMode(),
+  setClientMode: (mode) => {
+    saveClientMode(mode);
+    set({ clientMode: mode });
+  },
 
   // ── Email selection ────────────────────────────────────────────────────────
 

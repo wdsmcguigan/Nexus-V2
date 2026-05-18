@@ -650,14 +650,23 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const setDensity = useWorkspace((s) => s.setDensity);
   const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
+  const clientMode = useWorkspace((s) => s.clientMode);
 
   const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay">("accounts");
+
+  React.useEffect(() => {
+    if (clientMode !== "local-first" && activeSection === "relay") {
+      setActiveSection("accounts");
+    }
+  }, [clientMode, activeSection]);
 
   const navItems = [
     { id: "accounts" as const, label: "Accounts", icon: <Mail size={14} /> },
     { id: "preferences" as const, label: "Preferences", icon: <SlidersHorizontal size={14} /> },
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
-    { id: "relay" as const, label: "Relay", icon: <Server size={14} /> },
+    ...(clientMode === "local-first"
+      ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
+      : []),
   ];
 
   return (

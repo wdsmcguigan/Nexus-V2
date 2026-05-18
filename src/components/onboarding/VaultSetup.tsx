@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { FolderOpen, ArrowRight, Loader2 } from "lucide-react";
+import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive } from "lucide-react";
 import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
+import { useWorkspace } from "@/state/workspace";
+import type { ClientMode } from "@/lib/clientMode";
 import { GmailConnect } from "./GmailConnect";
 
-type Step = "vault" | "gmail" | "done";
+type Step = "vault" | "mode" | "gmail" | "done";
 
 interface Props {
   onComplete: () => void;
@@ -15,6 +17,7 @@ export function VaultSetup({ onComplete }: Props) {
   const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const setClientMode = useWorkspace((s) => s.setClientMode);
 
   async function handleVaultContinue() {
     setLoading(true);
@@ -23,12 +26,17 @@ export function VaultSetup({ onComplete }: Props) {
       await setVaultPath(vaultPath);
       const payload = await loadVaultData(vaultPath);
       localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
-      setStep("gmail");
+      setStep("mode");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleModeSelect(mode: ClientMode) {
+    setClientMode(mode);
+    setStep("gmail");
   }
 
   function handleGmailConnected(_accountId: string, _email: string) {
@@ -94,6 +102,62 @@ export function VaultSetup({ onComplete }: Props) {
     );
   }
 
+  if (step === "mode") {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
+        <div className="flex flex-col items-center gap-6 p-8 max-w-xl w-full">
+          <div className="text-center">
+            <h1 className="text-xl font-semibold mb-1">How do you want to use Nexus?</h1>
+            <p className="text-sm text-neutral-400">
+              You can change this later in Settings.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 w-full">
+            {/* Traditional */}
+            <button
+              onClick={() => handleModeSelect("traditional")}
+              className="group flex flex-col gap-3 rounded-xl border border-neutral-700 bg-neutral-900 p-5 text-left hover:border-neutral-500 hover:bg-neutral-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <div className="rounded-lg bg-neutral-800 p-3 w-fit group-hover:bg-neutral-700 transition-colors">
+                <Cloud className="h-6 w-6 text-neutral-300" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-white mb-1">Traditional Client</div>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Use Nexus as a fast Gmail interface. Your mail syncs from Google's servers.
+                  Cross-device relay sync is not available.
+                </p>
+              </div>
+            </button>
+
+            {/* Local-first */}
+            <button
+              onClick={() => handleModeSelect("local-first")}
+              className="group flex flex-col gap-3 rounded-xl border border-blue-600 bg-blue-950/40 p-5 text-left hover:border-blue-500 hover:bg-blue-950/60 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-blue-900/60 p-3 group-hover:bg-blue-900 transition-colors">
+                  <HardDrive className="h-6 w-6 text-blue-300" />
+                </div>
+                <span className="text-xs font-medium text-blue-400 bg-blue-900/60 px-2 py-0.5 rounded-full">
+                  Recommended
+                </span>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-white mb-1">Local-first &amp; Private</div>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Your mail lives fully on this device, end-to-end encrypted. An optional relay
+                  server lets you sync privately across your own devices.
+                </p>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (step === "gmail") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
@@ -117,11 +181,7 @@ export function VaultSetup({ onComplete }: Props) {
 }
 
 function defaultVaultPath(): string {
-  // Best guess at the user's home directory — only works in Tauri where
-  // the shell exposes environment variables. Falls back gracefully.
   if (typeof window !== "undefined" && "__TAURI__" in window) {
-    // Tauri 2: we don't have direct access to HOME at this point,
-    // so show a friendly default that the user can edit.
     return "~/Mail";
   }
   return "~/Mail";
