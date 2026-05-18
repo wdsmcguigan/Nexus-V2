@@ -11,7 +11,6 @@ import {
   MailQuestion,
   BellOff,
   Bell,
-  ArrowRight,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -85,9 +84,9 @@ function ParticipantRow({
         type="button"
         aria-label={`Open contact: ${displayName}`}
         onClick={() => openContactsPanel(contact?.id, allParticipantEmails)}
-        className="shrink-0 rounded-xs p-0.5 text-text-muted hover:bg-surface-3 hover:text-text-secondary"
+        className="shrink-0 rounded-xs border border-border-subtle px-1.5 py-0.5 font-sans text-[10px] font-medium text-text-tertiary hover:border-border-default hover:bg-surface-3 hover:text-text-secondary transition-colors duration-fast"
       >
-        <ArrowRight size={11} />
+        Open Contact
       </button>
     </div>
   );
