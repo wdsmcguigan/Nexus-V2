@@ -1,6 +1,7 @@
 import * as React from "react";
-import { DockviewReact } from "dockview";
-import type { DockviewReadyEvent, IDockviewPanelProps } from "dockview";
+import { DockviewReact, DockviewDefaultTab } from "dockview";
+import type { DockviewReadyEvent, IDockviewPanelProps, IDockviewPanelHeaderProps } from "dockview";
+import { GripVertical } from "lucide-react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
@@ -40,6 +41,20 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
   contacts: ContactsPanelWrapper,
   settings: SettingsPanelWrapper,
 };
+
+// ─── Custom tab component ─────────────────────────────────────────────────────
+// Renders a grip icon in the actual dockview tab area so users know where to
+// grab to drag panels. The whole tab element is the drag handle (dockview
+// controls this); the grip is purely a visual affordance.
+
+function DockviewTab(props: IDockviewPanelHeaderProps) {
+  return (
+    <div className="flex h-full items-center gap-1 pl-1">
+      <GripVertical size={11} className="shrink-0 text-text-muted opacity-40" />
+      <DockviewDefaultTab {...props} hideClose />
+    </div>
+  );
+}
 
 // ─── Initial layout ───────────────────────────────────────────────────────────
 // Called once when dockview mounts. Sets up the 4-column layout with
@@ -177,6 +192,7 @@ export function Workspace() {
           <DockviewReact
             className="h-full w-full"
             components={DV_COMPONENTS}
+            defaultTabComponent={DockviewTab}
             onReady={initLayout}
             singleTabMode="fullwidth"
             disableFloatingGroups={false}

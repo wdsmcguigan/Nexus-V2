@@ -15,6 +15,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import UnderlineExt from "@tiptap/extension-underline";
@@ -29,15 +30,47 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
-import { cn } from "@/lib/utils";
+import { cn, formatBytes } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
-import { isTauri, sendMessage } from "@/storage/tauri";
+import { isTauri, sendMessage, type AttachmentPayload } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
+import { loadSignature } from "@/lib/signature";
 
 const PANEL_ID = "composer";
 const COUNTDOWN_SECONDS = 5;
+const DRAFT_KEY_PREFIX = "nexus-draft-";
+
+interface DraftData {
+  subject: string;
+  recipients: string[];
+  ccRecipients: string[];
+  bccRecipients: string[];
+  bodyHtml: string;
+  savedAt: number;
+}
+
+function draftKey(replyMsgId: string | null): string {
+  return replyMsgId ? `${DRAFT_KEY_PREFIX}reply-${replyMsgId}` : `${DRAFT_KEY_PREFIX}new`;
+}
+
+function loadDraft(key: string): DraftData | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as DraftData) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key: string, data: DraftData): void {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignore quota */ }
+}
+
+function clearDraft(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
 
 // ─── Field row ────────────────────────────────────────────────────────────────
 
@@ -192,6 +225,22 @@ function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInp
   );
 }
 
+// ─── Attachment helpers ───────────────────────────────────────────────────────
+
+function readFileAsBase64(file: File): Promise<AttachmentPayload> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // result = "data:<mime>;base64,<data>"
+      const data = result.split(",")[1] ?? "";
+      resolve({ name: file.name, mimeType: file.type || "application/octet-stream", data });
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 // ─── Quoted block ─────────────────────────────────────────────────────────────
 
 function buildQuotedHtml(msg: {
@@ -224,31 +273,40 @@ function setLink(editor: ReturnType<typeof useEditor>) {
 export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
   const composerContext = useWorkspace((s) => s.composerContext);
+  const archive = useWorkspace((s) => s.archive);
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
+  const _draftKey = draftKey(replyMsg?.id ?? null);
+  const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
+  const sendAndArchiveRef = React.useRef(false);
+  const [attachments, setAttachments] = React.useState<File[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // ── Recipients ────────────────────────────────────────────────────────────
 
   const [recipients, setRecipients] = React.useState<string[]>(() => {
+    if (_draft) return _draft.recipients;
     if (!replyMsg || mode === "forward") return [];
     if (mode === "reply") return [replyMsg.fromAddr.email];
     const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";
     return [replyMsg.fromAddr.email, ...replyMsg.toAddrs.map((t) => t.email).filter((e) => e !== self)];
   });
   const [ccRecipients, setCcRecipients] = React.useState<string[]>(() => {
+    if (_draft) return _draft.ccRecipients;
     if (mode === "reply-all" && replyMsg) return replyMsg.ccAddrs.map((t) => t.email);
     return [];
   });
-  const [bccRecipients, setBccRecipients] = React.useState<string[]>([]);
+  const [bccRecipients, setBccRecipients] = React.useState<string[]>(() => _draft?.bccRecipients ?? []);
   const [draftInput, setDraftInput] = React.useState("");
   const [ccDraftInput, setCcDraftInput] = React.useState("");
   const [bccDraftInput, setBccDraftInput] = React.useState("");
-  const [showCc, setShowCc] = React.useState(mode === "reply-all");
+  const [showCc, setShowCc] = React.useState(mode === "reply-all" || ((_draft?.ccRecipients.length ?? 0) > 0));
 
   // ── Subject ───────────────────────────────────────────────────────────────
 
   const [subject, setSubject] = React.useState(() => {
+    if (_draft) return _draft.subject;
     if (!replyMsg) return "";
     if (mode === "forward") return `Fwd: ${replyMsg.subject}`;
     const s = replyMsg.subject;
@@ -257,7 +315,18 @@ export function EmailComposerPanel() {
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
 
-  const initialContent = replyMsg ? buildQuotedHtml(replyMsg) : "";
+  const _sigHtml = React.useMemo(() => {
+    const acct = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
+    const sig = acct ? loadSignature(acct.id) : "";
+    const sigHtml = sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+    return sigHtml ? `<div class="nexus-signature"><br/>-- <br/>${sigHtml}</div>` : "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const initialContent = _draft?.bodyHtml ?? (
+    replyMsg
+      ? buildQuotedHtml(replyMsg) + _sigHtml
+      : (_sigHtml ? `<p></p>${_sigHtml}` : "")
+  );
 
   const editor = useEditor({
     extensions: [
@@ -285,6 +354,9 @@ export function EmailComposerPanel() {
   const [sending, setSending] = React.useState(false);
   const [countdown, setCountdown] = React.useState(0);
   const sendTimeoutRef = React.useRef<number | null>(null);
+  const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
+  const [schedulePickerOpen, setSchedulePickerOpen] = React.useState(false);
+  const scheduledSendRef = React.useRef<number | null>(null);
 
   const doActualSend = React.useCallback(async () => {
     setSending(false);
@@ -295,6 +367,9 @@ export function EmailComposerPanel() {
       const gmailAccount = accounts.find((a) => a.provider === "gmail");
       if (!gmailAccount) { toast.error("No Gmail account connected"); return; }
       try {
+        const attachmentPayloads = attachments.length > 0
+          ? await Promise.all(attachments.map(readFileAsBase64))
+          : undefined;
         await sendMessage({
           accountId: gmailAccount.id,
           from: gmailAccount.email,
@@ -304,17 +379,21 @@ export function EmailComposerPanel() {
           subject,
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
+          attachments: attachmentPayloads,
         });
+        clearDraft(_draftKey);
         toast.success("Sent");
+        if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
       } catch (e) {
         toast.error(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
         return;
       }
     } else {
       toast.success("Sent (web mode — not actually delivered)");
+      if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
     }
     setComposerOpen(false);
-  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, setComposerOpen]);
+  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive]);
 
   const startSend = React.useCallback(() => {
     setSending(true);
@@ -342,17 +421,42 @@ export function EmailComposerPanel() {
 
   React.useEffect(() => () => { if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current); }, []);
 
-  // ⌘↵ to send
+  // Fire scheduled send when time arrives
+  React.useEffect(() => {
+    if (!scheduledAt) return;
+    const delay = scheduledAt - Date.now();
+    if (delay <= 0) { doActualSend(); return; }
+    scheduledSendRef.current = window.setTimeout(doActualSend, delay);
+    return () => { if (scheduledSendRef.current) window.clearTimeout(scheduledSendRef.current); };
+  }, [scheduledAt, doActualSend]);
+
+  // Auto-save draft on change (debounced 1s)
+  const saveTimerRef = React.useRef<number | null>(null);
+  React.useEffect(() => {
+    if (sending) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      const bodyHtml = editor?.getHTML() ?? "";
+      saveDraft(_draftKey, { subject, recipients, ccRecipients, bccRecipients, bodyHtml, savedAt: Date.now() });
+    }, 1000);
+    return () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject, recipients, ccRecipients, bccRecipients, editor, sending]);
+
+  // ⌘↵ to send, ⌘⇧↵ to send + archive
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
-        if (!sending) startSend();
+        if (!sending) {
+          sendAndArchiveRef.current = e.shiftKey && (mode === "reply" || mode === "reply-all");
+          startSend();
+        }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [sending, startSend]);
+  }, [sending, startSend, mode]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -360,7 +464,7 @@ export function EmailComposerPanel() {
     // Consider it dirty if: has recipients, non-empty subject, or editor
     // has more than the initial quoted block (check text content length)
     const text = editor?.getText() ?? "";
-    const isDirty = recipients.length > 0 || subject.trim() !== "" || text.trim().length > 0;
+    const isDirty = recipients.length > 0 || subject.trim() !== "" || text.trim().length > 0 || attachments.length > 0;
     if (isDirty) {
       setDiscardOpen(true);
     } else {
@@ -499,20 +603,120 @@ export function EmailComposerPanel() {
         </div>
 
         {/* Attachments strip */}
-        <div className="flex h-9 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-3">
-          <Paperclip size={12} className="text-text-tertiary" />
-          <span className="flex-1 font-mono text-mono-sm text-text-muted">No attachments</span>
-          <Button variant="ghost" size="xs">+ Attach</Button>
+        <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle bg-surface-1 px-3 py-1.5">
+          <Paperclip size={12} className="shrink-0 text-text-tertiary" />
+          {attachments.length === 0 && (
+            <span className="flex-1 font-mono text-mono-sm text-text-muted">No attachments</span>
+          )}
+          {attachments.map((file, i) => (
+            <span
+              key={`${file.name}-${i}`}
+              className="flex items-center gap-1 rounded-xs border border-border-default bg-surface-2 px-2 py-0.5 font-mono text-mono-xs text-text-secondary"
+            >
+              {file.name}
+              <span className="text-text-muted">({formatBytes(file.size)})</span>
+              <button
+                type="button"
+                aria-label={`Remove ${file.name}`}
+                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                className="ml-1 rounded-xs text-text-muted hover:text-text-primary"
+              >
+                <X size={10} />
+              </button>
+            </span>
+          ))}
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto shrink-0"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            + Attach
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) setAttachments((prev) => [...prev, ...files]);
+              e.target.value = ""; // reset so same file can be re-attached
+            }}
+          />
         </div>
 
         {/* Send footer */}
         <div className="flex h-12 shrink-0 items-center gap-3 border-t border-border-subtle bg-surface-1 px-3">
-          {!sending ? (
-            <Button variant="primary" size="md" onClick={startSend}>
-              {mode === "forward" ? "Forward" : "Send"}
-              <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
-            </Button>
+          {scheduledAt ? (
+            /* Scheduled-send banner */
+            <div className="flex flex-1 items-center gap-3">
+              <span className="text-body text-text-secondary">
+                Scheduled for {formatAbsoluteTime(new Date(scheduledAt))}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (scheduledSendRef.current) window.clearTimeout(scheduledSendRef.current);
+                  setScheduledAt(null);
+                  toast("Scheduled send cancelled");
+                }}
+                className="font-mono text-mono-xs text-text-tertiary hover:text-text-primary underline"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : !sending ? (
+            /* Normal send: split button (Send | ▾ dropdown) */
+            <div className="flex items-stretch">
+              <Button
+                variant="primary"
+                size="md"
+                className="rounded-r-none border-r border-r-white/20"
+                onClick={() => { sendAndArchiveRef.current = false; startSend(); }}
+              >
+                {mode === "forward" ? "Forward" : "Send"}
+                <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
+              </Button>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    variant="primary"
+                    size="md"
+                    iconOnly
+                    className="rounded-l-none px-1.5"
+                    aria-label="More send options"
+                  >
+                    <ChevronDown size={13} />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    sideOffset={4}
+                    align="start"
+                    className="z-50 min-w-[200px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                  >
+                    {(mode === "reply" || mode === "reply-all") && (
+                      <DropdownMenu.Item
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                        onSelect={() => { sendAndArchiveRef.current = true; startSend(); }}
+                      >
+                        Send + Archive
+                        <span className="ml-auto font-mono text-mono-xs text-text-muted">⌘⇧↵</span>
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Item
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      onSelect={() => setSchedulePickerOpen(true)}
+                    >
+                      Send later…
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
           ) : (
+            /* Undo countdown */
             <button
               type="button"
               onClick={undoSend}
@@ -527,6 +731,14 @@ export function EmailComposerPanel() {
             Discard
           </Button>
         </div>
+
+        {/* Send later datetime picker */}
+        {schedulePickerOpen && (
+          <ScheduleDatePicker
+            onConfirm={(ts) => { setScheduledAt(ts); setSchedulePickerOpen(false); }}
+            onCancel={() => setSchedulePickerOpen(false)}
+          />
+        )}
       </div>
     </Panel>
 
@@ -556,7 +768,7 @@ export function EmailComposerPanel() {
               variant="ghost"
               size="md"
               className="text-error hover:bg-error/10 hover:text-error"
-              onClick={() => { setDiscardOpen(false); setComposerOpen(false); }}
+              onClick={() => { clearDraft(_draftKey); setDiscardOpen(false); setComposerOpen(false); }}
             >
               Discard
             </Button>
@@ -565,6 +777,65 @@ export function EmailComposerPanel() {
       </AlertDialog.Portal>
     </AlertDialog.Root>
     </>
+  );
+}
+
+// ─── Schedule date picker ─────────────────────────────────────────────────────
+
+function ScheduleDatePicker({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (ts: number) => void;
+  onCancel: () => void;
+}) {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const defaultDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const defaultTime = `${pad(now.getHours() + 1)}:00`;
+
+  const [dateVal, setDateVal] = React.useState(defaultDate);
+  const [timeVal, setTimeVal] = React.useState(defaultTime);
+
+  function handleConfirm() {
+    const ts = new Date(`${dateVal}T${timeVal}`).getTime();
+    if (isNaN(ts) || ts <= Date.now()) {
+      alert("Please choose a time in the future.");
+      return;
+    }
+    onConfirm(ts);
+  }
+
+  return (
+    <div className="absolute inset-x-0 bottom-12 z-10 flex items-center gap-2 border-t border-border-subtle bg-surface-2 px-3 py-2 shadow-lg">
+      <span className="shrink-0 text-body text-text-secondary">Send at</span>
+      <input
+        type="date"
+        value={dateVal}
+        onChange={(e) => setDateVal(e.target.value)}
+        className="rounded-xs border border-border-default bg-surface-1 px-2 py-1 font-mono text-mono-sm text-text-primary outline-none focus:border-accent"
+      />
+      <input
+        type="time"
+        value={timeVal}
+        onChange={(e) => setTimeVal(e.target.value)}
+        className="rounded-xs border border-border-default bg-surface-1 px-2 py-1 font-mono text-mono-sm text-text-primary outline-none focus:border-accent"
+      />
+      <button
+        type="button"
+        onClick={handleConfirm}
+        className="rounded-xs bg-accent px-3 py-1 text-body-strong text-text-on-accent hover:bg-accent/90"
+      >
+        Schedule
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="font-mono text-mono-xs text-text-tertiary hover:text-text-primary"
+      >
+        Cancel
+      </button>
+    </div>
   );
 }
 

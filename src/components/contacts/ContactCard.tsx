@@ -216,7 +216,7 @@ function FoundContactCard({
   onOpenPanel: () => void;
 }) {
   const msgCount = useContactMessageCount(contact.id);
-  const colorSeed = pickPanelLink(contact.emails[0] ?? contact.id);
+  const colorSeed = pickPanelLink((contact.emails ?? [])[0] ?? contact.id);
   const openContactMessages = useWorkspace((s) => s.openContactMessages);
 
   const save = (patch: Parameters<typeof updateContact>[1]) => {
@@ -238,7 +238,7 @@ function FoundContactCard({
 
           {/* Primary email */}
           <div className="font-mono text-mono-xs text-text-tertiary truncate">
-            {contact.emails[0] ?? ""}
+            {(contact.emails ?? [])[0] ?? ""}
           </div>
 
           {/* Company + title */}
@@ -351,7 +351,7 @@ function FoundContactCard({
       {/* Emails */}
       <FieldSection icon={<Mail size={14} />} label="Email">
         <div className="flex flex-col gap-1">
-          {contact.emails.map((e, i) => (
+          {(contact.emails ?? []).map((e, i) => (
             <div key={e} className="font-mono text-mono-sm text-text-primary">
               {i === 0 ? (
                 <EditableField

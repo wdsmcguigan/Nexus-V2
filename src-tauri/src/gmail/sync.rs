@@ -1,7 +1,9 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use base64::Engine;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use tauri::Emitter;
 use tokio::sync::Semaphore;
 
 use super::label_map::{gmail_to_nexus_label, map_gmail_labels};
@@ -10,6 +12,8 @@ use crate::db::VaultDb;
 
 const GMAIL_API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 const CONCURRENT_FETCHES: usize = 10;
+// Per-page max allowed by Gmail API
+const PAGE_SIZE: u32 = 500;
 
 /// Intermediate result from a fetch-only pass (no DB access).
 pub struct FetchResult {
@@ -25,6 +29,7 @@ pub struct GmailSyncer {
     pub vault_id: String,
     access_token: Arc<tokio::sync::RwLock<String>>,
     mail_dir: PathBuf,
+    app: tauri::AppHandle,
 }
 
 impl GmailSyncer {
@@ -32,7 +37,8 @@ impl GmailSyncer {
         account_id: String,
         vault_id: String,
         access_token: String,
-        vault_path: &Path,
+        vault_path: &std::path::Path,
+        app: tauri::AppHandle,
     ) -> Self {
         let mail_dir = vault_path.join("mail");
         Self {
@@ -40,6 +46,7 @@ impl GmailSyncer {
             vault_id,
             access_token: Arc::new(tokio::sync::RwLock::new(access_token)),
             mail_dir,
+            app,
         }
     }
 
@@ -47,10 +54,22 @@ impl GmailSyncer {
         *self.access_token.write().await = new_token;
     }
 
+    fn emit_progress(&self, fetched: usize, total: usize) {
+        let _ = self.app.emit(
+            "gmail:sync-progress",
+            serde_json::json!({
+                "accountId": self.account_id,
+                "fetched": fetched,
+                "total": total,
+            }),
+        );
+    }
+
     // ─── Phase 1: fetch-only (fully async, no DB) ─────────────────────────────
 
-    /// Fetch labels and up to 500 inbox messages from the API.
-    /// No DB access — safe to await freely.
+    /// Fetch labels and ALL messages (inbox, sent, archived, labeled) from the API.
+    /// Excludes only trash and spam. Uses format=full (headers + body, no attachment
+    /// bytes) for reliability. No DB access — safe to await freely.
     pub async fn fetch_initial(&self) -> Result<FetchResult> {
         tokio::fs::create_dir_all(&self.mail_dir).await.ok();
 
@@ -64,11 +83,17 @@ impl GmailSyncer {
         let labels = self.fetch_labels(&client, &token).await?;
         let label_infos = map_gmail_labels(&labels, &self.vault_id);
 
-        let ids = self
-            .list_message_ids(&client, &token, "in:inbox", Some(500))
+        // Fetch everything except trash and spam in one pass. Each message carries
+        // its own labelIds (INBOX, SENT, user labels, etc.) so derive_folder_id
+        // assigns the correct folder without needing separate queries.
+        let all_ids = self
+            .list_message_ids(&client, &token, "-in:trash -in:spam", None)
             .await?;
 
-        let messages = self.fetch_messages_parallel(&client, token.clone(), ids).await;
+        // Emit total so the HUD can show "0 / N" before fetching starts.
+        self.emit_progress(0, all_ids.len());
+
+        let messages = self.fetch_messages_parallel(&client, token.clone(), all_ids).await;
 
         Ok(FetchResult {
             label_infos,
@@ -270,20 +295,21 @@ impl GmailSyncer {
         Ok(resp.labels.unwrap_or_default())
     }
 
+    /// List message IDs matching `query`, paginating through all results.
+    /// `total_limit`: if Some(n), stop after n messages; if None, fetch all.
     async fn list_message_ids(
         &self,
         client: &reqwest::Client,
         token: &str,
         query: &str,
-        max: Option<u32>,
+        total_limit: Option<u32>,
     ) -> Result<Vec<GmailListEntry>> {
         let mut results = Vec::new();
         let mut page_token: Option<String> = None;
-        let max_results = max.unwrap_or(500).min(500);
 
         loop {
             let mut url = format!(
-                "{GMAIL_API}/messages?maxResults={max_results}&q={}",
+                "{GMAIL_API}/messages?maxResults={PAGE_SIZE}&q={}",
                 urlencoding::encode(query)
             );
             if let Some(pt) = &page_token {
@@ -301,16 +327,23 @@ impl GmailSyncer {
                 .context("parsing message list")?;
 
             let msgs = resp.messages.unwrap_or_default();
-            let done = msgs.len() < max_results as usize || resp.next_page_token.is_none();
+            let page_exhausted = msgs.len() < PAGE_SIZE as usize || resp.next_page_token.is_none();
             results.extend(msgs);
 
-            if done || results.len() >= max_results as usize {
+            // Enforce total cap if requested.
+            if let Some(limit) = total_limit {
+                if results.len() >= limit as usize {
+                    results.truncate(limit as usize);
+                    break;
+                }
+            }
+
+            if page_exhausted {
                 break;
             }
             page_token = resp.next_page_token;
         }
 
-        results.truncate(max_results as usize);
         Ok(results)
     }
 
@@ -320,20 +353,38 @@ impl GmailSyncer {
         token: String,
         ids: Vec<GmailListEntry>,
     ) -> Vec<ParsedMessage> {
+        let total = ids.len();
+        let completed = Arc::new(AtomicUsize::new(0));
         let sem = Arc::new(Semaphore::new(CONCURRENT_FETCHES));
-        let mut handles = Vec::with_capacity(ids.len());
+        let mut handles = Vec::with_capacity(total);
 
         for entry in ids {
             let client = client.clone();
             let token = token.clone();
             let account_id = self.account_id.clone();
             let vault_id = self.vault_id.clone();
-            let mail_dir = self.mail_dir.clone();
             let sem = Arc::clone(&sem);
+            let completed = Arc::clone(&completed);
+            let app = self.app.clone();
 
             handles.push(tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
-                fetch_and_parse_message(&client, &token, &entry.id, &account_id, &vault_id, &mail_dir).await
+                let result = fetch_and_parse_message(&client, &token, &entry.id, &account_id, &vault_id).await;
+
+                // Emit progress every 10 messages so the HUD updates in real time.
+                let done = completed.fetch_add(1, Ordering::Relaxed) + 1;
+                if done % 10 == 0 || done == total {
+                    let _ = app.emit(
+                        "gmail:sync-progress",
+                        serde_json::json!({
+                            "accountId": account_id,
+                            "fetched": done,
+                            "total": total,
+                        }),
+                    );
+                }
+
+                result
             }));
         }
 
@@ -365,7 +416,7 @@ impl GmailSyncer {
             .context("fetching history")?;
 
         if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(anyhow!("history_expired"));
+            return Err(anyhow::anyhow!("history_expired"));
         }
 
         resp.json().await.context("parsing history response")
@@ -382,15 +433,16 @@ pub struct IncrementalResult {
 
 // ─── Message fetching + parsing ───────────────────────────────────────────────
 
+/// Fetch a single message using format=full (headers + body, no raw attachment bytes).
+/// This is much more reliable than format=raw for large messages.
 async fn fetch_and_parse_message(
     client: &reqwest::Client,
     token: &str,
     msg_id: &str,
     account_id: &str,
     vault_id: &str,
-    mail_dir: &Path,
 ) -> Result<ParsedMessage> {
-    let url = format!("{GMAIL_API}/messages/{msg_id}?format=raw");
+    let url = format!("{GMAIL_API}/messages/{msg_id}?format=full");
     let meta: GmailMessageMeta = client
         .get(&url)
         .bearer_auth(token)
@@ -401,27 +453,32 @@ async fn fetch_and_parse_message(
         .await
         .context("parsing message")?;
 
-    parse_gmail_message(meta, account_id, vault_id, mail_dir).await
+    parse_gmail_message_full(meta, account_id, vault_id)
 }
 
-async fn parse_gmail_message(
+/// Parse a GmailMessageMeta (format=full) into a ParsedMessage.
+fn parse_gmail_message_full(
     meta: GmailMessageMeta,
     account_id: &str,
     vault_id: &str,
-    mail_dir: &Path,
 ) -> Result<ParsedMessage> {
-    let raw_b64 = meta.raw.as_deref().unwrap_or_default();
-    let raw_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(raw_b64)
-        .context("decoding raw message")?;
+    let payload = meta.payload.as_ref();
 
-    let parsed = mailparse::parse_mail(&raw_bytes).context("parsing RFC822")?;
-
-    let subject = header_value(&parsed, "Subject").unwrap_or_else(|| "(no subject)".into());
-    let from_raw = header_value(&parsed, "From").unwrap_or_default();
-    let to_raw = header_value(&parsed, "To").unwrap_or_default();
-    let cc_raw = header_value(&parsed, "Cc").unwrap_or_default();
-    let date_raw = header_value(&parsed, "Date").unwrap_or_default();
+    let subject = payload
+        .and_then(|p| get_payload_header(p, "Subject"))
+        .unwrap_or_else(|| "(no subject)".into());
+    let from_raw = payload
+        .and_then(|p| get_payload_header(p, "From"))
+        .unwrap_or_default();
+    let to_raw = payload
+        .and_then(|p| get_payload_header(p, "To"))
+        .unwrap_or_default();
+    let cc_raw = payload
+        .and_then(|p| get_payload_header(p, "Cc"))
+        .unwrap_or_default();
+    let date_raw = payload
+        .and_then(|p| get_payload_header(p, "Date"))
+        .unwrap_or_default();
 
     let received_at = parse_rfc2822_date(&date_raw)
         .or_else(|| meta.internal_date.as_deref().and_then(|s| s.parse::<i64>().ok().map(|ms| ms / 1000)))
@@ -436,7 +493,9 @@ async fn parse_gmail_message(
     let to_addrs = parse_addresses_json(&to_raw);
     let cc_addrs = parse_addresses_json(&cc_raw);
 
-    let (body_text, body_html) = extract_body(&parsed);
+    let (body_text, body_html) = payload
+        .map(extract_body_from_payload)
+        .unwrap_or((None, None));
 
     let label_ids: Vec<String> = meta
         .label_ids
@@ -459,7 +518,10 @@ async fn parse_gmail_message(
     let body_ref = format!("body-{}", meta.id);
     let snippet = meta.snippet.clone().unwrap_or_default();
 
-    let eml_path = write_eml(mail_dir, &meta.id, &subject, &from_raw, received_at, &raw_bytes).await;
+    let mut attachments = Vec::new();
+    if let Some(p) = meta.payload.as_ref() {
+        collect_attachments(p, &mut attachments);
+    }
 
     Ok(ParsedMessage {
         id: nexus_id,
@@ -477,8 +539,78 @@ async fn parse_gmail_message(
         cc_addrs,
         label_ids,
         flags_read,
-        eml_path,
+        eml_path: None,
+        attachments,
     })
+}
+
+fn get_payload_header(payload: &GmailPayload, name: &str) -> Option<String> {
+    payload.headers.as_deref()?.iter()
+        .find(|h| h.name.eq_ignore_ascii_case(name))
+        .map(|h| h.value.clone())
+}
+
+fn extract_body_from_payload(payload: &GmailPayload) -> (Option<String>, Option<String>) {
+    let mut text = None;
+    let mut html = None;
+    collect_body_from_payload(payload, &mut text, &mut html);
+    (text, html)
+}
+
+fn collect_body_from_payload(
+    payload: &GmailPayload,
+    text: &mut Option<String>,
+    html: &mut Option<String>,
+) {
+    let mime = payload.mime_type.as_deref().unwrap_or("").to_lowercase();
+
+    if mime == "text/plain" && text.is_none() {
+        if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
+            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+                if let Ok(s) = String::from_utf8(bytes) {
+                    if !s.trim().is_empty() {
+                        *text = Some(s);
+                    }
+                }
+            }
+        }
+    } else if mime == "text/html" && html.is_none() {
+        if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
+            if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(data) {
+                if let Ok(s) = String::from_utf8(bytes) {
+                    if !s.trim().is_empty() {
+                        *html = Some(s);
+                    }
+                }
+            }
+        }
+    }
+
+    for part in payload.parts.as_deref().unwrap_or_default() {
+        collect_body_from_payload(part, text, html);
+    }
+}
+
+fn collect_attachments(payload: &crate::gmail::types::GmailPayload, out: &mut Vec<crate::gmail::types::ParsedAttachment>) {
+    use crate::gmail::types::ParsedAttachment;
+    let filename = payload.filename.as_deref().unwrap_or("").trim();
+    if !filename.is_empty() {
+        if let Some(body) = &payload.body {
+            if let Some(att_id) = body.attachment_id.as_ref().filter(|s| !s.is_empty()) {
+                let mime = payload.mime_type.as_deref().unwrap_or("application/octet-stream");
+                out.push(ParsedAttachment::from_gmail(
+                    filename.to_string(),
+                    body.size.unwrap_or(0),
+                    mime,
+                    att_id.clone(),
+                ));
+                return; // attachment parts don't recurse
+            }
+        }
+    }
+    for part in payload.parts.as_deref().unwrap_or_default() {
+        collect_attachments(part, out);
+    }
 }
 
 fn derive_folder_id(label_ids: &[String], vault_id: &str) -> String {
@@ -489,13 +621,6 @@ fn derive_folder_id(label_ids: &[String], vault_id: &str) -> String {
         }
     }
     format!("{vault_id}-inbox")
-}
-
-fn header_value(mail: &mailparse::ParsedMail, name: &str) -> Option<String> {
-    mail.headers
-        .iter()
-        .find(|h| h.get_key_ref().eq_ignore_ascii_case(name))
-        .map(|h| h.get_value())
 }
 
 fn parse_rfc2822_date(s: &str) -> Option<i64> {
@@ -532,68 +657,6 @@ fn split_name_email(raw: &str) -> Option<(Option<String>, String)> {
     } else {
         None
     }
-}
-
-fn extract_body(mail: &mailparse::ParsedMail) -> (Option<String>, Option<String>) {
-    let mut text = None;
-    let mut html = None;
-    collect_body_parts(mail, &mut text, &mut html);
-    (text, html)
-}
-
-fn collect_body_parts(
-    part: &mailparse::ParsedMail,
-    text: &mut Option<String>,
-    html: &mut Option<String>,
-) {
-    let mime = part.ctype.mimetype.to_lowercase();
-
-    if mime == "text/plain" && text.is_none() {
-        if let Ok(body) = part.get_body() {
-            *text = Some(body);
-        }
-    } else if mime == "text/html" && html.is_none() {
-        if let Ok(body) = part.get_body() {
-            *html = Some(body);
-        }
-    }
-
-    for sub in &part.subparts {
-        collect_body_parts(sub, text, html);
-    }
-}
-
-async fn write_eml(
-    mail_dir: &Path,
-    msg_id: &str,
-    subject: &str,
-    from: &str,
-    received_at: i64,
-    raw: &[u8],
-) -> Option<String> {
-    let date = chrono::DateTime::from_timestamp(received_at, 0)
-        .map(|dt| dt.format("%Y%m%d").to_string())
-        .unwrap_or_else(|| "00000000".into());
-
-    let safe_subject: String = subject
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
-        .take(60)
-        .collect();
-
-    let safe_from: String = from
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '@' || c == '.' { c } else { '_' })
-        .take(30)
-        .collect();
-
-    let filename = format!("{date}_{safe_from}_{safe_subject}_{msg_id}.eml");
-    let inbox_dir = mail_dir.join("INBOX");
-    tokio::fs::create_dir_all(&inbox_dir).await.ok()?;
-    let path = inbox_dir.join(&filename);
-
-    tokio::fs::write(&path, raw).await.ok()?;
-    path.to_str().map(|s| s.to_string())
 }
 
 mod urlencoding {

@@ -88,8 +88,10 @@ async function initTauri() {
       console.warn("Watcher failed to start:", e),
     );
 
-    onSyncProgress(() => {
-      useWorkspace.getState().setSyncStatus(true);
+    onSyncProgress((payload) => {
+      const ws = useWorkspace.getState();
+      ws.setSyncStatus(true);
+      ws.setSyncProgress(payload);
     });
     onNewMessages(() => {
       useWorkspace.getState().setSyncStatus(false, Date.now());

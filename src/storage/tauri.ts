@@ -77,8 +77,11 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
-export async function disconnectAccount(accountId: string): Promise<void> {
-  return invoke<void>("disconnect_account", { accountId });
+export async function disconnectAccount(
+  accountId: string,
+  dataAction: "keep" | "delete_messages" | "delete_all",
+): Promise<void> {
+  return invoke<void>("disconnect_account", { accountId, dataAction });
 }
 
 // ─── Watcher ──────────────────────────────────────────────────────────────────
@@ -144,6 +147,25 @@ export async function startRelayHosting(port?: number): Promise<number> {
   return invoke<number>("start_relay_hosting", { port: port ?? 3030 });
 }
 
+// ─── File system helpers ──────────────────────────────────────────────────────
+
+export async function saveFileToDownloads(params: {
+  filename: string;
+  content: string;
+}): Promise<string> {
+  return invoke<string>("save_file_to_downloads", params);
+}
+
+// ─── Attachment download ──────────────────────────────────────────────────────
+
+export async function downloadAttachment(params: {
+  messageId: string;
+  attachmentId: string;
+  filename: string;
+}): Promise<string> {
+  return invoke<string>("download_attachment", params);
+}
+
 // ─── Send message ─────────────────────────────────────────────────────────────
 
 /**
@@ -151,6 +173,13 @@ export async function startRelayHosting(port?: number): Promise<number> {
  * Builds RFC822 from the provided fields, base64url-encodes it, and calls
  * the `send_message` IPC command. Returns the Gmail message ID.
  */
+export interface AttachmentPayload {
+  name: string;
+  mimeType: string;
+  /** Raw base64 (no data-URL prefix). */
+  data: string;
+}
+
 export async function sendMessage(params: {
   accountId: string;
   from: string;
@@ -160,9 +189,10 @@ export async function sendMessage(params: {
   subject: string;
   bodyHtml: string;
   replyToMessageId?: string;
+  attachments?: AttachmentPayload[];
 }): Promise<string> {
   const raw = buildRfc822(params);
-  const b64 = btoa(raw)
+  const b64 = btoa(unescape(encodeURIComponent(raw)))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
@@ -177,21 +207,57 @@ function buildRfc822(params: {
   subject: string;
   bodyHtml: string;
   replyToMessageId?: string;
+  attachments?: AttachmentPayload[];
 }): string {
-  const lines: string[] = [];
-  lines.push(`From: ${params.from}`);
-  lines.push(`To: ${params.to.join(", ")}`);
-  if (params.cc && params.cc.length > 0) lines.push(`Cc: ${params.cc.join(", ")}`);
-  if (params.bcc && params.bcc.length > 0) lines.push(`Bcc: ${params.bcc.join(", ")}`);
-  lines.push(`Subject: ${params.subject}`);
-  lines.push(`MIME-Version: 1.0`);
-  lines.push(`Content-Type: text/html; charset=UTF-8`);
-  lines.push(`Content-Transfer-Encoding: quoted-printable`);
+  const hdrs: string[] = [];
+  hdrs.push(`From: ${params.from}`);
+  hdrs.push(`To: ${params.to.join(", ")}`);
+  if (params.cc?.length) hdrs.push(`Cc: ${params.cc.join(", ")}`);
+  if (params.bcc?.length) hdrs.push(`Bcc: ${params.bcc.join(", ")}`);
+  hdrs.push(`Subject: ${params.subject}`);
+  hdrs.push(`MIME-Version: 1.0`);
   if (params.replyToMessageId) {
-    lines.push(`In-Reply-To: ${params.replyToMessageId}`);
-    lines.push(`References: ${params.replyToMessageId}`);
+    hdrs.push(`In-Reply-To: ${params.replyToMessageId}`);
+    hdrs.push(`References: ${params.replyToMessageId}`);
   }
-  lines.push("");
-  lines.push(params.bodyHtml);
-  return lines.join("\r\n");
+
+  if (!params.attachments?.length) {
+    hdrs.push(`Content-Type: text/html; charset=UTF-8`);
+    hdrs.push(`Content-Transfer-Encoding: 8bit`);
+    hdrs.push("");
+    hdrs.push(params.bodyHtml);
+    return hdrs.join("\r\n");
+  }
+
+  const boundary = `nexus_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  hdrs.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+  hdrs.push("");
+
+  const parts: string[] = [];
+
+  // HTML body part
+  parts.push(`--${boundary}`);
+  parts.push(`Content-Type: text/html; charset=UTF-8`);
+  parts.push(`Content-Transfer-Encoding: 8bit`);
+  parts.push("");
+  parts.push(params.bodyHtml);
+  parts.push("");
+
+  // Attachment parts — base64 data wrapped at 76 chars per RFC 2045
+  for (const att of params.attachments) {
+    const mime = att.mimeType || "application/octet-stream";
+    const name = att.name.replace(/"/g, "'"); // sanitise filename for header
+    parts.push(`--${boundary}`);
+    parts.push(`Content-Type: ${mime}; name="${name}"`);
+    parts.push(`Content-Disposition: attachment; filename="${name}"`);
+    parts.push(`Content-Transfer-Encoding: base64`);
+    parts.push("");
+    // Wrap at 76 chars (RFC 2045 §6.8)
+    const wrapped = att.data.replace(/(.{76})/g, "$1\r\n");
+    parts.push(wrapped);
+    parts.push("");
+  }
+
+  parts.push(`--${boundary}--`);
+  return [...hdrs, ...parts].join("\r\n");
 }

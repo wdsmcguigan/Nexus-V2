@@ -76,27 +76,44 @@ impl VaultDb {
     }
 
     /// Delete an account and all messages/labels associated with it.
-    pub fn delete_account(&self, vault_id: &str, account_id: &str) -> Result<()> {
-        // Delete message_labels for messages belonging to this account
-        self.conn.execute(
-            "DELETE FROM message_labels WHERE message_id IN (
-                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
-            )",
-            params![vault_id, account_id],
-        )?;
-        // Delete message_tags for messages belonging to this account
-        self.conn.execute(
-            "DELETE FROM message_tags WHERE message_id IN (
-                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
-            )",
-            params![vault_id, account_id],
-        )?;
-        // Delete the messages themselves
-        self.conn.execute(
-            "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
-            params![vault_id, account_id],
-        )?;
-        // Delete the account record (tokens are columns on the account row)
+    pub fn delete_account(&self, vault_id: &str, account_id: &str, data_action: &str) -> Result<()> {
+        if data_action != "keep" {
+            // Delete junction rows first (message_labels, message_tags) then bodies and messages.
+            self.conn.execute(
+                "DELETE FROM message_labels WHERE message_id IN (
+                    SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            self.conn.execute(
+                "DELETE FROM message_tags WHERE message_id IN (
+                    SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            // Fix previously-leaking orphaned body blobs.
+            self.conn.execute(
+                "DELETE FROM message_bodies WHERE body_ref IN (
+                    SELECT body_ref FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+                )",
+                params![vault_id, account_id],
+            )?;
+            self.conn.execute(
+                "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
+                params![vault_id, account_id],
+            )?;
+
+            if data_action == "delete_all" {
+                // Remove all Gmail-synced labels (identified by having a provider_id column set).
+                // User-created Nexus labels (no provider_id) are preserved.
+                self.conn.execute(
+                    "DELETE FROM labels WHERE vault_id = ?1 AND provider_id IS NOT NULL",
+                    params![vault_id],
+                )?;
+            }
+        }
+
+        // Always remove the account row (contains all OAuth credentials).
         self.conn.execute(
             "DELETE FROM accounts WHERE id = ?1 AND vault_id = ?2",
             params![account_id, vault_id],
@@ -643,7 +660,7 @@ impl VaultDb {
                 serde_json::to_string(&msg.to_addrs)?,
                 serde_json::to_string(&msg.cc_addrs)?,
                 serde_json::to_string::<Vec<serde_json::Value>>(&vec![])?,
-                serde_json::to_string::<Vec<serde_json::Value>>(&vec![])?,
+                serde_json::to_string(&msg.attachments)?,
                 if msg.flags_read { 1 } else { 0 },
                 msg.provider_id, msg.account_id,
                 msg.eml_path
@@ -671,17 +688,23 @@ impl VaultDb {
         vault_id: &str,
         gmail_labels: &[crate::gmail::label_map::GmailLabelInfo],
     ) -> Result<()> {
-        for gl in gmail_labels {
+        // Process shallowest labels first so parent rows exist before children are inserted,
+        // satisfying the parent_id foreign-key relationship in the application layer.
+        let mut sorted: Vec<&crate::gmail::label_map::GmailLabelInfo> = gmail_labels.iter().collect();
+        sorted.sort_by_key(|gl| gl.name.matches('/').count());
+
+        for gl in sorted {
             self.conn.execute(
-                "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, provider_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, parent_id, provider_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(id) DO UPDATE SET
                    name = excluded.name,
                    color = excluded.color,
+                   parent_id = excluded.parent_id,
                    provider_id = excluded.provider_id",
                 params![
                     gl.nexus_id, vault_id, gl.name, gl.color, gl.kind, gl.system_kind,
-                    gl.position, gl.gmail_id
+                    gl.position, gl.parent_nexus_id, gl.gmail_id
                 ],
             )?;
         }
@@ -792,6 +815,21 @@ impl VaultDb {
                 self.conn.execute(
                     "DELETE FROM message_labels WHERE message_id = ?1
                      AND label_id IN (SELECT id FROM labels WHERE system_kind = 'inbox')",
+                    params![msg_id],
+                )?;
+            }
+            "TRASH" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                // Remove from INBOX label
+                self.conn.execute(
+                    "DELETE FROM message_labels WHERE message_id = ?1
+                     AND label_id IN (SELECT id FROM labels WHERE system_kind = 'inbox')",
+                    params![msg_id],
+                )?;
+                // Add to TRASH label if it exists
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                     SELECT ?1, id FROM labels WHERE system_kind = 'trash' LIMIT 1",
                     params![msg_id],
                 )?;
             }

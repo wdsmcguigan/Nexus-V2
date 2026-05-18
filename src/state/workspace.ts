@@ -21,6 +21,8 @@ import {
   makeDefaultWorkspace,
 } from "@/storage/workspaceManager";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
+import { loadClientMode, saveClientMode } from "@/lib/clientMode";
+import type { ClientMode } from "@/lib/clientMode";
 import type {
   CustomFieldValue,
   FlagState,
@@ -225,7 +227,9 @@ interface WorkspaceState {
   // Sync status (updated from Tauri events or manual triggers)
   lastSyncedAt: number | null;
   isSyncing: boolean;
+  syncProgress: { fetched: number; total: number; accountId: string } | null;
   setSyncStatus: (syncing: boolean, syncedAt?: number) => void;
+  setSyncProgress: (progress: { fetched: number; total: number; accountId: string } | null) => void;
 
   // HUD strip
   hudExpanded: boolean;
@@ -272,9 +276,19 @@ interface WorkspaceState {
 
   // Message ops
   archive: (messageId: string) => void;
+  unarchive: (messageId: string) => void;
+  trash: (messageId: string) => void;
   snooze: (messageId: string, until: number) => void;
   setRead: (messageId: string, read: boolean) => void;
   setStarred: (messageId: string, starred: boolean) => void;
+
+  // Thread view
+  threadedView: boolean;
+  toggleThreadedView: () => void;
+
+  // Client mode (installation-level, not per-workspace)
+  clientMode: ClientMode;
+  setClientMode: (mode: ClientMode) => void;
 
   // Folder ops
   createFolder: (folder: Folder) => void;
@@ -313,6 +327,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnOrder: s.tableColumnOrder,
       tableColumnWidths: s.tableColumnWidths,
       filteredViewBehavior: s.filteredViewBehavior,
+      threadedView: s.threadedView,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -349,6 +364,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnOrder: mode === "clone" ? [...s.tableColumnOrder] : [],
       tableColumnWidths: mode === "clone" ? { ...s.tableColumnWidths } : {},
       filteredViewBehavior: s.filteredViewBehavior,
+      threadedView: mode === "clone" ? s.threadedView : true,
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -386,6 +402,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnOrder: ws.tableColumnOrder ?? [],
       tableColumnWidths: ws.tableColumnWidths ?? {},
       filteredViewBehavior: ws.filteredViewBehavior ?? "replace",
+      threadedView: ws.threadedView ?? true,
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -537,6 +554,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setTableColumnOrder: (order) => set({ tableColumnOrder: order }),
   setTableColumnWidths: (widths) => set({ tableColumnWidths: widths }),
 
+  // ── Thread view ────────────────────────────────────────────────────────────
+
+  threadedView: _activeWs.threadedView ?? true,
+  toggleThreadedView: () => set((s) => ({ threadedView: !s.threadedView })),
+
+  // ── Client mode (installation-level, not in WorkspaceSnapshot) ────────────
+
+  clientMode: loadClientMode(),
+  setClientMode: (mode) => {
+    saveClientMode(mode);
+    set({ clientMode: mode });
+  },
+
   // ── Email selection ────────────────────────────────────────────────────────
 
   selectedEmailId: null,
@@ -584,7 +614,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   openContactsPanel: (contactId, participantEmails) => {
     const api = getDockviewApi();
     if (!api) return;
-    if (contactId) set({ selectedContactId: contactId });
+    set({ selectedContactId: contactId ?? null });
     // participantEmails scopes the left column; undefined → clear filter (standalone open)
     set({ contactParticipantFilter: participantEmails ?? null });
     const existing = api.panels.find((p) => p.id === "contacts");
@@ -748,10 +778,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   lastSyncedAt: null,
   isSyncing: false,
+  syncProgress: null,
   setSyncStatus: (syncing, syncedAt) =>
     set(syncing
       ? { isSyncing: true }
-      : { isSyncing: false, lastSyncedAt: syncedAt ?? get().lastSyncedAt }),
+      : { isSyncing: false, syncProgress: null, lastSyncedAt: syncedAt ?? get().lastSyncedAt }),
+  setSyncProgress: (progress) => set({ syncProgress: progress }),
 
   // ── HUD strip ─────────────────────────────────────────────────────────────
 
@@ -797,6 +829,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   archive: (messageId) => { Mut.archiveMessage(localStore, messageId); },
+  unarchive: (messageId) => { Mut.unarchiveMessage(localStore, messageId); },
+  trash: (messageId) => { Mut.trashMessage(localStore, messageId); },
   snooze: (messageId, until) => { Mut.snoozeMessage(localStore, messageId, until); },
   setRead: (messageId, read) => {
     if (read) Mut.readMessage(localStore, messageId);

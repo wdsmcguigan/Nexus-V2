@@ -40,6 +40,7 @@ export interface Contact {
   location?: string;
   notes?: string;
   tags: string[];
+  alwaysShowImages?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -207,6 +208,10 @@ export interface AttachmentRef {
   type: "pdf" | "image" | "doc" | "archive" | "other";
   /** Hash for deduplication. */
   hash?: string;
+  /** Provider-specific attachment ID (e.g. Gmail part ID for downloading). */
+  attachmentId?: string;
+  /** Provider-specific message ID needed alongside attachmentId. */
+  providerMsgId?: string;
 }
 
 export interface Address {
@@ -335,6 +340,7 @@ export type MutationKind =
   | "READ"
   | "UNREAD"
   | "ARCHIVE"
+  | "TRASH"
   | "SNOOZE"
   | "DELETE_MESSAGE"
   | "SEND_MESSAGE"

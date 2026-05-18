@@ -50,7 +50,6 @@ export function Avatar({
       {...props}
     >
       {src ? (
-        // eslint-disable-next-line jsx-a11y/img-redundant-alt
         <img src={src} alt={name} className="w-full h-full object-cover" />
       ) : single ? (
         inits[0]

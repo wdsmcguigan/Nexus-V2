@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use base64::Engine;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -85,19 +86,30 @@ pub async fn set_vault_path(
     save_vault_path_to_disk(&expanded).map_err(|e| e.to_string())
 }
 
-/// Remove an account and all its associated messages from the vault.
+/// Remove an account from the vault with a caller-chosen data policy.
+///
+/// `data_action`:
+///   "keep"             — revoke OAuth only; messages and labels remain (offline read-only)
+///   "delete_messages"  — delete messages + bodies; keep label structure for reconnecting
+///   "delete_all"       — delete messages + bodies + all Gmail-synced labels
+///
 /// After removal, emits `vault:hydrate-needed` so the frontend refreshes.
 #[tauri::command]
 pub async fn disconnect_account(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
     account_id: String,
+    data_action: String,
 ) -> std::result::Result<(), String> {
+    let valid = matches!(data_action.as_str(), "keep" | "delete_messages" | "delete_all");
+    if !valid {
+        return Err(format!("Unknown data_action: {data_action}"));
+    }
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
     {
         let db = state.db.lock().unwrap();
         let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.delete_account(&vault_id, &account_id)
+        db.delete_account(&vault_id, &account_id, &data_action)
             .map_err(|e| e.to_string())?;
     }
     let _ = app.emit("vault:hydrate-needed", ());
@@ -161,6 +173,7 @@ pub async fn start_gmail_oauth(
             vault_id_clone,
             access_token,
             std::path::Path::new(&vault_path),
+            app_handle.clone(),
         );
 
         match syncer.initial_sync_with_db(&db_path).await {
@@ -234,6 +247,7 @@ pub async fn sync_gmail_now(
         vault_id,
         new_token,
         std::path::Path::new(&vault_path),
+        app.clone(),
     );
 
     let stats = syncer
@@ -301,6 +315,118 @@ pub async fn send_message(
         .map_err(|e| e.to_string())?;
 
     Ok(gmail_id)
+}
+
+// ─── File system helpers ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn save_file_to_downloads(
+    app: tauri::AppHandle,
+    filename: String,
+    content: String,
+) -> std::result::Result<String, String> {
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| e.to_string())?;
+
+    // Avoid clobbering — append (1), (2), etc. if file exists
+    let mut dest = downloads_dir.join(&filename);
+    if dest.exists() {
+        let stem = std::path::Path::new(&filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&filename);
+        let ext = std::path::Path::new(&filename)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| format!(".{s}"))
+            .unwrap_or_default();
+        let mut n = 1u32;
+        loop {
+            dest = downloads_dir.join(format!("{stem} ({n}){ext}"));
+            if !dest.exists() { break; }
+            n += 1;
+        }
+    }
+
+    std::fs::write(&dest, content.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+// ─── Attachment download ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn download_attachment(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    message_id: String,   // Nexus message ID (e.g. "msg-...")
+    attachment_id: String, // Gmail attachment part ID
+    filename: String,
+) -> std::result::Result<String, String> {
+    let client_id = std::env::var("NEXUS_GMAIL_CLIENT_ID")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_ID not set")?;
+    let client_secret = std::env::var("NEXUS_GMAIL_CLIENT_SECRET")
+        .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
+
+    let (provider_msg_id, account_id, refresh_token) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let (pid, aid) = db.get_provider_id(&message_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Message not found".to_string())?;
+        let rt = db.get_refresh_token(&aid)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "No refresh token".to_string())?;
+        (pid, aid, rt)
+    };
+
+    let oauth = GmailOAuth::new(client_id, client_secret);
+    let (access_token, expires_in) = oauth
+        .refresh_access_token(&refresh_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let expires_at = chrono::Utc::now().timestamp() + expires_in;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Fetch the attachment bytes from Gmail
+    let client = reqwest::Client::new();
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/attachments/{}",
+        provider_msg_id, attachment_id
+    );
+    let resp = client
+        .get(&url)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Gmail API error: {}", resp.status()));
+    }
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let data_b64 = body["data"].as_str().ok_or("Missing data field")?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(data_b64)
+        .map_err(|e| e.to_string())?;
+
+    // Write to ~/Downloads
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| e.to_string())?;
+    let dest = downloads_dir.join(&filename);
+    std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 // ─── EP-5 Relay commands ──────────────────────────────────────────────────────
@@ -575,6 +701,7 @@ async fn poll_all_accounts(
             vault_id,
             access_token,
             std::path::Path::new(vault_path),
+            app.clone(),
         );
 
         match syncer.incremental_sync_with_db(&db_path).await {

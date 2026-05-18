@@ -20,6 +20,7 @@ pub struct ParsedMessage {
     pub label_ids: Vec<String>,   // Nexus label ids
     pub flags_read: bool,
     pub eml_path: Option<String>,
+    pub attachments: Vec<ParsedAttachment>,
 }
 
 /// Minimal Gmail API message list entry
@@ -63,6 +64,8 @@ pub struct GmailPayload {
     #[serde(rename = "mimeType")]
     pub mime_type: Option<String>,
     pub body: Option<GmailBody>,
+    /// Non-empty string means this part is an attachment.
+    pub filename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +77,51 @@ pub struct GmailHeader {
 #[derive(Debug, Deserialize)]
 pub struct GmailBody {
     pub data: Option<String>,
+    #[serde(rename = "attachmentId")]
+    pub attachment_id: Option<String>,
+    pub size: Option<i64>,
+}
+
+/// Attachment metadata extracted from a parsed Gmail message.
+/// Field names match the TypeScript AttachmentRef interface.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParsedAttachment {
+    pub name: String,
+    pub size: i64,
+    /// Category: "pdf" | "image" | "doc" | "archive" | "other"
+    #[serde(rename = "type")]
+    pub att_type: String,
+    #[serde(rename = "attachmentId")]
+    pub attachment_id: String,
+}
+
+impl ParsedAttachment {
+    pub fn from_gmail(name: String, size: i64, mime_type: &str, attachment_id: String) -> Self {
+        let att_type = if mime_type == "application/pdf" {
+            "pdf"
+        } else if mime_type.starts_with("image/") {
+            "image"
+        } else if matches!(mime_type,
+            "application/msword" |
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" |
+            "application/vnd.ms-excel" |
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" |
+            "application/vnd.ms-powerpoint" |
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation" |
+            "text/plain" | "text/csv"
+        ) {
+            "doc"
+        } else if matches!(mime_type,
+            "application/zip" | "application/x-zip-compressed" |
+            "application/x-gzip" | "application/x-tar" |
+            "application/x-7z-compressed" | "application/x-rar-compressed"
+        ) {
+            "archive"
+        } else {
+            "other"
+        };
+        ParsedAttachment { name, size, att_type: att_type.to_string(), attachment_id }
+    }
 }
 
 /// Gmail label resource

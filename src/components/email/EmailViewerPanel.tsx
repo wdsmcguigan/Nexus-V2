@@ -20,6 +20,8 @@ import {
   Tag as TagIcon,
   Bell,
   BellOff,
+  Printer,
+  FileDown,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
@@ -31,13 +33,17 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useMessage, useThreadMessages } from "@/storage/useStore";
+import { useMessage, useThreadMessages, useContactByEmail } from "@/storage/useStore";
 import { cn, formatBytes } from "@/lib/utils";
 import { bodyStore } from "@/storage/bodyStore";
 import { localStore } from "@/storage/local";
+import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
+import { printMessages } from "@/lib/print";
+import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
+import { loadBodies } from "@/lib/loadBodies";
 import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
@@ -102,10 +108,12 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const pinViewerToEmail = useWorkspace((s) => s.pinViewerToEmail);
   const unpinViewer = useWorkspace((s) => s.unpinViewer);
   const openComposer = useWorkspace((s) => s.openComposer);
+  const unarchive = useWorkspace((s) => s.unarchive);
 
   const effectiveEmailId = isPinned ? pinnedEmailId : globalSelectedEmailId;
   const msg = useMessage(effectiveEmailId);
   const threadMsgs = useThreadMessages(msg?.threadId ?? "", effectiveEmailId ?? "");
+  const senderContact = useContactByEmail(msg?.fromAddr.email ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
 
@@ -137,6 +145,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
+
+  // Auto-show images if sender is trusted
+  React.useEffect(() => {
+    setImagesShown(senderContact?.alwaysShowImages === true);
+  }, [effectiveEmailId, senderContact?.alwaysShowImages]);
 
   // Inspector toggle — opens/closes an inspector panel associated with this viewer.
   const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
@@ -204,7 +217,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = msg.id.endsWith("0") || msg.id.endsWith("5");
+  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml);
 
   return (
     <Panel
@@ -258,7 +271,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   size="sm"
                   iconOnly
                   aria-label="Archive"
-                  onClick={() => Mut.archiveMessage(localStore, msg.id)}
+                  onClick={() => {
+                    const id = msg.id;
+                    Mut.archiveMessage(localStore, id);
+                    toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
+                  }}
                 >
                   <Archive />
                 </Button>
@@ -269,7 +286,10 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   size="sm"
                   iconOnly
                   aria-label="Delete"
-                  onClick={() => Mut.deleteMessage(localStore, msg.id)}
+                  onClick={() => {
+                    Mut.deleteMessage(localStore, msg.id);
+                    toast("Moved to Trash");
+                  }}
                 >
                   <Trash2 />
                 </Button>
@@ -302,7 +322,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   <DropdownMenu.Content
                     sideOffset={6}
                     align="end"
-                    className="z-50 min-w-[160px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
+                    className="z-50 min-w-[180px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
                   >
                     <DropdownMenu.Item
                       onSelect={() => setLabelPickerOpen(true)}
@@ -311,6 +331,54 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                       <TagIcon size={12} />
                       Label…
                     </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        const bodies = await loadBodies([msg]);
+                        printMessages([msg], bodies);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Printer size={12} />
+                      Print message
+                    </DropdownMenu.Item>
+                    {threadMsgs.length > 0 && (
+                      <DropdownMenu.Item
+                        onSelect={async () => {
+                          const all = [...threadMsgs, msg].sort((a, b) => a.receivedAt - b.receivedAt);
+                          const bodies = await loadBodies(all);
+                          printMessages(all, bodies);
+                        }}
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      >
+                        <Printer size={12} />
+                        Print thread
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        const bodies = await loadBodies([msg]);
+                        await exportMessageEml(msg, bodies.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <FileDown size={12} />
+                      Export as EML
+                    </DropdownMenu.Item>
+                    {threadMsgs.length > 0 && (
+                      <DropdownMenu.Item
+                        onSelect={async () => {
+                          const all = [...threadMsgs, msg].sort((a, b) => a.receivedAt - b.receivedAt);
+                          const bodies = await loadBodies(all);
+                          await exportMessagesAsMbox(all, bodies, msg.subject);
+                        }}
+                        className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                      >
+                        <FileDown size={12} />
+                        Export thread as MBOX
+                      </DropdownMenu.Item>
+                    )}
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
@@ -377,7 +445,34 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
               <Button variant="ghost" size="sm" onClick={() => setImagesShown(true)}>
                 Show images
               </Button>
-              <Button variant="ghost" size="sm">Always allow</Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const email = msg.fromAddr.email;
+                  if (!email) return;
+                  setImagesShown(true);
+                  const existing = localStore.lookupByEmail(email);
+                  if (existing) {
+                    Mut.updateContact(existing.id, { alwaysShowImages: true });
+                  } else {
+                    const id = `cnt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                    Mut.upsertContact({
+                      id,
+                      vaultId: localStore.vault?.id ?? "local",
+                      name: msg.fromAddr.name ?? email,
+                      emails: [email],
+                      phones: [],
+                      tags: [],
+                      alwaysShowImages: true,
+                      createdAt: Date.now(),
+                      updatedAt: Date.now(),
+                    });
+                  }
+                }}
+              >
+                Always allow
+              </Button>
             </div>
           </div>
         )}
@@ -420,6 +515,14 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                     type="button"
                     aria-label={`Download ${a.name}`}
                     className="ml-1 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+                    onClick={() => {
+                      if (!isTauri() || !a.attachmentId || !msg) return;
+                      downloadAttachment({
+                        messageId: msg.id,
+                        attachmentId: a.attachmentId,
+                        filename: a.name,
+                      }).catch((e) => console.warn("Download failed:", e));
+                    }}
                   >
                     <Download size={11} />
                   </button>

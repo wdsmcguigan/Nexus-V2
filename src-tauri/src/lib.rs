@@ -35,6 +35,8 @@ pub fn run() {
             commands::sync_gmail_now,
             commands::start_watcher,
             commands::send_message,
+            commands::save_file_to_downloads,
+            commands::download_attachment,
             commands::get_vault_path,
             commands::set_vault_path,
             // EP-5 relay commands

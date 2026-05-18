@@ -55,6 +55,30 @@ export function useUserLabels(): Label[] {
   );
 }
 
+/** Returns root user labels (no parentId) sorted by position. */
+export function useRootUserLabels(): Label[] {
+  const v = useStoreVersion();
+  return useMemo(
+    () =>
+      Array.from(localStore.labels.values())
+        .filter((l) => l.kind === "user" && !l.parentId)
+        .sort((a, b) => a.position - b.position),
+    [v],
+  );
+}
+
+/** Returns direct children of a given label, sorted by position. */
+export function useLabelChildren(parentId: string): Label[] {
+  const v = useStoreVersion();
+  return useMemo(
+    () =>
+      Array.from(localStore.labels.values())
+        .filter((l) => l.parentId === parentId)
+        .sort((a, b) => a.position - b.position),
+    [v, parentId],
+  );
+}
+
 /** Returns all folders. */
 export function useFolders(): Folder[] {
   const v = useStoreVersion();
