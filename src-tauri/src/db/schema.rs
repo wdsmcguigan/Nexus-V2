@@ -136,9 +136,39 @@ CREATE TABLE IF NOT EXISTS mutations (
     kind TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     ts INTEGER NOT NULL,
-    synced_at INTEGER         -- NULL = pending outbound sync
+    synced_at INTEGER,         -- NULL = pending Gmail outbound sync
+    device_id TEXT NOT NULL DEFAULT '',
+    lamport INTEGER NOT NULL DEFAULT 0,
+    relay_seq INTEGER          -- NULL = not yet pushed to relay
 );
 CREATE INDEX IF NOT EXISTS idx_mutations_pending ON mutations(synced_at) WHERE synced_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_mutations_relay ON mutations(relay_seq) WHERE relay_seq IS NULL;
+
+CREATE TABLE IF NOT EXISTS vault_key (
+    vault_id TEXT PRIMARY KEY,
+    key_hex  TEXT NOT NULL     -- 32-byte XChaCha20 key, hex-encoded
+);
+
+CREATE TABLE IF NOT EXISTS devices (
+    device_id   TEXT PRIMARY KEY,
+    nickname    TEXT NOT NULL,
+    enrolled_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS relay_state (
+    relay_url    TEXT PRIMARY KEY,
+    last_seq     INTEGER NOT NULL DEFAULT 0,
+    last_sync_at INTEGER,
+    hosting_port INTEGER        -- non-NULL = this device is hosting relay on this port
+);
+
+CREATE TABLE IF NOT EXISTS enroll_sessions (
+    code_hash           TEXT PRIMARY KEY,
+    vault_id            TEXT NOT NULL,
+    encrypted_vault_key BLOB NOT NULL,
+    expires_at          INTEGER NOT NULL,
+    attempts            INTEGER NOT NULL DEFAULT 0
+);
 
 -- FTS5 for subject + notes full-text search
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(

@@ -254,11 +254,13 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         return;
       }
 
-      const idx = msgList.findIndex((m) => m.id === focusedRowId);
       const activeId = focusedRowId ?? selectedEmailId;
+      const idx = msgList.findIndex((m) => m.id === activeId);
       const activeMsg = activeId ? localStore.messages.get(activeId) : null;
 
       function scrollToMsg(id: string) {
+        // Only scroll the list virtualizer; TableView handles its own reactive scroll
+        if (viewMode !== "list") return;
         const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === id);
         if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
       }
@@ -282,7 +284,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         const prev = msgList[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
         if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
       } else if (e.key === "Enter" || e.key === " ") {
-        if (focusedRowId) { e.preventDefault(); openEmail(focusedRowId); }
+        if (activeId) { e.preventDefault(); openEmail(activeId); }
 
       // ── Action shortcuts ─────────────────────────────────────────
       } else if (e.key === "e" && !e.metaKey && !e.ctrlKey) {
@@ -337,7 +339,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelFocused, msgList, vItems, focusedRowId, selectedEmailId, setFocusedRow, openEmail, openComposer]);
+  }, [isPanelFocused, viewMode, msgList, vItems, focusedRowId, selectedEmailId, setFocusedRow, openEmail, openComposer]);
 
   function handleRowClick(emailId: string, e: React.MouseEvent) {
     if (e.shiftKey && selectionAnchorId) {

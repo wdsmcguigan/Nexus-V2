@@ -13,6 +13,7 @@ import {
   onSyncProgress,
   onNewMessages,
   startWatcher,
+  syncGmailNow,
 } from "@/storage/tauri";
 import { useWorkspace } from "@/state/workspace";
 
@@ -25,39 +26,68 @@ createRoot(rootEl).render(
   </StrictMode>,
 );
 
+async function hydrateFromVault(path: string) {
+  const payload = await loadVaultData(path);
+  localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+  ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
+
+  // After hydrating real data the inbox label ID is vault-scoped (e.g. "{vaultId}-inbox"),
+  // not the fixture default "inbox". If the current folder no longer exists in the loaded
+  // store (e.g. on first load with default "inbox" id), redirect to the real inbox label.
+  const { selectedFolderId } = useWorkspace.getState();
+  const folderExists =
+    localStore.labels.has(selectedFolderId) ||
+    localStore.folders.has(selectedFolderId);
+  if (!folderExists) {
+    const inboxLabel = Array.from(localStore.labels.values()).find(
+      (l) => l.systemKind === "inbox",
+    );
+    if (inboxLabel) {
+      useWorkspace.getState().setSelectedFolder(inboxLabel.id);
+    }
+  }
+}
+
 async function initTauri() {
-  // Check if the user already has a vault configured
+  // Register the hydrate listener unconditionally so the first-run
+  // onboarding→main transition works even when we fall through to fixtures below.
+  onHydrateNeeded(async () => {
+    const path = await getVaultPath();
+    if (!path) return;
+    await hydrateFromVault(path).catch((e) =>
+      console.error("Re-hydrate failed:", e),
+    );
+    useWorkspace.getState().setSyncStatus(false, Date.now());
+  });
+
   const savedPath = await getVaultPath();
   if (!savedPath) {
-    // No vault yet — load fixture data so the UI isn't blank
-    // The onboarding UI (VaultSetup) will handle first-run
+    // No vault yet — load fixture data so the UI isn't blank.
+    // When onboarding completes, Rust emits vault:hydrate-needed and the
+    // listener above will replace fixtures with real data automatically.
     await import("@/data/fixtures");
     return;
   }
 
   // Load real data from SQLite
   try {
-    const payload = await loadVaultData(savedPath);
-    localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+    await hydrateFromVault(savedPath);
 
-    // Rebuild FTS index from real messages
-    const messages = Array.from(localStore.messages.values());
-    ftsIndex.indexMessages(messages, bodyStore);
+    // If the vault has accounts but no labels the initial Gmail sync
+    // has not yet committed to the DB (or ran without saving historyId).
+    // Force a sync now so labels + messages arrive before the 60s poller fires.
+    if (localStore.accounts.size > 0 && localStore.labels.size === 0) {
+      const firstAccount = Array.from(localStore.accounts.values())[0]!;
+      syncGmailNow(firstAccount.id).catch((e) =>
+        console.warn("Auto-sync failed:", e),
+      );
+    }
 
     // Start filesystem watcher
     await startWatcher(savedPath).catch((e) =>
       console.warn("Watcher failed to start:", e),
     );
 
-    // Listen for re-hydrate signals from Rust (after sync, FS changes, etc.)
-    onHydrateNeeded(async () => {
-      const fresh = await loadVaultData(savedPath);
-      localStore.hydrate(fresh as Parameters<typeof localStore.hydrate>[0]);
-      const msgs = Array.from(localStore.messages.values());
-      ftsIndex.indexMessages(msgs, bodyStore);
-    });
-
-    // Push sync progress into workspace state so WorkspaceChrome can display it
     onSyncProgress(() => {
       useWorkspace.getState().setSyncStatus(true);
     });

@@ -1,5 +1,5 @@
 import * as React from "react";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as ReactDOM from "react-dom";
 import {
   Inbox,
   Star,
@@ -85,42 +85,69 @@ function ContextMenu({
   children: React.ReactNode;
   items: CtxItem[];
 }) {
+  const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!menu) return;
+    function close(e: MouseEvent | KeyboardEvent) {
+      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      setMenu(null);
+    }
+    document.addEventListener("mousedown", close, true);
+    document.addEventListener("keydown", close, true);
+    return () => {
+      document.removeEventListener("mousedown", close, true);
+      document.removeEventListener("keydown", close, true);
+    };
+  }, [menu]);
+
+  // Clone child to inject onContextMenu without adding a wrapper element
+  const child = React.Children.only(children) as React.ReactElement<React.HTMLAttributes<HTMLElement>>;
+  const trigger = React.cloneElement(child, {
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      setMenu({ x: e.clientX, y: e.clientY });
+    },
+  });
+
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          className={cn(
-            "z-50 min-w-[160px] overflow-hidden rounded-md border border-border-subtle",
-            "bg-surface-2 p-1 shadow-lg",
-            "data-[state=open]:animate-in data-[state=closed]:animate-out",
-            "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-            "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-          )}
-          sideOffset={4}
-        >
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <DropdownMenu.Item
-                key={item.label}
-                onSelect={item.onSelect}
-                className={cn(
-                  "flex h-7 cursor-pointer select-none items-center gap-2 rounded-xs px-2 text-body outline-none",
-                  "transition-colors duration-fast",
-                  item.destructive
-                    ? "text-danger focus:bg-danger/10"
-                    : "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
-                )}
-              >
-                <Icon size={12} />
-                {item.label}
-              </DropdownMenu.Item>
-            );
-          })}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <>
+      {trigger}
+      {menu &&
+        ReactDOM.createPortal(
+          <div
+            style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 9999 }}
+            onMouseDown={(e) => e.stopPropagation()}
+            className={cn(
+              "min-w-[160px] overflow-hidden rounded-md border border-border-subtle",
+              "bg-surface-2 p-1 shadow-lg",
+              "animate-in fade-in-0 zoom-in-95",
+            )}
+          >
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => { item.onSelect(); setMenu(null); }}
+                  className={cn(
+                    "flex h-7 w-full cursor-pointer select-none items-center gap-2 rounded-xs px-2 text-body outline-none",
+                    "transition-colors duration-fast",
+                    item.destructive
+                      ? "text-danger hover:bg-danger/10"
+                      : "text-text-secondary hover:bg-surface-3 hover:text-text-primary",
+                  )}
+                >
+                  <Icon size={12} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 

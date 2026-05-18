@@ -40,6 +40,12 @@ dirs = "5"
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
 log = "0.4"
+chacha20poly1305 = "0.10"
+blake3 = "1"
+rand_core = { version = "0.6", features = ["getrandom"] }
+axum = { version = "0.7", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
 
 # Patch tao to fix macOS 15 crash in applicationDidFinishLaunching
 # (MainThreadMarker::new().unwrap() panics in tao 0.35.2 on macOS 15+)

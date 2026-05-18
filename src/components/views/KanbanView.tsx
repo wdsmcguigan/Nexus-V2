@@ -22,7 +22,7 @@ import { useWorkspace } from "@/state/workspace";
 import { useStatuses, useVisibleMessages } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { pickPanelLink } from "@/design-system/tokens";
+import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
 import { Avatar } from "@/components/ui/Avatar";
 import { Tag } from "@/components/ui/Tag";
 import type { Message, Status } from "@/data/types";
@@ -97,7 +97,7 @@ function KanbanCard({ message: msg, isDragging }: CardProps) {
             </span>
           )}
           {userLabels.slice(0, 2).map((l) => (
-            <Tag key={l.id} color={l.color as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8} size="sm">
+            <Tag key={l.id} color={l.color as PanelLink} size="sm">
               {l.name}
             </Tag>
           ))}

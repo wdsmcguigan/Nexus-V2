@@ -12,14 +12,13 @@ interface TagProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, "color"> 
 }
 
 const COLOR_VAR: Record<PanelLink, string> = {
-  1: "var(--color-link-1)",
-  2: "var(--color-link-2)",
-  3: "var(--color-link-3)",
-  4: "var(--color-link-4)",
-  5: "var(--color-link-5)",
-  6: "var(--color-link-6)",
-  7: "var(--color-link-7)",
-  8: "var(--color-link-8)",
+  1: "var(--color-link-1)",   2: "var(--color-link-2)",   3: "var(--color-link-3)",
+  4: "var(--color-link-4)",   5: "var(--color-link-5)",   6: "var(--color-link-6)",
+  7: "var(--color-link-7)",   8: "var(--color-link-8)",   9: "var(--color-link-9)",
+  10: "var(--color-link-10)", 11: "var(--color-link-11)", 12: "var(--color-link-12)",
+  13: "var(--color-link-13)", 14: "var(--color-link-14)", 15: "var(--color-link-15)",
+  16: "var(--color-link-16)", 17: "var(--color-link-17)", 18: "var(--color-link-18)",
+  19: "var(--color-link-19)", 20: "var(--color-link-20)", 21: "var(--color-link-21)",
 };
 
 /**

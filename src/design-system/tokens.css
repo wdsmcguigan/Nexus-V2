@@ -41,15 +41,28 @@
   --color-danger-soft: color-mix(in oklch, var(--color-danger) 14%, transparent);
   --color-info: var(--color-accent);
 
-  /* Panel-link palette */
-  --color-link-1: oklch(0.62 0.16 25);
-  --color-link-2: oklch(0.66 0.14 78);
-  --color-link-3: oklch(0.66 0.14 130);
-  --color-link-4: oklch(0.62 0.16 152);
-  --color-link-5: oklch(0.62 0.14 200);
-  --color-link-6: oklch(0.6 0.16 290);
-  --color-link-7: oklch(0.6 0.18 330);
-  --color-link-8: oklch(0.66 0.04 250);
+  /* Panel-link palette (21 slots) */
+  --color-link-1:  oklch(0.62 0.16  25);   /* coral / red        */
+  --color-link-2:  oklch(0.66 0.14  78);   /* amber / orange-yel */
+  --color-link-3:  oklch(0.66 0.14 130);   /* lime / yellow-grn  */
+  --color-link-4:  oklch(0.62 0.16 152);   /* emerald / green    */
+  --color-link-5:  oklch(0.62 0.14 200);   /* teal / cyan        */
+  --color-link-6:  oklch(0.60 0.16 290);   /* violet / purple    */
+  --color-link-7:  oklch(0.60 0.18 330);   /* rose / pink        */
+  --color-link-8:  oklch(0.66 0.04 250);   /* slate / gray       */
+  --color-link-9:  oklch(0.58 0.20  10);   /* crimson            */
+  --color-link-10: oklch(0.65 0.15  52);   /* orange             */
+  --color-link-11: oklch(0.70 0.14 100);   /* yellow             */
+  --color-link-12: oklch(0.62 0.10 115);   /* sage               */
+  --color-link-13: oklch(0.56 0.15 140);   /* forest             */
+  --color-link-14: oklch(0.64 0.14 168);   /* seafoam            */
+  --color-link-15: oklch(0.66 0.13 218);   /* sky                */
+  --color-link-16: oklch(0.58 0.18 255);   /* blue               */
+  --color-link-17: oklch(0.57 0.17 270);   /* indigo             */
+  --color-link-18: oklch(0.57 0.18 305);   /* grape              */
+  --color-link-19: oklch(0.62 0.19 315);   /* fuchsia            */
+  --color-link-20: oklch(0.66 0.13 350);   /* blush              */
+  --color-link-21: oklch(0.62 0.06 235);   /* steel              */
 
   /* Radii */
   --radius-xs: 2px;
@@ -131,15 +144,28 @@
   --color-danger-hover: oklch(0.7 0.22 25);
   --color-danger-soft: color-mix(in oklch, var(--color-danger) 18%, transparent);
 
-  /* Panel-link palette (lighter for dark bg) */
-  --color-link-1: oklch(0.72 0.16 25);
-  --color-link-2: oklch(0.78 0.14 78);
-  --color-link-3: oklch(0.78 0.14 130);
-  --color-link-4: oklch(0.74 0.16 152);
-  --color-link-5: oklch(0.74 0.14 200);
-  --color-link-6: oklch(0.72 0.16 290);
-  --color-link-7: oklch(0.72 0.18 330);
-  --color-link-8: oklch(0.78 0.04 250);
+  /* Panel-link palette (lighter for dark bg, 21 slots) */
+  --color-link-1:  oklch(0.72 0.16  25);
+  --color-link-2:  oklch(0.78 0.14  78);
+  --color-link-3:  oklch(0.78 0.14 130);
+  --color-link-4:  oklch(0.74 0.16 152);
+  --color-link-5:  oklch(0.74 0.14 200);
+  --color-link-6:  oklch(0.72 0.16 290);
+  --color-link-7:  oklch(0.72 0.18 330);
+  --color-link-8:  oklch(0.78 0.04 250);
+  --color-link-9:  oklch(0.68 0.20  10);
+  --color-link-10: oklch(0.75 0.15  52);
+  --color-link-11: oklch(0.80 0.13 100);
+  --color-link-12: oklch(0.72 0.10 115);
+  --color-link-13: oklch(0.66 0.15 140);
+  --color-link-14: oklch(0.74 0.13 168);
+  --color-link-15: oklch(0.76 0.12 218);
+  --color-link-16: oklch(0.68 0.17 255);
+  --color-link-17: oklch(0.67 0.17 270);
+  --color-link-18: oklch(0.67 0.17 305);
+  --color-link-19: oklch(0.72 0.18 315);
+  --color-link-20: oklch(0.76 0.12 350);
+  --color-link-21: oklch(0.72 0.06 235);
 
   /* Shadows (dark — heavier) */
   --shadow-l1: 0 1px 0 0 rgba(0, 0, 0, 0.45);

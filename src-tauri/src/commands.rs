@@ -1,5 +1,7 @@
 use anyhow::{anyhow, Context, Result};
+use serde::Serialize;
 use serde_json::Value as JsonValue;
+use std::sync::Arc;
 use tauri::{Emitter, Manager, State};
 
 use crate::db::{queries::HydratePayload, VaultDb};
@@ -30,13 +32,15 @@ pub async fn apply_mutation(
     state: State<'_, AppState>,
     kind: String,
     payload: JsonValue,
+    device_id: String,
+    lamport: i64,
 ) -> std::result::Result<(), String> {
     let payload_str = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
     let db = state.db.lock().unwrap();
     db.as_ref()
         .ok_or_else(|| "DB not open".to_string())?
-        .apply_mutation(&vault_id, &kind, &payload_str)
+        .apply_mutation(&vault_id, &kind, &payload_str, &device_id, lamport)
         .map_err(|e| e.to_string())
 }
 
@@ -76,8 +80,28 @@ pub async fn set_vault_path(
     state: State<'_, AppState>,
     path: String,
 ) -> std::result::Result<(), String> {
-    *state.vault_path.lock().unwrap() = Some(path.clone());
-    save_vault_path_to_disk(&path).map_err(|e| e.to_string())
+    let expanded = expand_tilde(&path);
+    *state.vault_path.lock().unwrap() = Some(expanded.clone());
+    save_vault_path_to_disk(&expanded).map_err(|e| e.to_string())
+}
+
+/// Remove an account and all its associated messages from the vault.
+/// After removal, emits `vault:hydrate-needed` so the frontend refreshes.
+#[tauri::command]
+pub async fn disconnect_account(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.delete_account(&vault_id, &account_id)
+            .map_err(|e| e.to_string())?;
+    }
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
 }
 
 // ─── Gmail OAuth + sync commands ──────────────────────────────────────────────
@@ -279,6 +303,123 @@ pub async fn send_message(
     Ok(gmail_id)
 }
 
+// ─── EP-5 Relay commands ──────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct RelayStatus {
+    configured: bool,
+    last_sync_at: Option<i64>,
+    pending_count: usize,
+    error: Option<String>,
+    hosting_port: Option<u16>,
+}
+
+#[tauri::command]
+pub async fn get_relay_status(state: State<'_, AppState>) -> std::result::Result<RelayStatus, String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+
+    let configured = db.get_relay_url().map(|u| u.is_some()).unwrap_or(false);
+    let last_sync_at = db.get_relay_last_sync_at().ok().flatten();
+    let pending_count = db.pending_relay_count().unwrap_or(0);
+    let error = state.relay.lock().unwrap().last_error.clone();
+
+    Ok(RelayStatus { configured, last_sync_at, pending_count, error, hosting_port: None })
+}
+
+#[tauri::command]
+pub async fn set_relay_url(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    url: String,
+) -> std::result::Result<(), String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+
+    {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.set_relay_url(&url).map_err(|e| e.to_string())?;
+    }
+
+    let relay_arc = Arc::clone(&state.relay);
+    if let Err(e) = crate::relay::maybe_start_relay(&vault_path, &vault_id, app, relay_arc) {
+        log::warn!("Relay restart failed: {e}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_vault_key_hex(state: State<'_, AppState>) -> std::result::Result<String, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+    db.get_vault_key_hex(&vault_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No vault key — connect an account first".to_string())
+}
+
+#[derive(Serialize)]
+pub struct EnrollmentSessionResp {
+    code: String,
+    expires_at: i64,
+}
+
+#[tauri::command]
+pub async fn start_enrollment_session(
+    state: State<'_, AppState>,
+) -> std::result::Result<EnrollmentSessionResp, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+
+    let (relay_url, vault_key) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let url = db.get_relay_url().map_err(|e| e.to_string())?
+            .ok_or_else(|| "Relay URL not configured".to_string())?;
+        let key = db.get_or_create_vault_key(&vault_id).map_err(|e| e.to_string())?;
+        (url, key)
+    };
+
+    let session = crate::relay::start_enrollment(&relay_url, &vault_id, &vault_key)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(EnrollmentSessionResp { code: session.code, expires_at: session.expires_at })
+}
+
+#[tauri::command]
+pub async fn complete_enrollment(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    relay_url: String,
+    code: String,
+) -> std::result::Result<(), String> {
+    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+    let db_path = format!("{vault_path}/nexus.db");
+
+    let vault_id = crate::relay::complete_enrollment(&db_path, &relay_url, &code)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let relay_arc = Arc::clone(&state.relay);
+    if let Err(e) = crate::relay::maybe_start_relay(&vault_path, &vault_id, app, relay_arc) {
+        log::warn!("Relay start after enrollment failed: {e}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_relay_hosting(
+    state: State<'_, AppState>,
+    port: u16,
+) -> std::result::Result<u16, String> {
+    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+    let relay_db_path = format!("{vault_path}/nexus.db/.nexus/relay.db");
+    crate::relay::server::start(relay_db_path, port)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 fn get_vault_id(state: &AppState) -> Result<String> {
@@ -296,6 +437,7 @@ fn get_vault_id(state: &AppState) -> Result<String> {
 }
 
 async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> {
+    let vault_path = &expand_tilde(vault_path);
     let db_path = std::path::Path::new(vault_path).join("nexus.db");
     std::fs::create_dir_all(vault_path).context("creating vault directory")?;
 
@@ -330,12 +472,23 @@ async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tau
         start_inbox_poller(vault_path.to_string(), app.clone(), client_id, client_secret);
     }
 
+    // Start relay sync loop if configured.
+    let relay_arc = Arc::clone(&state.relay);
+    if let Err(e) = crate::relay::maybe_start_relay(vault_path, &vault_id, app.clone(), relay_arc) {
+        log::warn!("Relay init skipped: {e}");
+    }
+
     Ok(vault_id)
 }
 
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
     let state = app.state::<AppState>();
-    init_vault_inner_with_app(&state, vault_path, app).await.map(|_| ())
+    init_vault_inner_with_app(&state, vault_path, app).await.map(|_| ())?;
+    // Tell the JS layer to hydrate from SQLite now that the vault is ready.
+    // This covers the startup race: JS may have fallen back to fixtures while
+    // Rust was still opening the DB — this event corrects it.
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
 }
 
 /// Start the outbound mutation drainer if Gmail credentials are available.
@@ -426,35 +579,52 @@ async fn poll_all_accounts(
 
         match syncer.incremental_sync_with_db(&db_path).await {
             Ok(stats) => {
-                if stats.inserted > 0 {
-                    log::info!("Poll: {} new messages for {account_id}", stats.inserted);
-                    new_count += stats.inserted;
-                }
+                log::info!("Poll: {} new, {} updated for {account_id}", stats.inserted, stats.updated);
+                new_count += stats.inserted;
             }
             Err(e) => log::warn!("Incremental sync failed for {account_id}: {e}"),
         }
     }
 
+    // Always re-hydrate after every poll so labels and other metadata stay fresh,
+    // even on runs where no new messages arrived (e.g. first poll after restart).
+    let _ = app.emit("vault:hydrate-needed", ());
     if new_count > 0 {
-        let _ = app.emit("vault:hydrate-needed", ());
         fire_notification(app, new_count);
     }
 
     Ok(())
 }
 
+/// Expand a leading `~` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if path == "~" {
+        return dirs::home_dir()
+            .map(|h| h.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(rest).to_string_lossy().into_owned();
+        }
+    }
+    path.to_string()
+}
+
 pub fn load_saved_vault_path(_app: &tauri::AppHandle) -> Option<String> {
     dirs::data_local_dir()
         .map(|d| d.join("Nexus").join("vault_path.txt"))
         .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| expand_tilde(s.trim()))
 }
 
 fn save_vault_path_to_disk(path: &str) -> Result<()> {
+    let expanded = expand_tilde(path);
     let dir = dirs::data_local_dir()
         .ok_or_else(|| anyhow!("no local data dir"))?
         .join("Nexus");
     std::fs::create_dir_all(&dir)?;
-    std::fs::write(dir.join("vault_path.txt"), path)?;
+    std::fs::write(dir.join("vault_path.txt"), &expanded)?;
     Ok(())
 }
 

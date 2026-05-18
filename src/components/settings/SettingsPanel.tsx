@@ -10,19 +10,38 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  LogOut,
   Sun,
   Moon,
   Monitor,
   AlignJustify,
   SlidersHorizontal,
   LayoutList,
+  Server,
+  Wifi,
+  WifiOff,
+  Copy,
+  Link,
+  ExternalLink,
+  Shield,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
 import { useWorkspace } from "@/state/workspace";
 import { useAccounts } from "@/storage/useStore";
-import { isTauri, syncGmailNow, startGmailOAuth } from "@/storage/tauri";
+import {
+  isTauri,
+  syncGmailNow,
+  startGmailOAuth,
+  disconnectAccount,
+  getRelayStatus,
+  setRelayUrl,
+  getVaultKeyHex,
+  startEnrollmentSession,
+  startRelayHosting,
+  type RelayStatus,
+} from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
@@ -41,18 +60,32 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 
 // ─── Account row ──────────────────────────────────────────────────────────────
 
-function AccountRow({ email, syncStatus }: { email: string; syncStatus: string }) {
+function AccountRow({ accountId, email, syncStatus }: { accountId: string; email: string; syncStatus: string }) {
   const [syncing, setSyncing] = React.useState(false);
+  const [disconnecting, setDisconnecting] = React.useState(false);
 
   async function handleSync() {
     if (!isTauri()) return;
     setSyncing(true);
     try {
-      await syncGmailNow(email);
+      await syncGmailNow(accountId);
     } catch (e) {
       console.warn("sync_gmail_now error:", e);
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!isTauri()) return;
+    if (!confirm(`Disconnect ${email}? This will remove all synced messages from the local vault.`)) return;
+    setDisconnecting(true);
+    try {
+      await disconnectAccount(accountId);
+    } catch (e) {
+      console.warn("disconnect_account error:", e);
+    } finally {
+      setDisconnecting(false);
     }
   }
 
@@ -86,9 +119,19 @@ function AccountRow({ email, syncStatus }: { email: string; syncStatus: string }
         iconOnly
         aria-label="Sync now"
         onClick={handleSync}
-        disabled={syncing}
+        disabled={syncing || disconnecting}
       >
         <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        iconOnly
+        aria-label="Disconnect account"
+        onClick={handleDisconnect}
+        disabled={syncing || disconnecting}
+      >
+        {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <LogOut size={12} />}
       </Button>
     </div>
   );
@@ -102,6 +145,317 @@ const DENSITIES: { value: Density; label: string; sublabel: string }[] = [
   { value: "cozy", label: "Cozy", sublabel: "48px rows, 2-line snippet" },
 ];
 
+// ─── Relay section ────────────────────────────────────────────────────────────
+
+function RelaySection() {
+  const [mode, setMode] = React.useState<"self-hosted">("self-hosted");
+  const [relayUrl, setRelayUrlLocal] = React.useState("");
+  const [savingUrl, setSavingUrl] = React.useState(false);
+  const [status, setStatus] = React.useState<RelayStatus | null>(null);
+  const [hosting, setHosting] = React.useState(false);
+  const [enrollCode, setEnrollCode] = React.useState<string | null>(null);
+  const [enrollExpiry, setEnrollExpiry] = React.useState<number | null>(null);
+  const [generatingCode, setGeneratingCode] = React.useState(false);
+  const [vaultKey, setVaultKey] = React.useState<string | null>(null);
+  const [showVaultKey, setShowVaultKey] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const [secondsLeft, setSecondsLeft] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    async function poll() {
+      try {
+        const s = await getRelayStatus();
+        if (!cancelled) setStatus(s);
+      } catch { /* ignore */ }
+    }
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  React.useEffect(() => {
+    if (enrollExpiry === null) return;
+    const tick = setInterval(() => {
+      const left = Math.max(0, Math.round((enrollExpiry - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) { setEnrollCode(null); setEnrollExpiry(null); }
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [enrollExpiry]);
+
+  async function handleSaveUrl() {
+    if (!isTauri() || !relayUrl.trim()) return;
+    setSavingUrl(true);
+    try { await setRelayUrl(relayUrl.trim()); } catch { /* ignore */ } finally { setSavingUrl(false); }
+  }
+
+  async function handleHostHere() {
+    if (!isTauri()) return;
+    setHosting(true);
+    try {
+      const port = await startRelayHosting(3030);
+      const s = await getRelayStatus();
+      setStatus(s);
+      setRelayUrlLocal(`http://localhost:${port}`);
+    } catch { /* ignore */ } finally { setHosting(false); }
+  }
+
+  async function handleGenerateCode() {
+    if (!isTauri()) return;
+    setGeneratingCode(true);
+    try {
+      const session = await startEnrollmentSession();
+      setEnrollCode(session.code);
+      setEnrollExpiry(session.expiresAt);
+      setSecondsLeft(Math.round((session.expiresAt - Date.now()) / 1000));
+    } catch { /* ignore */ } finally { setGeneratingCode(false); }
+  }
+
+  async function handleShowVaultKey() {
+    if (!isTauri()) return;
+    if (vaultKey) { setShowVaultKey((v) => !v); return; }
+    try {
+      const key = await getVaultKeyHex();
+      setVaultKey(key);
+      setShowVaultKey(true);
+    } catch { /* ignore */ }
+  }
+
+  async function handleCopy(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  const lastSyncAgo = status?.lastSyncAt
+    ? Math.round((Date.now() - status.lastSyncAt) / 1000)
+    : null;
+
+  const statusDot =
+    !status?.configured ? null :
+    status.error ? "red" :
+    lastSyncAgo !== null && lastSyncAgo < 60 ? "green" : "yellow";
+
+  return (
+    <div className="space-y-0">
+      {/* Mode picker */}
+      <SectionHeader>Relay mode</SectionHeader>
+      <div className="flex gap-2 px-4 pb-4">
+        {/* Nexus Relay — coming soon */}
+        <div
+          className="flex flex-1 flex-col gap-1 rounded-sm border border-border-subtle bg-surface-2 px-3 py-3 opacity-50 cursor-not-allowed"
+          title="Coming soon"
+        >
+          <div className="flex items-center gap-2">
+            <Server size={14} className="text-text-tertiary" />
+            <span className="text-body text-text-secondary">Nexus Relay</span>
+            <span className="ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-mono-xs text-text-muted">
+              coming soon
+            </span>
+          </div>
+          <p className="text-small text-text-muted">
+            Nexus-hosted zero-knowledge relay. No setup required.
+          </p>
+        </div>
+
+        {/* Self-Hosted */}
+        <button
+          type="button"
+          onClick={() => setMode("self-hosted")}
+          className={cn(
+            "flex flex-1 flex-col gap-1 rounded-sm border px-3 py-3 text-left transition-colors",
+            mode === "self-hosted"
+              ? "border-accent bg-accent-soft"
+              : "border-border-subtle bg-surface-2 hover:border-border-default",
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <Server size={14} className={mode === "self-hosted" ? "text-accent" : "text-text-tertiary"} />
+            <span className={cn("text-body", mode === "self-hosted" ? "text-text-primary" : "text-text-secondary")}>
+              Self-Hosted
+            </span>
+            {mode === "self-hosted" && <CheckCircle2 size={12} className="ml-auto text-accent" />}
+          </div>
+          <p className="text-small text-text-muted">
+            Run your own relay server. Full control, zero lock-in.
+          </p>
+        </button>
+      </div>
+
+      {/* Self-hosted setup docs */}
+      {mode === "self-hosted" && (
+        <>
+          <SectionHeader>Setup</SectionHeader>
+          <div className="mx-4 mb-4 rounded-sm border border-border-subtle bg-surface-2 p-3 space-y-2">
+            <p className="text-body text-text-primary font-medium">Run nexus-relay on a reachable machine</p>
+            <p className="text-small text-text-secondary">
+              Download the <code className="font-mono text-mono-xs bg-surface-3 px-1 rounded">nexus-relay</code> binary
+              and run it on any always-on machine. Three common approaches:
+            </p>
+            <ul className="text-small text-text-secondary space-y-1.5 ml-3 list-disc list-outside">
+              <li>
+                <span className="text-text-primary">Tailscale (recommended for personal use)</span> — install Tailscale
+                on each device and on the relay host. All devices share a private IP without any port forwarding.
+                Run: <code className="font-mono text-mono-xs bg-surface-3 px-1 rounded">RELAY_PORT=3030 nexus-relay</code>
+              </li>
+              <li>
+                <span className="text-text-primary">VPS / home server</span> — open port 3030 (or any port) in your
+                firewall, then point your domain or public IP at the relay.
+              </li>
+              <li>
+                <span className="text-text-primary">Same Mac</span> — click "Host relay on this device" below.
+                Works for syncing between apps on the same machine or over a LAN.
+              </li>
+            </ul>
+            <a
+              href="#"
+              className="inline-flex items-center gap-1 text-small text-accent hover:underline"
+              onClick={(e) => e.preventDefault()}
+              title="docs/relay.md"
+            >
+              <ExternalLink size={12} />
+              Full setup guide (docs/relay.md)
+            </a>
+          </div>
+
+          {/* Host on this device */}
+          <div className="px-4 pb-4">
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={handleHostHere}
+              disabled={hosting || !isTauri()}
+            >
+              {hosting ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />}
+              {status?.hostingPort ? `Hosting on port ${status.hostingPort}` : "Host relay on this device"}
+            </Button>
+            <p className="mt-1.5 text-small text-text-muted">
+              Starts the relay inside the app on port 3030. Other devices on the same network can reach it at{" "}
+              <span className="font-mono text-mono-xs">your-ip:3030</span>.
+            </p>
+          </div>
+
+          {/* Relay URL */}
+          <SectionHeader>Relay URL</SectionHeader>
+          <div className="flex gap-2 px-4 pb-4">
+            <input
+              type="url"
+              value={relayUrl}
+              onChange={(e) => setRelayUrlLocal(e.target.value)}
+              placeholder="http://my-server.com:3030"
+              className="min-w-0 flex-1 rounded-sm border border-border-subtle bg-surface-2 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleSaveUrl}
+              disabled={savingUrl || !relayUrl.trim()}
+            >
+              {savingUrl ? <Loader2 size={14} className="animate-spin" /> : "Save"}
+            </Button>
+          </div>
+
+          {/* Status */}
+          {status && (
+            <div className="mx-4 mb-4 flex items-center gap-2 rounded-sm border border-border-subtle bg-surface-2 px-3 py-2">
+              {statusDot === "green" && <Wifi size={14} className="text-success" />}
+              {statusDot === "yellow" && <Wifi size={14} className="text-warning" />}
+              {statusDot === "red" && <WifiOff size={14} className="text-error" />}
+              {!statusDot && <WifiOff size={14} className="text-text-muted" />}
+              <span className="text-body text-text-secondary">
+                {!status.configured
+                  ? "Not configured"
+                  : status.error
+                  ? `Error: ${status.error}`
+                  : lastSyncAgo !== null
+                  ? `Last synced ${lastSyncAgo < 5 ? "just now" : `${lastSyncAgo}s ago`}`
+                  : "Configured — not yet synced"}
+              </span>
+              {status.pendingCount > 0 && (
+                <span className="ml-auto text-small text-text-muted">{status.pendingCount} pending</span>
+              )}
+            </div>
+          )}
+
+          {/* Link new device */}
+          <SectionHeader>Device enrollment</SectionHeader>
+          <div className="px-4 pb-2">
+            <p className="mb-3 text-small text-text-secondary">
+              Generate a 6-digit code on this device. Enter it on the new device along with the relay URL to securely
+              transfer the vault key.
+            </p>
+            {enrollCode ? (
+              <div className="rounded-sm border border-accent bg-accent-soft px-4 py-3 text-center">
+                <p className="mb-1 text-small text-text-secondary">Link code</p>
+                <p className="font-mono text-[2rem] tracking-[0.25em] text-text-primary">{enrollCode}</p>
+                {secondsLeft !== null && (
+                  <p className="mt-1 text-small text-text-muted">
+                    Expires in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={handleGenerateCode}
+                disabled={generatingCode || !isTauri()}
+              >
+                {generatingCode ? <Loader2 size={14} className="animate-spin" /> : <Link size={14} />}
+                Generate link code
+              </Button>
+            )}
+          </div>
+
+          {/* Vault key export */}
+          <SectionHeader>Vault key</SectionHeader>
+          <div className="px-4 pb-4">
+            <p className="mb-3 text-small text-text-secondary">
+              Your 32-byte vault encryption key. Store this in a safe place as a backup — it&apos;s the only way to
+              recover your data if you lose all enrolled devices.
+            </p>
+            {showVaultKey && vaultKey ? (
+              <div className="rounded-sm border border-border-subtle bg-surface-2 px-3 py-2">
+                <p className="break-all font-mono text-mono-xs text-text-secondary">{vaultKey}</p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy(vaultKey)}
+                  className="mt-2 flex items-center gap-1 text-small text-accent hover:underline"
+                >
+                  <Copy size={12} />
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="md"
+                onClick={handleShowVaultKey}
+                disabled={!isTauri()}
+              >
+                <Shield size={14} />
+                {showVaultKey ? "Hide vault key" : "Show vault key"}
+              </Button>
+            )}
+          </div>
+
+          {/* Privacy note */}
+          <div className="mx-4 mb-6 flex gap-2 rounded-sm border border-border-subtle bg-surface-2 px-3 py-2.5">
+            <Shield size={14} className="mt-0.5 shrink-0 text-success" />
+            <p className="text-small text-text-secondary">
+              <span className="text-text-primary">Zero-knowledge E2EE.</span> All mutations are encrypted with
+              XChaCha20-Poly1305 before leaving this device. The relay server stores only opaque ciphertext and
+              never has access to your vault key or any message content.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ panelId }: { panelId: string }) {
@@ -113,12 +467,13 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay">("accounts");
 
   const navItems = [
     { id: "accounts" as const, label: "Accounts", icon: <Mail size={14} /> },
     { id: "preferences" as const, label: "Preferences", icon: <SlidersHorizontal size={14} /> },
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
+    { id: "relay" as const, label: "Relay", icon: <Server size={14} /> },
   ];
 
   return (
@@ -173,7 +528,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               ) : (
                 <div className="divide-y divide-border-subtle">
                   {accounts.map((acc) => (
-                    <AccountRow key={acc.id} email={acc.email} syncStatus={acc.syncStatus} />
+                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} syncStatus={acc.syncStatus} />
                   ))}
                 </div>
               )}
@@ -318,6 +673,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               <CustomFieldsSettings />
             </div>
           )}
+
+          {activeSection === "relay" && <RelaySection />}
         </div>
       </div>
     </Panel>

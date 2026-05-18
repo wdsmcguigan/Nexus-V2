@@ -73,6 +73,35 @@ impl VaultDb {
         rows.map(|r| r.context("loading account row")).collect()
     }
 
+    /// Delete an account and all messages/labels associated with it.
+    pub fn delete_account(&self, vault_id: &str, account_id: &str) -> Result<()> {
+        // Delete message_labels for messages belonging to this account
+        self.conn.execute(
+            "DELETE FROM message_labels WHERE message_id IN (
+                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+            )",
+            params![vault_id, account_id],
+        )?;
+        // Delete message_tags for messages belonging to this account
+        self.conn.execute(
+            "DELETE FROM message_tags WHERE message_id IN (
+                SELECT id FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2
+            )",
+            params![vault_id, account_id],
+        )?;
+        // Delete the messages themselves
+        self.conn.execute(
+            "DELETE FROM messages WHERE vault_id = ?1 AND provider_account_id = ?2",
+            params![vault_id, account_id],
+        )?;
+        // Delete the account record (tokens are columns on the account row)
+        self.conn.execute(
+            "DELETE FROM accounts WHERE id = ?1 AND vault_id = ?2",
+            params![account_id, vault_id],
+        )?;
+        Ok(())
+    }
+
     fn load_folders(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, parent_id, name, disk_slug, color, icon, system_kind, position
@@ -468,6 +497,78 @@ impl VaultDb {
         Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
     }
 
+    /// Insert a message parsed from a .eml file dragged into the vault.
+    /// `folder_id` is derived from the directory name; `eml_path` is the absolute path.
+    pub fn insert_eml_message(
+        &self,
+        vault_id: &str,
+        id: &str,
+        body_ref: &str,
+        folder_id: &str,
+        subject: &str,
+        snippet: &str,
+        from_json: &str,
+        to_json: &str,
+        received_at: i64,
+        body_html: Option<&str>,
+        eml_path: &str,
+    ) -> Result<bool> {
+        let inserted = self.conn.execute(
+            "INSERT OR IGNORE INTO messages (
+                id, vault_id, folder_id, thread_id, subject, snippet, body_ref, received_at,
+                from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
+                attachment_refs_json, custom_fields_json,
+                flags_read, flags_answered, flags_draft, flags_flagged,
+                eml_path
+            ) VALUES (
+                ?1, ?2, ?3, ?1, ?4, ?5, ?6, ?7,
+                ?8, '[]', '[]', '[]', '[]', '{}',
+                0, 0, 0, 0, ?9
+            )",
+            params![id, vault_id, folder_id, subject, snippet, body_ref, received_at, from_json, eml_path],
+        )? > 0;
+        if inserted {
+            if let Some(html) = body_html {
+                self.upsert_body(body_ref, html)?;
+            }
+        }
+        Ok(inserted)
+    }
+
+    /// Soft-delete a message by its on-disk eml_path. Returns the deleted message id.
+    pub fn delete_message_by_path(&self, eml_path: &str) -> Result<Option<String>> {
+        let msg_id: Option<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id FROM messages WHERE eml_path = ?1 LIMIT 1",
+            )?;
+            stmt.query_row(params![eml_path], |r| r.get(0)).optional()?
+        };
+        if let Some(id) = &msg_id {
+            self.conn.execute("DELETE FROM message_labels WHERE message_id = ?1", params![id])?;
+            self.conn.execute("DELETE FROM message_tags WHERE message_id = ?1", params![id])?;
+            self.conn.execute("DELETE FROM messages WHERE id = ?1", params![id])?;
+        }
+        Ok(msg_id)
+    }
+
+    /// Update a message's folder when its .eml is moved to a new directory.
+    pub fn update_message_folder_by_path(&self, eml_path: &str, new_folder_id: &str) -> Result<bool> {
+        let updated = self.conn.execute(
+            "UPDATE messages SET folder_id = ?1, eml_path = ?2 WHERE eml_path = ?3",
+            params![new_folder_id, eml_path, eml_path],
+        )? > 0;
+        Ok(updated)
+    }
+
+    /// Look up the system label ID whose disk_slug matches the given folder name.
+    pub fn find_label_by_slug(&self, vault_id: &str, slug: &str) -> Result<Option<String>> {
+        let normalized = slug.to_lowercase();
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM labels WHERE vault_id = ?1 AND (LOWER(name) = ?2 OR system_kind = ?2) LIMIT 1",
+        )?;
+        Ok(stmt.query_row(params![vault_id, normalized], |r| r.get(0)).optional()?)
+    }
+
     pub fn get_body(&self, body_ref: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT html FROM message_bodies WHERE body_ref = ?1",
@@ -552,12 +653,13 @@ impl VaultDb {
         for gl in gmail_labels {
             self.conn.execute(
                 "INSERT INTO labels (id, vault_id, name, color, kind, system_kind, position, provider_id)
-                 VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(id) DO UPDATE SET
                    name = excluded.name,
+                   color = excluded.color,
                    provider_id = excluded.provider_id",
                 params![
-                    gl.nexus_id, vault_id, gl.name, gl.kind, gl.system_kind,
+                    gl.nexus_id, vault_id, gl.name, gl.color, gl.kind, gl.system_kind,
                     gl.position, gl.gmail_id
                 ],
             )?;
@@ -565,16 +667,28 @@ impl VaultDb {
         Ok(())
     }
 
-    pub fn apply_mutation(&self, vault_id: &str, kind: &str, payload: &str) -> Result<()> {
+    pub fn apply_mutation(
+        &self,
+        vault_id: &str,
+        kind: &str,
+        payload: &str,
+        device_id: &str,
+        lamport: i64,
+    ) -> Result<()> {
         let id = uuid::Uuid::new_v4().to_string();
         let ts = chrono::Utc::now().timestamp_millis();
         self.conn.execute(
-            "INSERT INTO mutations (id, vault_id, kind, payload_json, ts)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, vault_id, kind, payload, ts],
+            "INSERT INTO mutations (id, vault_id, kind, payload_json, ts, device_id, lamport)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, vault_id, kind, payload, ts, device_id, lamport],
         )?;
 
-        // Apply the mutation to the main tables
+        self.apply_mutation_to_tables(kind, payload)
+    }
+
+    /// Apply an inbound remote mutation to local tables WITHOUT recording it in the
+    /// mutations log (avoids echoing back to the relay on next push).
+    pub fn apply_remote_mutation(&self, kind: &str, payload: &str) -> Result<()> {
         self.apply_mutation_to_tables(kind, payload)
     }
 
@@ -747,7 +861,7 @@ impl VaultDb {
         Ok(())
     }
 
-    /// Returns (mutation_id, kind, payload_json, vault_id) for all unsynced mutations.
+    /// Returns (mutation_id, kind, payload_json, vault_id) for mutations not yet synced to Gmail.
     pub fn pending_outbound_mutations(&self) -> Result<Vec<(String, String, String, String)>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, kind, payload_json, vault_id FROM mutations WHERE synced_at IS NULL ORDER BY ts LIMIT 100",
@@ -761,6 +875,173 @@ impl VaultDb {
             ))
         })?;
         rows.map(|r| r.context("loading pending mutation")).collect()
+    }
+
+    /// Returns (id, kind, payload_json, device_id, lamport) for mutations not yet pushed to relay.
+    pub fn pending_relay_mutations(&self) -> Result<Vec<(String, String, String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, payload_json, device_id, lamport FROM mutations \
+             WHERE relay_seq IS NULL ORDER BY lamport LIMIT 200",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?;
+        rows.map(|r| r.context("loading pending relay mutation")).collect()
+    }
+
+    pub fn mark_relay_pushed(&self, mutation_id: &str, seq: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE mutations SET relay_seq = ?1 WHERE id = ?2",
+            params![seq, mutation_id],
+        )?;
+        Ok(())
+    }
+
+    // ─── Vault key ────────────────────────────────────────────────────────────────
+
+    /// Returns the vault's 32-byte encryption key, generating it on first call.
+    pub fn get_or_create_vault_key(&self, vault_id: &str) -> Result<[u8; 32]> {
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT key_hex FROM vault_key WHERE vault_id = ?1",
+            params![vault_id],
+            |r| r.get(0),
+        ).optional()?;
+
+        if let Some(hex) = existing {
+            let bytes = decode_hex(&hex).context("decoding vault key hex")?;
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            return Ok(key);
+        }
+
+        // Generate a new random key (two UUID v4 values = 32 cryptographically random bytes)
+        let a = uuid::Uuid::new_v4();
+        let b = uuid::Uuid::new_v4();
+        let mut key = [0u8; 32];
+        key[..16].copy_from_slice(a.as_bytes());
+        key[16..].copy_from_slice(b.as_bytes());
+        let hex = encode_hex(&key);
+        self.conn.execute(
+            "INSERT OR IGNORE INTO vault_key (vault_id, key_hex) VALUES (?1, ?2)",
+            params![vault_id, hex],
+        )?;
+        Ok(key)
+    }
+
+    pub fn get_vault_key_hex(&self, vault_id: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row(
+            "SELECT key_hex FROM vault_key WHERE vault_id = ?1",
+            params![vault_id],
+            |r| r.get(0),
+        ).optional()?)
+    }
+
+    pub fn import_vault_key(&self, vault_id: &str, key_hex: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO vault_key (vault_id, key_hex) VALUES (?1, ?2)",
+            params![vault_id, key_hex],
+        )?;
+        Ok(())
+    }
+
+    // ─── Device ID ────────────────────────────────────────────────────────────────
+
+    /// Returns the stable device ID for this installation, generating it on first call.
+    pub fn get_or_create_device_id(&self) -> Result<String> {
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT device_id FROM devices ORDER BY enrolled_at LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?;
+
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+
+        let id = format!("dev-{}", uuid::Uuid::new_v4().simple());
+        let nickname = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("COMPUTERNAME"))
+            .unwrap_or_else(|_| "Nexus Device".to_string());
+        let now = chrono::Utc::now().timestamp_millis();
+        self.conn.execute(
+            "INSERT OR IGNORE INTO devices (device_id, nickname, enrolled_at) VALUES (?1, ?2, ?3)",
+            params![id, nickname, now],
+        )?;
+        Ok(id)
+    }
+
+    // ─── Relay state ──────────────────────────────────────────────────────────────
+
+    pub fn get_relay_url(&self) -> Result<Option<String>> {
+        Ok(self.conn.query_row(
+            "SELECT relay_url FROM relay_state LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?)
+    }
+
+    pub fn set_relay_url(&self, url: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO relay_state (relay_url, last_seq, last_sync_at) VALUES (?1, 0, NULL)",
+            params![url],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_relay_cursor(&self, relay_url: &str) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT last_seq FROM relay_state WHERE relay_url = ?1",
+            params![relay_url],
+            |r| r.get(0),
+        ).optional()?.unwrap_or(0))
+    }
+
+    pub fn update_relay_cursor(&self, relay_url: &str, seq: i64, now_ms: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE relay_state SET last_seq = ?1, last_sync_at = ?2 WHERE relay_url = ?3",
+            params![seq, now_ms, relay_url],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_relay_last_sync_at(&self) -> Result<Option<i64>> {
+        Ok(self.conn.query_row(
+            "SELECT last_sync_at FROM relay_state ORDER BY last_sync_at DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        ).optional()?.flatten())
+    }
+
+    pub fn pending_relay_count(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM mutations WHERE relay_seq IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    // ─── Enrollment sessions ─────────────────────────────────────────────────────
+
+    pub fn store_enroll_session(
+        &self,
+        code_hash: &str,
+        vault_id: &str,
+        encrypted_vault_key: &[u8],
+        expires_at: i64,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO enroll_sessions (code_hash, vault_id, encrypted_vault_key, expires_at, attempts) \
+             VALUES (?1, ?2, ?3, ?4, 0)",
+            params![code_hash, vault_id, encrypted_vault_key, expires_at],
+        )?;
+        Ok(())
     }
 
     /// Returns true if the stored access token has not yet expired.
@@ -827,6 +1108,22 @@ impl VaultDb {
         })?;
         rows.map(|r| r.context("loading gmail account row")).collect()
     }
+}
+
+// ─── Hex helpers (avoids adding a hex crate dep) ─────────────────────────────
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn decode_hex(s: &str) -> Result<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return Err(anyhow::anyhow!("odd-length hex string"));
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!("hex decode: {e}")))
+        .collect()
 }
 
 // Allow rusqlite's optional() on queries returning no rows

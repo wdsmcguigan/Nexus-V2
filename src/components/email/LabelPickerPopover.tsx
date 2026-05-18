@@ -2,15 +2,16 @@
  * Floating label picker — shows all user labels, toggles them on/off for a message.
  * Also exports LabelPickerDialog for the keyboard-shortcut (L key) entry point.
  */
+import * as React from "react";
 import * as Popover from "@radix-ui/react-popover";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Tag as TagIcon, Check } from "lucide-react";
+import { Tag as TagIcon, Check, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useUserLabels } from "@/storage/useStore";
 import { useMessage } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
-import { addLabel, removeLabel } from "@/state/mutations";
+import { addLabel, removeLabel, createLabel } from "@/state/mutations";
 import { cn } from "@/lib/utils";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -23,11 +24,121 @@ function getMsgLabelIds(messageId: string): Set<string> {
   return result;
 }
 
+// ─── Inner picker UI (shared between popover and dialog) ─────────────────────
+
+interface PickerBodyProps {
+  messageId: string | null;
+  onClose?: () => void;
+}
+
+function LabelPickerBody({ messageId, onClose }: PickerBodyProps) {
+  const labels = useUserLabels();
+  useMessage(messageId);
+  const msgLabelIds = messageId ? getMsgLabelIds(messageId) : new Set<string>();
+
+  const [query, setQuery] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    // Auto-focus the search field when the picker opens
+    const id = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(id);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? labels.filter((l) => l.name.toLowerCase().includes(q))
+    : labels;
+
+  const exactMatch = labels.some((l) => l.name.toLowerCase() === q);
+  const canCreate = q.length > 0 && !exactMatch;
+
+  function handleToggle(labelId: string, active: boolean) {
+    if (!messageId) return;
+    if (active) removeLabel(localStore, messageId, labelId);
+    else addLabel(localStore, messageId, labelId);
+  }
+
+  function handleCreate() {
+    if (!q) return;
+    const name = query.trim();
+    const id = `lbl-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+    const vaultId = localStore.vault?.id ?? "local";
+    const position = labels.length;
+    const color = (position % 21) + 1;
+    createLabel(localStore, { id, vaultId, name, color, kind: "user", position });
+    if (messageId) addLabel(localStore, messageId, id);
+    setQuery("");
+    onClose?.();
+  }
+
+  return (
+    <div className="flex flex-col">
+      {/* Search / create input */}
+      <div className="flex items-center gap-1.5 border-b border-border-subtle px-2 py-1.5">
+        <Search size={11} className="shrink-0 text-text-tertiary" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search or create…"
+          className="min-w-0 flex-1 bg-transparent text-body text-text-primary outline-none placeholder:text-text-tertiary"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && canCreate) { e.preventDefault(); handleCreate(); }
+            if (e.key === "Escape") { e.preventDefault(); onClose?.(); }
+          }}
+        />
+      </div>
+
+      {/* Scrollable label list */}
+      <div className="max-h-64 overflow-y-auto py-1">
+        {filtered.length === 0 && !canCreate && (
+          <p className="px-2 py-1.5 text-body text-text-tertiary">No labels yet</p>
+        )}
+        {filtered.map((lbl) => {
+          const active = msgLabelIds.has(lbl.id);
+          return (
+            <button
+              key={lbl.id}
+              type="button"
+              onClick={() => handleToggle(lbl.id, active)}
+              className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-body text-text-secondary hover:bg-surface-3 hover:text-text-primary"
+            >
+              <span
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: `var(--color-link-${lbl.color})` }}
+              />
+              <span className="flex-1 text-left">{lbl.name}</span>
+              {active && <Check size={11} className="shrink-0 text-accent" />}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Create new label row */}
+      {canCreate && (
+        <div className="border-t border-border-subtle pt-1 pb-1">
+          <button
+            type="button"
+            onClick={handleCreate}
+            className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-body text-text-secondary hover:bg-surface-3 hover:text-text-primary"
+          >
+            <Plus size={12} className="shrink-0 text-accent" />
+            <span className="flex-1 text-left">
+              Create <span className="font-medium text-text-primary">"{query.trim()}"</span>
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── LabelPickerPopover ───────────────────────────────────────────────────────
 
 interface PopoverProps {
   messageId: string | null;
-  /** "icon" = toolbar icon button (default); "menu-item" = plain clickable row */
   variant?: "icon" | "menu-item";
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
@@ -39,13 +150,6 @@ export function LabelPickerPopover({
   open,
   onOpenChange,
 }: PopoverProps) {
-  const labels = useUserLabels();
-  // Subscribe to store so active-label dots update reactively
-  useMessage(messageId);
-  const msgLabelIds = messageId ? getMsgLabelIds(messageId) : new Set<string>();
-
-  if (labels.length === 0) return null;
-
   const trigger =
     variant === "icon" ? (
       <span>
@@ -73,33 +177,15 @@ export function LabelPickerPopover({
           sideOffset={6}
           align="end"
           className={cn(
-            "z-50 w-52 overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg",
+            "z-50 w-56 overflow-hidden rounded-md border border-border-subtle bg-surface-2 shadow-lg",
             "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
             "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           )}
         >
-          {labels.map((lbl) => {
-            const active = msgLabelIds.has(lbl.id);
-            return (
-              <button
-                key={lbl.id}
-                type="button"
-                onClick={() => {
-                  if (!messageId) return;
-                  if (active) removeLabel(localStore, messageId, lbl.id);
-                  else addLabel(localStore, messageId, lbl.id);
-                }}
-                className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-body text-text-secondary hover:bg-surface-3 hover:text-text-primary"
-              >
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: `var(--color-link-${lbl.color})` }}
-                />
-                <span className="flex-1 text-left">{lbl.name}</span>
-                {active && <Check size={11} className="shrink-0 text-accent" />}
-              </button>
-            );
-          })}
+          <LabelPickerBody
+            messageId={messageId}
+            onClose={() => onOpenChange?.(false)}
+          />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
@@ -107,7 +193,6 @@ export function LabelPickerPopover({
 }
 
 // ─── LabelPickerDialog ────────────────────────────────────────────────────────
-// Used by the keyboard shortcut (L key) in EmailListPanel — centres on screen.
 
 interface DialogProps {
   messageId: string | null;
@@ -116,43 +201,13 @@ interface DialogProps {
 }
 
 export function LabelPickerDialog({ messageId, open, onClose }: DialogProps) {
-  const labels = useUserLabels();
-  // Subscribe to store so active-label dots update reactively
-  useMessage(messageId);
-  const msgLabelIds = messageId ? getMsgLabelIds(messageId) : new Set<string>();
-
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-52 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95">
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-56 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border border-border-subtle bg-surface-2 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95">
           <Dialog.Title className="sr-only">Apply label</Dialog.Title>
-          {labels.length === 0 ? (
-            <p className="px-2 py-1.5 text-body text-text-tertiary">No labels yet</p>
-          ) : (
-            labels.map((lbl) => {
-              const active = msgLabelIds.has(lbl.id);
-              return (
-                <button
-                  key={lbl.id}
-                  type="button"
-                  onClick={() => {
-                    if (!messageId) return;
-                    if (active) removeLabel(localStore, messageId, lbl.id);
-                    else addLabel(localStore, messageId, lbl.id);
-                  }}
-                  className="flex h-8 w-full items-center gap-2 rounded-xs px-2 text-body text-text-secondary hover:bg-surface-3 hover:text-text-primary"
-                >
-                  <span
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: `var(--color-link-${lbl.color})` }}
-                  />
-                  <span className="flex-1 text-left">{lbl.name}</span>
-                  {active && <Check size={11} className="shrink-0 text-accent" />}
-                </button>
-              );
-            })
-          )}
+          <LabelPickerBody messageId={messageId} onClose={onClose} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

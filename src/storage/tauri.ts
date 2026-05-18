@@ -37,8 +37,13 @@ export async function loadVaultData(vaultPath: string): Promise<HydratePayload> 
   return invoke<HydratePayload>("load_vault_data", { vaultPath });
 }
 
-export async function applyMutationIpc(kind: string, payload: unknown): Promise<void> {
-  return invoke<void>("apply_mutation", { kind, payload });
+export async function applyMutationIpc(
+  kind: string,
+  payload: unknown,
+  deviceId: string,
+  lamport: number,
+): Promise<void> {
+  return invoke<void>("apply_mutation", { kind, payload, deviceId, lamport });
 }
 
 export async function getMessageBody(bodyRef: string): Promise<string | null> {
@@ -72,6 +77,10 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
+export async function disconnectAccount(accountId: string): Promise<void> {
+  return invoke<void>("disconnect_account", { accountId });
+}
+
 // ─── Watcher ──────────────────────────────────────────────────────────────────
 
 export async function startWatcher(vaultPath: string): Promise<void> {
@@ -94,6 +103,45 @@ export async function onNewMessages(
   cb: (payload: { messageIds: string[] }) => void,
 ): Promise<() => void> {
   return listen("gmail:new-messages", cb as (p: unknown) => void);
+}
+
+// ─── EP-5 Relay ───────────────────────────────────────────────────────────────
+
+export interface RelayStatus {
+  configured: boolean;
+  lastSyncAt: number | null;
+  pendingCount: number;
+  error: string | null;
+  hostingPort: number | null;
+}
+
+export async function getRelayStatus(): Promise<RelayStatus> {
+  return invoke<RelayStatus>("get_relay_status");
+}
+
+export async function setRelayUrl(url: string): Promise<void> {
+  return invoke<void>("set_relay_url", { url });
+}
+
+export async function getVaultKeyHex(): Promise<string> {
+  return invoke<string>("get_vault_key_hex");
+}
+
+export interface EnrollmentSession {
+  code: string;
+  expiresAt: number;
+}
+
+export async function startEnrollmentSession(): Promise<EnrollmentSession> {
+  return invoke<EnrollmentSession>("start_enrollment_session");
+}
+
+export async function completeEnrollment(relayUrl: string, code: string): Promise<void> {
+  return invoke<void>("complete_enrollment", { relayUrl, code });
+}
+
+export async function startRelayHosting(port?: number): Promise<number> {
+  return invoke<number>("start_relay_hosting", { port: port ?? 3030 });
 }
 
 // ─── Send message ─────────────────────────────────────────────────────────────
