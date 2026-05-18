@@ -182,8 +182,7 @@ export type StarStyle =
   | "bang-yellow";
 
 // ─── FLG — Flag state ─────────────────────────────────────────────────────────
-// Outlook-style follow-up marker. EP-0 ships boolean MVP (setAt only).
-// Full date picker is EP-2.
+// Outlook-style follow-up marker with optional due date and reminder.
 
 export interface FlagState {
   setAt: number;

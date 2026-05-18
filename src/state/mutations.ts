@@ -437,6 +437,24 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       break;
     }
 
+    // ── Saved view ops ───────────────────────────────────────────
+    case "SAVE_VIEW": {
+      const view = m.payload as SavedView;
+      store.putSavedView(view);
+      break;
+    }
+    case "DELETE_VIEW": {
+      const { viewId } = m.payload as { viewId: string };
+      store.deleteSavedView(viewId);
+      break;
+    }
+    case "RENAME_VIEW": {
+      const { viewId, name } = m.payload as { viewId: string; name: string };
+      const sv = store.savedViews.get(viewId);
+      if (sv) store.putSavedView({ ...sv, name });
+      break;
+    }
+
     // ── Contact ops ──────────────────────────────────────────────
     case "UPSERT_CONTACT":
     case "UPDATE_CONTACT": {
@@ -605,19 +623,16 @@ export function saveView(
     position: store.savedViews.size,
     createdAt: Date.now(),
   };
-  recordMutation("SAVE_VIEW", { viewId: view.id, name, filter }, store);
-  store.putSavedView(view);
+  recordMutation("SAVE_VIEW", view, store);
   return view;
 }
 
 export function deleteView(store: LocalStore, viewId: string): void {
   recordMutation("DELETE_VIEW", { viewId }, store);
-  store.deleteSavedView(viewId);
 }
 
 export function renameView(store: LocalStore, viewId: string, name: string): void {
   recordMutation("RENAME_VIEW", { viewId, name }, store);
-  store.renameSavedView(viewId, name);
 }
 
 // ── Contact ops ─────────────────────────────────────────────────────────────

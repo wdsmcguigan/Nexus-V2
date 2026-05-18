@@ -22,6 +22,7 @@ pub struct HydratePayload {
     pub tag_usage: Vec<JsonValue>,
     pub mutations: Vec<JsonValue>,
     pub contacts: Vec<JsonValue>,
+    pub saved_views: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -38,6 +39,7 @@ impl VaultDb {
             tag_usage: self.load_tag_usage(vault_id)?,
             mutations: vec![],
             contacts: self.load_contacts(vault_id)?,
+            saved_views: self.load_saved_views(vault_id)?,
         })
     }
 
@@ -418,6 +420,25 @@ impl VaultDb {
             }))
         })?;
         rows.map(|r| r.context("loading tag usage row")).collect()
+    }
+
+    fn load_saved_views(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, filter_json, position, created_at
+             FROM saved_views WHERE vault_id = ?1 ORDER BY position",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            let filter_json: String = r.get(2)?;
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "name": r.get::<_, String>(1)?,
+                "filter": serde_json::from_str::<JsonValue>(&filter_json).unwrap_or_default(),
+                "position": r.get::<_, i64>(3)?,
+                "createdAt": r.get::<_, i64>(4)?
+            }))
+        })?;
+        rows.map(|r| r.context("loading saved view row")).collect()
     }
 
     // ── Write helpers ─────────────────────────────────────────────────────────
@@ -841,6 +862,327 @@ impl VaultDb {
                     params![serde_json::to_string(&fields)?, msg_id],
                 )?;
             }
+            // ── Folder ops ────────────────────────────────────────
+            "CREATE_FOLDER" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let name = p["name"].as_str().unwrap_or_default();
+                let disk_slug = p["diskSlug"].as_str().unwrap_or_default();
+                let color = p["color"].as_i64();
+                let icon = p["icon"].as_str();
+                let system_kind = p["systemKind"].as_str();
+                let position = p["position"].as_i64().unwrap_or(0);
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO folders (id, vault_id, name, disk_slug, color, icon, system_kind, position)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![id, vault_id, name, disk_slug, color, icon, system_kind, position],
+                )?;
+            }
+            "RENAME_FOLDER" => {
+                let folder_id = p["folderId"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                let disk_slug = p["diskSlug"].as_str().unwrap_or_default();
+                self.conn.execute(
+                    "UPDATE folders SET name = ?1, disk_slug = ?2 WHERE id = ?3",
+                    params![name, disk_slug, folder_id],
+                )?;
+            }
+            "RECOLOR_FOLDER" => {
+                let folder_id = p["folderId"].as_str().unwrap_or_default();
+                let color = p["color"].as_i64();
+                self.conn.execute("UPDATE folders SET color = ?1 WHERE id = ?2", params![color, folder_id])?;
+            }
+            "DELETE_FOLDER" => {
+                let folder_id = p["folderId"].as_str().unwrap_or_default();
+                self.conn.execute("DELETE FROM folders WHERE id = ?1", params![folder_id])?;
+            }
+            "MOVE_TO_FOLDER" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                let folder_id = p["folderId"].as_str().unwrap_or_default();
+                self.conn.execute(
+                    "UPDATE messages SET folder_id = ?1 WHERE id = ?2",
+                    params![folder_id, msg_id],
+                )?;
+            }
+
+            // ── Label CRUD ─────────────────────────────────────────
+            "CREATE_LABEL" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let name = p["name"].as_str().unwrap_or_default();
+                let color = p["color"].as_i64().unwrap_or(1);
+                let kind = p["kind"].as_str().unwrap_or("user");
+                let system_kind = p["systemKind"].as_str();
+                let parent_id = p["parentId"].as_str();
+                let position = p["position"].as_i64().unwrap_or(0);
+                let provider_id = p["providerId"].as_str();
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO labels (id, vault_id, name, color, kind, system_kind, parent_id, position, provider_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![id, vault_id, name, color, kind, system_kind, parent_id, position, provider_id],
+                )?;
+            }
+            "RENAME_LABEL" => {
+                let label_id = p["labelId"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE labels SET name = ?1 WHERE id = ?2", params![name, label_id])?;
+            }
+            "RECOLOR_LABEL" => {
+                let label_id = p["labelId"].as_str().unwrap_or_default();
+                let color = p["color"].as_i64().unwrap_or(1);
+                self.conn.execute("UPDATE labels SET color = ?1 WHERE id = ?2", params![color, label_id])?;
+            }
+            "DELETE_LABEL" => {
+                let label_id = p["labelId"].as_str().unwrap_or_default();
+                self.conn.execute("DELETE FROM message_labels WHERE label_id = ?1", params![label_id])?;
+                self.conn.execute("DELETE FROM labels WHERE id = ?1", params![label_id])?;
+            }
+            "REORDER_LABELS" => {
+                if let Some(ids) = p["orderedIds"].as_array() {
+                    for (i, id) in ids.iter().enumerate() {
+                        if let Some(s) = id.as_str() {
+                            self.conn.execute("UPDATE labels SET position = ?1 WHERE id = ?2", params![i as i64, s])?;
+                        }
+                    }
+                }
+            }
+
+            // ── Tag global ops ─────────────────────────────────────
+            "RENAME_TAG_GLOBAL" => {
+                let old_tag = p["oldTag"].as_str().unwrap_or_default();
+                let new_tag = p["newTag"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE message_tags SET tag = ?1 WHERE tag = ?2", params![new_tag, old_tag])?;
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO tag_usage (vault_id, tag, count, last_used_at)
+                     SELECT vault_id, ?1, count, last_used_at FROM tag_usage WHERE tag = ?2",
+                    params![new_tag, old_tag],
+                )?;
+                self.conn.execute("DELETE FROM tag_usage WHERE tag = ?1", params![old_tag])?;
+            }
+            "DELETE_TAG_GLOBAL" => {
+                let tag = p["tag"].as_str().unwrap_or_default();
+                self.conn.execute("DELETE FROM message_tags WHERE tag = ?1", params![tag])?;
+                self.conn.execute("DELETE FROM tag_usage WHERE tag = ?1", params![tag])?;
+            }
+
+            // ── Status CRUD ────────────────────────────────────────
+            "CREATE_STATUS" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let name = p["name"].as_str().unwrap_or_default();
+                let color = p["color"].as_i64().unwrap_or(1);
+                let position = p["position"].as_i64().unwrap_or(0);
+                let is_default = p["isDefault"].as_bool().unwrap_or(false) as i64;
+                let is_terminal = p["isTerminal"].as_bool().unwrap_or(false) as i64;
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO statuses (id, vault_id, name, color, position, is_default, is_terminal)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id, vault_id, name, color, position, is_default, is_terminal],
+                )?;
+            }
+            "RENAME_STATUS" => {
+                let status_id = p["statusId"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE statuses SET name = ?1 WHERE id = ?2", params![name, status_id])?;
+            }
+            "DELETE_STATUS" => {
+                let status_id = p["statusId"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE messages SET status_id = NULL WHERE status_id = ?1", params![status_id])?;
+                self.conn.execute("DELETE FROM statuses WHERE id = ?1", params![status_id])?;
+            }
+            "REORDER_STATUSES" => {
+                if let Some(ids) = p["orderedIds"].as_array() {
+                    for (i, id) in ids.iter().enumerate() {
+                        if let Some(s) = id.as_str() {
+                            self.conn.execute("UPDATE statuses SET position = ?1 WHERE id = ?2", params![i as i64, s])?;
+                        }
+                    }
+                }
+            }
+
+            // ── Flag lifecycle ─────────────────────────────────────
+            "SET_FLAG" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                let flag_json = p["flag"].to_string();
+                self.conn.execute(
+                    "UPDATE messages SET flag_json = ?1, flags_flagged = 1 WHERE id = ?2",
+                    params![flag_json, msg_id],
+                )?;
+            }
+            "UPDATE_FLAG" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                let current: String = self.conn.query_row(
+                    "SELECT COALESCE(flag_json, '{}') FROM messages WHERE id = ?1",
+                    params![msg_id], |r| r.get(0),
+                ).unwrap_or_else(|_| "{}".to_string());
+                let mut flag: serde_json::Map<String, JsonValue> =
+                    serde_json::from_str(&current).unwrap_or_default();
+                if let Some(obj) = p["updates"].as_object() {
+                    for (k, v) in obj { flag.insert(k.clone(), v.clone()); }
+                }
+                self.conn.execute(
+                    "UPDATE messages SET flag_json = ?1 WHERE id = ?2",
+                    params![serde_json::to_string(&flag)?, msg_id],
+                )?;
+            }
+            "COMPLETE_FLAG" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                let now = chrono::Utc::now().timestamp_millis();
+                let current: String = self.conn.query_row(
+                    "SELECT COALESCE(flag_json, '{}') FROM messages WHERE id = ?1",
+                    params![msg_id], |r| r.get(0),
+                ).unwrap_or_else(|_| "{}".to_string());
+                let mut flag: serde_json::Map<String, JsonValue> =
+                    serde_json::from_str(&current).unwrap_or_default();
+                flag.insert("completedAt".to_string(), JsonValue::Number(now.into()));
+                self.conn.execute(
+                    "UPDATE messages SET flag_json = ?1 WHERE id = ?2",
+                    params![serde_json::to_string(&flag)?, msg_id],
+                )?;
+            }
+            "CLEAR_FLAG" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                self.conn.execute(
+                    "UPDATE messages SET flag_json = NULL, flags_flagged = 0 WHERE id = ?1",
+                    params![msg_id],
+                )?;
+            }
+
+            // ── Star ───────────────────────────────────────────────
+            "CLEAR_STAR" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE messages SET star = NULL WHERE id = ?1", params![msg_id])?;
+            }
+
+            // ── Message lifecycle ──────────────────────────────────
+            "READ" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE messages SET flags_read = 1 WHERE id = ?1", params![msg_id])?;
+            }
+            "UNREAD" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE messages SET flags_read = 0 WHERE id = ?1", params![msg_id])?;
+            }
+            "SNOOZE" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                let until = p["until"].as_i64().unwrap_or(0);
+                self.conn.execute(
+                    "DELETE FROM message_labels WHERE message_id = ?1
+                     AND label_id IN (SELECT id FROM labels WHERE system_kind = 'inbox')",
+                    params![msg_id],
+                )?;
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                     SELECT ?1, id FROM labels WHERE system_kind = 'snoozed' LIMIT 1",
+                    params![msg_id],
+                )?;
+                let flag_json = serde_json::json!({
+                    "setAt": chrono::Utc::now().timestamp_millis(),
+                    "dueAt": until
+                }).to_string();
+                self.conn.execute(
+                    "UPDATE messages SET flag_json = ?1 WHERE id = ?2",
+                    params![flag_json, msg_id],
+                )?;
+            }
+            "DELETE_MESSAGE" => {
+                let msg_id = p["messageId"].as_str().unwrap_or_default();
+                self.conn.execute("DELETE FROM message_labels WHERE message_id = ?1", params![msg_id])?;
+                self.conn.execute("DELETE FROM message_tags WHERE message_id = ?1", params![msg_id])?;
+                self.conn.execute("DELETE FROM messages WHERE id = ?1", params![msg_id])?;
+            }
+            // Provider sync and outbound send are handled by their own commands.
+            "SEND_MESSAGE" | "RECEIVE_FROM_PROVIDER" => {}
+
+            // ── Custom field definitions ───────────────────────────
+            "CREATE_CUSTOM_FIELD" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let name = p["name"].as_str().unwrap_or_default();
+                let field_type = p["type"].as_str().unwrap_or("text");
+                let description = p["description"].as_str();
+                let position = p["position"].as_i64().unwrap_or(0);
+                let is_pinned = p["isPinned"].as_bool().unwrap_or(false) as i64;
+                let default_value = p["defaultValue"].as_str();
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO custom_field_defs
+                     (id, vault_id, name, type, description, position, is_pinned, default_value)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![id, vault_id, name, field_type, description, position, is_pinned, default_value],
+                )?;
+                if let Some(options) = p["options"].as_array() {
+                    for opt in options {
+                        let oid = opt["id"].as_str().unwrap_or_default();
+                        let label = opt["label"].as_str().unwrap_or_default();
+                        let color = opt["color"].as_i64().unwrap_or(1);
+                        let opos = opt["position"].as_i64().unwrap_or(0);
+                        self.conn.execute(
+                            "INSERT OR IGNORE INTO custom_field_options (id, field_id, label, color, position)
+                             VALUES (?1, ?2, ?3, ?4, ?5)",
+                            params![oid, id, label, color, opos],
+                        )?;
+                    }
+                }
+            }
+            "UPDATE_CUSTOM_FIELD" => {
+                let field_id = p["fieldId"].as_str().unwrap_or_default();
+                let updates = &p["updates"];
+                if let Some(name) = updates["name"].as_str() {
+                    self.conn.execute("UPDATE custom_field_defs SET name = ?1 WHERE id = ?2", params![name, field_id])?;
+                }
+                if let Some(desc) = updates["description"].as_str() {
+                    self.conn.execute("UPDATE custom_field_defs SET description = ?1 WHERE id = ?2", params![desc, field_id])?;
+                }
+                if let Some(pinned) = updates["isPinned"].as_bool() {
+                    self.conn.execute("UPDATE custom_field_defs SET is_pinned = ?1 WHERE id = ?2", params![pinned as i64, field_id])?;
+                }
+                if let Some(options) = updates["options"].as_array() {
+                    self.conn.execute("DELETE FROM custom_field_options WHERE field_id = ?1", params![field_id])?;
+                    for opt in options {
+                        let oid = opt["id"].as_str().unwrap_or_default();
+                        let label = opt["label"].as_str().unwrap_or_default();
+                        let color = opt["color"].as_i64().unwrap_or(1);
+                        let opos = opt["position"].as_i64().unwrap_or(0);
+                        self.conn.execute(
+                            "INSERT OR IGNORE INTO custom_field_options (id, field_id, label, color, position)
+                             VALUES (?1, ?2, ?3, ?4, ?5)",
+                            params![oid, field_id, label, color, opos],
+                        )?;
+                    }
+                }
+            }
+            "DELETE_CUSTOM_FIELD" => {
+                let field_id = p["fieldId"].as_str().unwrap_or_default();
+                // custom_field_options rows cascade via ON DELETE CASCADE
+                self.conn.execute("DELETE FROM custom_field_defs WHERE id = ?1", params![field_id])?;
+            }
+
+            // ── Saved views ────────────────────────────────────────
+            "SAVE_VIEW" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let name = p["name"].as_str().unwrap_or_default();
+                let filter_json = p["filter"].to_string();
+                let position = p["position"].as_i64().unwrap_or(0);
+                let created_at = p["createdAt"].as_i64()
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO saved_views (id, vault_id, name, filter_json, position, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, vault_id, name, filter_json, position, created_at],
+                )?;
+            }
+            "DELETE_VIEW" => {
+                let view_id = p["viewId"].as_str().unwrap_or_default();
+                self.conn.execute("DELETE FROM saved_views WHERE id = ?1", params![view_id])?;
+            }
+            "RENAME_VIEW" => {
+                let view_id = p["viewId"].as_str().unwrap_or_default();
+                let name = p["name"].as_str().unwrap_or_default();
+                self.conn.execute("UPDATE saved_views SET name = ?1 WHERE id = ?2", params![name, view_id])?;
+            }
+
+            // ── Contacts ───────────────────────────────────────────
             "UPSERT_CONTACT" | "UPDATE_CONTACT" => {
                 let contact = &p["contact"];
                 let vault_id = contact["vaultId"].as_str().unwrap_or("local");

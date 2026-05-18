@@ -208,4 +208,13 @@ CREATE TABLE IF NOT EXISTS contact_phones (
     position INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (contact_id, phone)
 );
+
+CREATE TABLE IF NOT EXISTS saved_views (
+    id         TEXT PRIMARY KEY,
+    vault_id   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    filter_json TEXT NOT NULL,
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
 "#;

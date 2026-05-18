@@ -240,8 +240,10 @@ export function EmailComposerPanel() {
     if (mode === "reply-all" && replyMsg) return replyMsg.ccAddrs.map((t) => t.email);
     return [];
   });
+  const [bccRecipients, setBccRecipients] = React.useState<string[]>([]);
   const [draftInput, setDraftInput] = React.useState("");
   const [ccDraftInput, setCcDraftInput] = React.useState("");
+  const [bccDraftInput, setBccDraftInput] = React.useState("");
   const [showCc, setShowCc] = React.useState(mode === "reply-all");
 
   // ── Subject ───────────────────────────────────────────────────────────────
@@ -297,6 +299,8 @@ export function EmailComposerPanel() {
           accountId: gmailAccount.id,
           from: gmailAccount.email,
           to: recipients,
+          cc: ccRecipients.length > 0 ? ccRecipients : undefined,
+          bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
           subject,
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
@@ -310,7 +314,7 @@ export function EmailComposerPanel() {
       toast.success("Sent (web mode — not actually delivered)");
     }
     setComposerOpen(false);
-  }, [editor, recipients, subject, replyMsg, setComposerOpen]);
+  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, setComposerOpen]);
 
   const startSend = React.useCallback(() => {
     setSending(true);
@@ -441,7 +445,19 @@ export function EmailComposerPanel() {
               </div>
             </FieldRow>
             <FieldRow label="Bcc">
-              <input placeholder="Add bcc…" className="h-9 w-full bg-transparent text-body text-text-primary placeholder:text-text-muted focus:outline-none" />
+              <div className="flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5">
+                {bccRecipients.map((r) => (
+                  <Tag key={r} color={pickPanelLink(r)} size="md" removable onRemove={() => setBccRecipients((rs) => rs.filter((x) => x !== r))}>
+                    {r}
+                  </Tag>
+                ))}
+                <RecipientInput
+                  value={bccDraftInput}
+                  onChange={setBccDraftInput}
+                  onCommit={(email) => { setBccRecipients((r) => [...r, email]); setBccDraftInput(""); }}
+                  placeholder={bccRecipients.length === 0 ? "Add bcc…" : ""}
+                />
+              </div>
             </FieldRow>
           </>
         )}

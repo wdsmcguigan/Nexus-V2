@@ -161,8 +161,8 @@ spell out as `MUTN` for the data entity). When in doubt write the full word.
 **Is NOT**: An email body. A reply draft. A tag (`TAG`).
 **Cardinality / shape**: one nullable markdown string per message.
 **Provider-portable?** No.
-**Lives in**: `MSG.notes`. UI in Epic 2.
-**See also**: `INS-NOTE-EDITOR` (Epic 2).
+**Lives in**: `MSG.notes`. UI in `INS-NOTE-EDITOR`.
+**See also**: `INS-NOTE-EDITOR`.
 
 ### CFD — Custom Field
 **Is**: User-defined typed field. Airtable-style. Unlimited count.
@@ -172,8 +172,8 @@ select / multi-select / person. Indexed for fast filter performance via EAV.
 untyped strings). A built-in axis.
 **Cardinality / shape**: many definitions × one or many values per definition per message.
 **Provider-portable?** No.
-**Lives in**: `src/data/types.ts` (definitions + values, Epic 0). UI in Epic 2.
-**See also**: `VW-TABLE-CUSTOM-FIELDS` (Epic 1), `SET-CUSTOM-FIELDS` (Settings, Epic 2).
+**Lives in**: `src/data/types.ts` (definitions + values). UI in `INS-CUSTOM-FIELDS`, `SET-CUSTOM-FIELDS`.
+**See also**: `VW-TABLE-CUSTOM-FIELDS`, `SET-CUSTOM-FIELDS`.
 
 ### RD — Read state
 **Is**: Boolean. RFC `\Seen`.
@@ -307,21 +307,21 @@ icon opens the palette.
 **Lives in**: `src/components/inspector/InspectorPanel.tsx` (Epic 0).
 
 #### INS-FLAG-TOGGLE — Flag toggle (boolean MVP)
-**Is**: Epic 0 ships a boolean flag toggle (maps `flag = { setAt } | null`).
-**Lives in**: `src/components/inspector/InspectorPanel.tsx` (Epic 0).
-**See also**: `INS-FLAG-PICKER` (Epic 2).
+**Is**: Boolean flag toggle (maps `flag = { setAt } | null`).
+**Lives in**: `src/components/inspector/InspectorPanel.tsx`.
+**See also**: `INS-FLAG-PICKER`.
 
-#### INS-FLAG-PICKER — Flag picker with due date (Epic 2)
+#### INS-FLAG-PICKER — Flag picker with due date
 **Is**: Full follow-up UI with date picker + reminder.
-**Lives in**: `src/components/inspector/FlagPicker.tsx` (Epic 2, not yet built).
+**Lives in**: `src/components/inspector/FlagPicker.tsx`.
 
-#### INS-NOTE-EDITOR — Note editor (Epic 2)
+#### INS-NOTE-EDITOR — Note editor
 **Is**: Markdown editor for `NTE`.
-**Lives in**: `src/components/inspector/NoteEditor.tsx` (Epic 2, not yet built).
+**Lives in**: `src/components/inspector/NoteEditor.tsx`.
 
-#### INS-CUSTOM-FIELDS — Custom field strip (Epic 2)
+#### INS-CUSTOM-FIELDS — Custom field strip
 **Is**: Per-message editors for defined `CFD`s, rendered with type-appropriate inputs.
-**Lives in**: `src/components/customfields/CustomFieldStrip.tsx` (Epic 2, not yet built).
+**Lives in**: `src/components/customfields/CustomFieldStrip.tsx`.
 
 ### Email list (`LST-*`)
 
@@ -466,14 +466,17 @@ groupable by any indexed axis.
 ### VW-CONVERSATION — Conversation / thread view
 **Is**: One `THR` expanded with all messages inline.
 
-### VW-KANBAN-BY-STATUS — Kanban view (Epic 1)
+### VW-KANBAN-BY-STATUS — Kanban view
 **Is**: Columns = `STA` values; cards = messages. Drag = `SET_STATUS`.
+**Lives in**: `src/components/views/KanbanView.tsx`.
 
-### VW-TABLE-CUSTOM-FIELDS — Table view (Epic 1)
+### VW-TABLE-CUSTOM-FIELDS — Table view
 **Is**: Tabular view with one column per `CFD` definition plus core fields.
+**Lives in**: `src/components/views/TableView.tsx`.
 
-### VW-SAVED — Saved view (Epic 1)
+### VW-SAVED — Saved view
 **Is**: A named, persisted filter. Surfaces in nav + palette.
+**Lives in**: `src-tauri/src/db/schema.rs` (`saved_views` table) + `src/storage/local.ts`.
 
 ---
 
@@ -481,12 +484,12 @@ groupable by any indexed axis.
 
 | ID | Title | Status | Validates |
 |---|---|---|---|
-| **EP-0** | Data model overhaul (web) | Next up | Power-user mental model + filter speed |
-| **EP-1** | Filter & saved-views (web) | Planned | Power-user feel |
-| **EP-2** | Custom fields UI + Notes editor + Flag-with-due-date | Planned | Airtable-grade expressivity |
-| **EP-3** | FTS index (web) | Planned | Soundminer-class search |
-| **EP-4** | Tauri shell (desktop) | Planned | Local-first thesis |
-| **EP-5** | Sync relay (Replicache substrate) | Planned | Cross-device |
+| **EP-0** | Data model overhaul (web) | Shipped | Power-user mental model + filter speed |
+| **EP-1** | Filter & saved-views (web) | Shipped | Power-user feel |
+| **EP-2** | Custom fields UI + Notes editor + Flag-with-due-date | Shipped | Airtable-grade expressivity |
+| **EP-3** | FTS index + contacts (web) | Shipped | Soundminer-class search |
+| **EP-4** | Tauri shell (desktop) + Gmail sync | Shipped | Local-first thesis |
+| **EP-5** | E2EE relay sync | Shipped | Cross-device |
 | **EP-6** | Provider workers (Gmail / JMAP / IMAP) | Planned | Real mail |
 | **EP-7** | Mobile (iOS, then Android) | Planned | Phone-first users |
 | **EP-8** | Conflict UI + advanced sync state | Planned | Edge-case polish |
