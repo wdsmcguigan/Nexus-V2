@@ -37,24 +37,8 @@
       rel="stylesheet"
     />
 
-    <!-- Tailwind Play CDN — build-free -->
-    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
-              mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'Menlo', 'monospace'],
-            },
-            colors: {
-              accent: 'var(--color-accent)',
-              'accent-hover': 'var(--color-accent-hover)',
-            },
-          },
-        },
-      };
-    </script>
+    <!-- Tailwind — built statically from index.html via tailwind.src.css + tailwind.config.cjs -->
+    <link rel="stylesheet" href="./tailwind.css" />
 
     <style>
       /* NEXUS Design Tokens (mirrored from src/design-system/tokens.css) */
@@ -269,14 +253,22 @@
       .chrome-iframe-wrap {
         position: relative;
         width: 100%;
-        aspect-ratio: 16 / 10;
-        min-height: 560px;
+        aspect-ratio: 16 / 11;
+        min-height: 820px;
+        max-height: calc(100vh - 80px);
         background: var(--color-surface-1);
       }
-      @media (max-width: 768px) {
+      @media (max-width: 900px) {
+        .chrome-iframe-wrap {
+          aspect-ratio: 4 / 5;
+          min-height: 680px;
+          max-height: none;
+        }
+      }
+      @media (max-width: 600px) {
         .chrome-iframe-wrap {
           aspect-ratio: 3 / 4;
-          min-height: 520px;
+          min-height: 560px;
         }
       }
 
@@ -679,7 +671,7 @@
 
       <!-- Live demo -->
       <section id="demo" class="border-t border-subtle" style="background: var(--color-surface-2);">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+        <div class="mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28" style="max-width: 1600px;">
           <div class="max-w-2xl mx-auto text-center mb-10">
             <p class="pillar mb-3 justify-center"><span class="pillar-dot"></span> Try it now</p>
             <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
@@ -693,7 +685,7 @@
             </p>
           </div>
 
-          <div class="chrome max-w-6xl mx-auto">
+          <div class="chrome mx-auto" style="max-width: 1440px;">
             <div class="chrome-bar" role="presentation">
               <span class="chrome-dot" style="background: var(--color-danger); border-color: transparent;"></span>
               <span class="chrome-dot" style="background: var(--color-warning); border-color: transparent;"></span>
