@@ -23,8 +23,9 @@ pub async fn load_vault_data(
     let vault_id = init_vault_inner_with_app(&state, &vault_path, &app)
         .await
         .map_err(|e| e.to_string())?;
-    let db = state.db.lock().unwrap();
-    db.as_ref()
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
         .ok_or_else(|| "DB not open".to_string())?
         .build_hydrate_payload(&vault_id)
         .map_err(|e| e.to_string())
@@ -40,8 +41,9 @@ pub async fn apply_mutation(
 ) -> std::result::Result<(), String> {
     let payload_str = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let db = state.db.lock().unwrap();
-    db.as_ref()
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
         .ok_or_else(|| "DB not open".to_string())?
         .apply_mutation(&vault_id, &kind, &payload_str, &device_id, lamport)
         .map_err(|e| e.to_string())
@@ -52,8 +54,9 @@ pub async fn get_message_body(
     state: State<'_, AppState>,
     body_ref: String,
 ) -> std::result::Result<Option<String>, String> {
-    let db = state.db.lock().unwrap();
-    db.as_ref()
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
         .ok_or_else(|| "DB not open".to_string())?
         .get_body(&body_ref)
         .map_err(|e| e.to_string())
@@ -64,8 +67,9 @@ pub async fn list_accounts(
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<JsonValue>, String> {
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let db = state.db.lock().unwrap();
-    db.as_ref()
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
         .ok_or_else(|| "DB not open".to_string())?
         .load_accounts(&vault_id)
         .map_err(|e| e.to_string())
@@ -75,7 +79,7 @@ pub async fn list_accounts(
 pub async fn get_vault_path(
     state: State<'_, AppState>,
 ) -> std::result::Result<Option<String>, String> {
-    Ok(state.vault_path.lock().unwrap().clone())
+    Ok(state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone())
 }
 
 #[tauri::command]
@@ -84,7 +88,7 @@ pub async fn set_vault_path(
     path: String,
 ) -> std::result::Result<(), String> {
     let expanded = expand_tilde(&path);
-    *state.vault_path.lock().unwrap() = Some(expanded.clone());
+    *state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())? = Some(expanded.clone());
     save_vault_path_to_disk(&expanded).map_err(|e| e.to_string())
 }
 
@@ -109,8 +113,8 @@ pub async fn disconnect_account(
     }
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.delete_account(&vault_id, &account_id, &data_action)
             .map_err(|e| e.to_string())?;
     }
@@ -147,8 +151,8 @@ pub async fn start_gmail_oauth(
     let expires_at = chrono::Utc::now().timestamp() + token_resp.expires_in;
 
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.upsert_account(&account_id, &vault_id, "gmail", &token_resp.email, Some(&token_resp.email))
             .map_err(|e| e.to_string())?;
         if let Some(rt) = &token_resp.refresh_token {
@@ -158,7 +162,7 @@ pub async fn start_gmail_oauth(
     }
 
     // Kick off initial sync in background — fully async, no DB reference held across await
-    let vault_path = state.vault_path.lock().unwrap().clone().unwrap_or_default();
+    let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().unwrap_or_default();
     let access_token = token_resp.access_token.clone();
     let vault_id_clone = vault_id.clone();
     let account_id_clone = account_id.clone();
@@ -202,8 +206,8 @@ async fn get_valid_token(
 ) -> std::result::Result<String, String> {
     // Fast path: check without lock first.
     let (access_token, is_valid) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         let at = db.get_access_token(account_id)
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
@@ -217,8 +221,8 @@ async fn get_valid_token(
     // Slow path: serialize refresh attempts so concurrent commands don't both refresh.
     let _guard = state.token_refresh_lock.lock().await;
     let (refresh_token, access_token, is_valid) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         let rt = db.get_refresh_token(account_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "No refresh token stored".to_string())?;
@@ -245,8 +249,8 @@ async fn get_valid_token(
 
     let expires_at = chrono::Utc::now().timestamp() + expires_in;
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.save_tokens(account_id, &new_token, &refresh_token, expires_at)
             .map_err(|e| e.to_string())?;
     }
@@ -262,7 +266,7 @@ pub async fn sync_gmail_now(
     let vault_path = state
         .vault_path
         .lock()
-        .unwrap()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
         .clone()
         .ok_or("No vault loaded")?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
@@ -298,15 +302,15 @@ pub async fn repair_message_bodies(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<usize, String> {
-    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault loaded")?;
+    let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().ok_or("No vault loaded")?;
     let db_path = std::path::Path::new(&vault_path)
         .join("nexus.db")
         .to_string_lossy()
         .into_owned();
 
     let accounts = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.all_gmail_accounts().map_err(|e| e.to_string())?
     };
 
@@ -357,8 +361,8 @@ pub async fn send_message(
     raw_eml: String,
 ) -> std::result::Result<String, String> {
     let (provider, settings_json) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         let mut stmt = db
             .conn
             .prepare("SELECT provider, settings_json FROM accounts WHERE id = ?1")
@@ -377,8 +381,9 @@ pub async fn send_message(
                 .map_err(|_| "NEXUS_GMAIL_CLIENT_SECRET not set")?;
 
             let refresh_token = {
-                let db = state.db.lock().unwrap();
-                db.as_ref()
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                db_guard
+                    .as_ref()
                     .ok_or_else(|| "DB not open".to_string())?
                     .get_refresh_token(&account_id)
                     .map_err(|e| e.to_string())?
@@ -393,8 +398,8 @@ pub async fn send_message(
 
             let expires_at = chrono::Utc::now().timestamp() + expires_in;
             {
-                let db = state.db.lock().unwrap();
-                let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
                 db.save_tokens(&account_id, &access_token, &refresh_token, expires_at)
                     .map_err(|e| e.to_string())?;
             }
@@ -414,15 +419,15 @@ pub async fn send_message(
                 serde_json::from_str(&settings).map_err(|e| e.to_string())?;
 
             let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-            let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+            let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().ok_or("No vault")?;
             let db_path = std::path::Path::new(&vault_path)
                 .join("nexus.db")
                 .to_string_lossy()
                 .into_owned();
 
             let encrypted_pw = {
-                let db = state.db.lock().unwrap();
-                let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
                 db.get_access_token(&account_id)
                     .map_err(|e| e.to_string())?
                     .unwrap_or_default()
@@ -520,8 +525,8 @@ pub async fn download_attachment(
     filename: String,
 ) -> std::result::Result<String, String> {
     let (provider_msg_id, account_id) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.get_provider_id(&message_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Message not found".to_string())?
@@ -576,13 +581,13 @@ pub struct RelayStatus {
 
 #[tauri::command]
 pub async fn get_relay_status(state: State<'_, AppState>) -> std::result::Result<RelayStatus, String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
 
     let configured = db.get_relay_url().map(|u| u.is_some()).unwrap_or(false);
     let last_sync_at = db.get_relay_last_sync_at().ok().flatten();
     let pending_count = db.pending_relay_count().unwrap_or(0);
-    let error = state.relay.lock().unwrap().last_error.clone();
+    let error = state.relay.lock().map_err(|_| "relay lock poisoned".to_string())?.last_error.clone();
 
     Ok(RelayStatus { configured, last_sync_at, pending_count, error, hosting_port: None })
 }
@@ -594,11 +599,11 @@ pub async fn set_relay_url(
     url: String,
 ) -> std::result::Result<(), String> {
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+    let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().ok_or("No vault")?;
 
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.set_relay_url(&url).map_err(|e| e.to_string())?;
     }
 
@@ -612,8 +617,8 @@ pub async fn set_relay_url(
 #[tauri::command]
 pub async fn get_vault_key_hex(state: State<'_, AppState>) -> std::result::Result<String, String> {
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
     db.get_vault_key_hex(&vault_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "No vault key — connect an account first".to_string())
@@ -632,8 +637,8 @@ pub async fn start_enrollment_session(
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
 
     let (relay_url, vault_key) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         let url = db.get_relay_url().map_err(|e| e.to_string())?
             .ok_or_else(|| "Relay URL not configured".to_string())?;
         let key = db.get_or_create_vault_key(&vault_id).map_err(|e| e.to_string())?;
@@ -654,7 +659,7 @@ pub async fn complete_enrollment(
     relay_url: String,
     code: String,
 ) -> std::result::Result<(), String> {
-    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+    let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().ok_or("No vault")?;
     let db_path = format!("{vault_path}/nexus.db");
 
     let vault_id = crate::relay::complete_enrollment(&db_path, &relay_url, &code)
@@ -673,7 +678,7 @@ pub async fn start_relay_hosting(
     state: State<'_, AppState>,
     port: u16,
 ) -> std::result::Result<u16, String> {
-    let vault_path = state.vault_path.lock().unwrap().clone().ok_or("No vault")?;
+    let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().ok_or("No vault")?;
     let relay_db_path = format!("{vault_path}/nexus.db/.nexus/relay.db");
     crate::relay::server::start(relay_db_path, port)
         .await
@@ -795,7 +800,7 @@ pub async fn add_imap_account(
     let vault_path = state
         .vault_path
         .lock()
-        .unwrap()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
         .clone()
         .ok_or("No vault")?;
     let account_id = format!("acct-{}", uuid::Uuid::new_v4());
@@ -825,8 +830,8 @@ pub async fn add_imap_account(
         .map_err(|e| e.to_string())?;
 
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.upsert_account(&account_id, &vault_id, "imap", &email, display_name.as_deref())
             .map_err(|e| e.to_string())?;
         db.save_settings_json(&account_id, &settings.to_string())
