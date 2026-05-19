@@ -8,7 +8,6 @@ import {
   Mail,
   RefreshCw,
   CheckCircle2,
-  AlertCircle,
   Loader2,
   LogOut,
   Sun,
@@ -205,10 +204,12 @@ function DisconnectModal({
 
 // ─── Account row ──────────────────────────────────────────────────────────────
 
-function AccountRow({ accountId, email, syncStatus }: { accountId: string; email: string; syncStatus: string }) {
+function AccountRow({ accountId, email }: { accountId: string; email: string }) {
   const [syncing, setSyncing] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [modalOpen, setModalOpen] = React.useState(false);
+  const syncProgress = useWorkspace((s) => s.syncProgress);
+  const isSyncingNow = syncing || (syncProgress?.accountId === accountId && (syncProgress?.total ?? 0) > 0);
 
   async function handleSync() {
     if (!isTauri()) return;
@@ -234,17 +235,17 @@ function AccountRow({ accountId, email, syncStatus }: { accountId: string; email
     }
   }
 
-  const statusIcon =
-    syncing || syncStatus === "syncing" ? (
-      <Loader2 size={14} className="animate-spin text-accent" />
-    ) : syncStatus === "error" ? (
-      <AlertCircle size={14} className="text-error" />
-    ) : (
-      <CheckCircle2 size={14} className="text-success" />
-    );
+  const statusIcon = isSyncingNow ? (
+    <Loader2 size={14} className="animate-spin text-accent" />
+  ) : (
+    <CheckCircle2 size={14} className="text-success" />
+  );
 
-  const statusLabel =
-    syncing ? "Syncing…" : syncStatus === "error" ? "Error" : syncStatus === "syncing" ? "Syncing…" : "Synced";
+  const statusLabel = isSyncingNow
+    ? (syncProgress?.accountId === accountId && (syncProgress?.total ?? 0) > 0
+        ? `Syncing ${syncProgress!.fetched}/${syncProgress!.total}`
+        : "Syncing…")
+    : "Synced";
 
   return (
     <>
@@ -265,9 +266,9 @@ function AccountRow({ accountId, email, syncStatus }: { accountId: string; email
           iconOnly
           aria-label="Sync now"
           onClick={handleSync}
-          disabled={syncing || disconnecting}
+          disabled={isSyncingNow || disconnecting}
         >
-          <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
+          <RefreshCw size={12} className={isSyncingNow ? "animate-spin" : ""} />
         </Button>
         <Button
           variant="ghost"
@@ -722,7 +723,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               ) : (
                 <div className="divide-y divide-border-subtle">
                   {accounts.map((acc) => (
-                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} syncStatus={acc.syncStatus} />
+                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} />
                   ))}
                 </div>
               )}

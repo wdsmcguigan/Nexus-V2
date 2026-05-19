@@ -1,4 +1,5 @@
 import * as React from "react";
+import DOMPurify from "dompurify";
 import {
   Reply,
   ReplyAll,
@@ -94,7 +95,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         <iframe
           title={`Email from ${msg.fromAddr.name}`}
           sandbox="allow-same-origin"
-          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%;height:auto}</style></head><body>${body}</body></html>`}
+          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%;height:auto}</style></head><body>${DOMPurify.sanitize(body, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
           className="block h-48 w-full"
         />
       )}
@@ -489,7 +490,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                 html,body{margin:0;padding:24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}
                 p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px}ul,ol{margin:0 0 12px 24px}
                 a{color:#2563eb}img{max-width:100%;height:auto}
-              </style></head><body>${bodyHtml}</body></html>`}
+              </style></head><body>${DOMPurify.sanitize(bodyHtml, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
               className="block w-full"
               style={{ height: bodyHeight }}
               onLoad={() => {

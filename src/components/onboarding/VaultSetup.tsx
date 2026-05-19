@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive } from "lucide-react";
 import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
@@ -25,7 +25,14 @@ export function VaultSetup({ onComplete }: Props) {
   const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [visible, setVisible] = useState(false);
   const setClientMode = useWorkspace((s) => s.setClientMode);
+
+  useEffect(() => {
+    setVisible(false);
+    const id = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(id);
+  }, [step]);
 
   function advanceTo(s: Step) {
     if (s === "done") {
@@ -87,9 +94,11 @@ export function VaultSetup({ onComplete }: Props) {
 
   if (!isTauri()) return null;
 
+  const fadeClass = `transition-opacity duration-150 ${visible ? "opacity-100" : "opacity-0"}`;
+
   if (step === "vault") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
+      <div className={`flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white ${fadeClass}`}>
         <div className="flex flex-col items-center gap-6 p-8 max-w-sm w-full">
           <div className="rounded-full bg-neutral-800 p-4">
             <FolderOpen className="h-8 w-8 text-neutral-300" />
@@ -140,7 +149,7 @@ export function VaultSetup({ onComplete }: Props) {
 
   if (step === "mode") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
+      <div className={`flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white ${fadeClass}`}>
         <div className="flex flex-col items-center gap-6 p-8 max-w-xl w-full">
           <div className="text-center">
             <h1 className="text-xl font-semibold mb-1">How do you want to use Nexus?</h1>
@@ -196,7 +205,7 @@ export function VaultSetup({ onComplete }: Props) {
 
   if (step === "gmail") {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
+      <div className={`flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white ${fadeClass}`}>
         <GmailConnect onConnected={handleGmailConnected} />
         <button
           onClick={handleSkipGmail}
@@ -210,7 +219,7 @@ export function VaultSetup({ onComplete }: Props) {
 
   // step === "done"
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white">
+    <div className={`flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white ${fadeClass}`}>
       <div className="text-sm text-neutral-400">Loading your inbox…</div>
     </div>
   );

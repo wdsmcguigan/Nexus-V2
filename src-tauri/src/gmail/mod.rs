@@ -1,3 +1,4 @@
+pub mod backoff;
 pub mod label_map;
 pub mod mutations;
 pub mod oauth;

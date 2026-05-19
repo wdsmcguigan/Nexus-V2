@@ -535,6 +535,14 @@ impl VaultDb {
         Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
     }
 
+    pub fn clear_history_id(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET history_id = NULL WHERE id = ?1",
+            params![account_id],
+        )?;
+        Ok(())
+    }
+
     /// Insert a message parsed from a .eml file dragged into the vault.
     /// `folder_id` is derived from the directory name; `eml_path` is the absolute path.
     pub fn insert_eml_message(

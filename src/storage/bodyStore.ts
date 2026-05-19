@@ -24,6 +24,10 @@ export class BodyStore {
   size(): number {
     return this._bodies.size;
   }
+
+  clear(): void {
+    this._bodies.clear();
+  }
 }
 
 export const bodyStore = new BodyStore();

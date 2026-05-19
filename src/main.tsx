@@ -29,7 +29,7 @@ createRoot(rootEl).render(
 async function hydrateFromVault(path: string) {
   const payload = await loadVaultData(path);
   localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
-  ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
+  ftsIndex.reindex(Array.from(localStore.messages.values()), bodyStore);
 
   // After hydrating real data the inbox label ID is vault-scoped (e.g. "{vaultId}-inbox"),
   // not the fixture default "inbox". If the current folder no longer exists in the loaded
