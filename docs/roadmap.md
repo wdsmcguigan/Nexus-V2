@@ -1,6 +1,6 @@
 # Nexus Roadmap
 
-Last updated: 2026-05-18
+Last updated: 2026-05-19
 
 Single reference for shipped work, confirmed deferred items, and upcoming epics. For design rationale see `docs/architecture.md`; for terminology see `docs/glossary.md`.
 
@@ -79,6 +79,30 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 | Docs | CLAUDE.md, README.md, `docs/relay.md`, `docs/developer-guide.md`, `docs/user-guide.md` |
 | Bug fixes | ~32 missing Rust mutation handlers; SAVE_VIEW family store replay; BCC/CC wiring in composer |
 
+### EP-6 — Multi-provider mail support
+
+| Area | What shipped |
+|------|-------------|
+| IMAP | ImapProvider: IMAP/IDLE push notifications, folder sync, flag sync |
+| SMTP | SMTP outbound send (with TLS, STARTTLS, plain) |
+| Outlook | Microsoft OAuth 2.0 flow; Outlook/Exchange account support |
+| Autodiscovery | Provider autodiscovery (MX records → known provider config lookup) |
+| JMAP stub | JMAP provider skeleton (foundation for Fastmail/Stalwart) |
+| IPC | `add_imap_account`, `start_outlook_oauth`, `sync_account_now` commands |
+
+### EP-7 — Native FTS5, rules engine & quick wins
+
+| Area | What shipped |
+|------|-------------|
+| FTS5 | SQLite FTS5 virtual table wired with INSERT/UPDATE/DELETE triggers + backfill migration; `search_messages` IPC with field-prefix operators (`from:`, `to:`, `tag:`, `label:`, `has:attachment`); `fts.ts` routes through Tauri IPC in native mode, keeps MiniSearch for web dev |
+| Rules engine | `rules` DB table; `apply_rules_to_message()` called on every inbound message; supports ADD_LABEL, REMOVE_LABEL, SET_STATUS, SET_PRIORITY, ADD_TAG, STAR, MARK_READ, ARCHIVE, TRASH actions with AND/OR condition logic; full CRUD IPC + RulesSettings + RuleEditorDialog UI |
+| Templates | `templates` DB table; full CRUD IPC + TemplatesSettings UI; composer toolbar button applies subject + body |
+| Notifications | `tauri-plugin-notification`; fires on new inbound messages |
+| List-Unsubscribe | `List-Unsubscribe` / `List-Unsubscribe-Post` headers stored per-message; "Unsubscribe" button in viewer; RFC 8058 one-click POST in Tauri mode |
+| From selector | Multi-account From dropdown in composer (previously hardcoded to first Gmail account) |
+| IPC | `search_messages`, `get_rules`, `save_rule`, `delete_rule`, `get_templates`, `save_template`, `delete_template`, `send_unsubscribe` |
+| Security | SSRF guard on unsubscribe URLs; vault-scoped rule actions; DOMPurify sanitization on template HTML and markdown preview |
+
 ---
 
 ## Confirmed Planned Gaps
@@ -90,25 +114,15 @@ These are known deferred items from completed epics. None block current function
 | 1 | **Nexus-hosted cloud relay** | "Coming soon" stub in relay settings. The `nexus-relay` binary is already provider-agnostic; this is an infrastructure/ops step with no additional client code needed. EP-5 scope was self-hosted only. | `src/components/settings/` |
 | 2 | **CFD option drag-reorder** | GripVertical icon is rendered but drag-and-drop is not wired. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
 | 3 | **CFD definition drag-reorder** | Same as above for field-level ordering. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
-| 4 | **SQLite FTS5 search command (Tauri)** | `messages_fts` virtual table and triggers exist in the schema. The Rust query layer does not yet expose an FTS5 search IPC command. MiniSearch continues to work as the active search path. Deferred from EP-4. | `src-tauri/src/db/schema.rs`, `src-tauri/src/commands.rs` |
-| 5 | **Native date picker in FlagPicker** | Currently uses `<input type="date">` / `<input type="datetime-local">`. A styled calendar picker (react-day-picker or similar) is a cosmetic upgrade. Deferred from EP-2. | `src/components/` |
-| 6 | **FTS5 incremental relay update** | Inbound relay mutations do not update the SQLite FTS5 index live. The `ftsIndex.addMessage()` stub is wired in MiniSearch but the Tauri-side FTS5 path is not. Deferred from EP-5. | `src-tauri/src/db/`, `src/` |
-| 7 | **JMAP / IMAP provider support** | Architecture is designed for this; label model matches JMAP RFC 8621 semantics. Planned for EP-6. | — |
-| 8 | **Mobile shells (iOS / Android)** | Relay protocol is plain HTTPS + XChaCha20-Poly1305 blobs — mobile only needs HTTP polling, decryption, and the mutation format. Planned for EP-7. | — |
-| 9 | **Conflict resolution UI** | Conflicts are currently silent last-write-wins via Lamport ordering. No user-visible conflict chips or resolution UI. Planned for EP-8. | — |
+| 4 | **Native date picker in FlagPicker** | Currently uses `<input type="date">` / `<input type="datetime-local">`. A styled calendar picker (react-day-picker or similar) is a cosmetic upgrade. Deferred from EP-2. | `src/components/` |
+| 5 | **Mobile shells (iOS / Android)** | Relay protocol is plain HTTPS + XChaCha20-Poly1305 blobs — mobile only needs HTTP polling, decryption, and the mutation format. Planned for EP-8. | — |
+| 6 | **Conflict resolution UI** | Conflicts are currently silent last-write-wins via Lamport ordering. No user-visible conflict chips or resolution UI. Planned for EP-9. | — |
 
 ---
 
 ## Upcoming Epics
 
-### EP-6 — Provider workers (Gmail + JMAP + IMAP)
-
-- Gmail API already in place (EP-4); EP-6 adds a JMAP adapter (Fastmail, Stalwart, Apache James) and an IMAP fallback
-- Reconciler for bidirectional sync conflicts at the provider level
-- Outbound writes for all mutation kinds (currently only label/read/archive/trash for Gmail)
-- Provider-foreign metadata (tags, status, notes, CFDs) stays Nexus-local
-
-### EP-7 — Mobile (iOS, then Android)
+### EP-8 — Mobile (iOS, then Android)
 
 - iOS app with FileProvider extension for vault access
 - Same data model and mutation format as desktop
@@ -116,14 +130,14 @@ These are known deferred items from completed epics. None block current function
 - Background push notifications for new messages
 - Android to follow
 
-### EP-8 — Conflict resolution UI
+### EP-9 — Conflict resolution UI
 
 - `WSP-CONFLICT-CHIP` in message list when a merge conflict is detected
 - Conflict resolution sheet for explicit user choice
 - Per-folder sync log
 - Advanced: operational transform for concurrent note edits
 
-### EP-9 — Encrypted FTS hardening
+### EP-10 — Encrypted FTS hardening
 
 - Move from at-rest encryption to true zero-knowledge encrypted index
 - Blind index approach for subject/notes search
@@ -144,4 +158,4 @@ These are known deferred items from completed epics. None block current function
 | User guide | End users | `docs/user-guide.md` |
 | Relay setup | End users setting up sync | `docs/relay.md` |
 | UI design system | Frontend engineers + designers | `docs/UI-DESIGN-SYSTEM-SPEC.md` |
-| Epic checklists | Historical reference | `docs/epic-{0,1,2,3,4,5}-checklist.md` |
+| Epic checklists | Historical reference | `docs/epic-{0,1,2,3,4,5,6,7}-checklist.md` |
