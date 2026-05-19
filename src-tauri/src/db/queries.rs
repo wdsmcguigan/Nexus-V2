@@ -1814,52 +1814,55 @@ impl VaultDb {
                 let value = action["value"].as_str().unwrap_or("");
                 match kind {
                     "ADD_LABEL" => {
+                        // Scope insert to messages owned by this vault
                         let _ = self.conn.execute(
-                            "INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?1, ?2)",
-                            params![msg_id, value],
+                            "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                             SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM messages WHERE id = ?1 AND vault_id = ?3)",
+                            params![msg_id, value, vault_id],
                         );
                     }
                     "REMOVE_LABEL" => {
                         let _ = self.conn.execute(
-                            "DELETE FROM message_labels WHERE message_id = ?1 AND label_id = ?2",
-                            params![msg_id, value],
+                            "DELETE FROM message_labels WHERE message_id = ?1 AND label_id = ?2
+                             AND EXISTS (SELECT 1 FROM messages WHERE id = ?1 AND vault_id = ?3)",
+                            params![msg_id, value, vault_id],
                         );
                     }
                     "MARK_READ" => {
                         let _ = self.conn.execute(
-                            "UPDATE messages SET flags_read = 1 WHERE id = ?1",
-                            params![msg_id],
+                            "UPDATE messages SET flags_read = 1 WHERE id = ?1 AND vault_id = ?2",
+                            params![msg_id, vault_id],
                         );
                     }
                     "ADD_TAG" => {
                         let _ = self.conn.execute(
-                            "INSERT OR IGNORE INTO message_tags (message_id, tag) VALUES (?1, ?2)",
-                            params![msg_id, value],
+                            "INSERT OR IGNORE INTO message_tags (message_id, tag)
+                             SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM messages WHERE id = ?1 AND vault_id = ?3)",
+                            params![msg_id, value, vault_id],
                         );
                     }
                     "SET_STATUS" => {
                         let _ = self.conn.execute(
-                            "UPDATE messages SET status_id = ?1 WHERE id = ?2",
-                            params![value, msg_id],
+                            "UPDATE messages SET status_id = ?1 WHERE id = ?2 AND vault_id = ?3",
+                            params![value, msg_id, vault_id],
                         );
                     }
                     "SET_PRIORITY" => {
                         if let Ok(p) = value.parse::<i64>() {
                             let _ = self.conn.execute(
-                                "UPDATE messages SET priority = ?1 WHERE id = ?2",
-                                params![p, msg_id],
+                                "UPDATE messages SET priority = ?1 WHERE id = ?2 AND vault_id = ?3",
+                                params![p, msg_id, vault_id],
                             );
                         }
                     }
                     "STAR" => {
                         let star = if value.is_empty() { "yellow-star" } else { value };
                         let _ = self.conn.execute(
-                            "UPDATE messages SET star = ?1 WHERE id = ?2",
-                            params![star, msg_id],
+                            "UPDATE messages SET star = ?1 WHERE id = ?2 AND vault_id = ?3",
+                            params![star, msg_id, vault_id],
                         );
                     }
                     "ARCHIVE" => {
-                        // Find the archive folder for this vault
                         let archive_id: Option<String> = {
                             let mut stmt = self.conn.prepare(
                                 "SELECT id FROM folders WHERE vault_id = ?1 AND system_kind = 'archive' LIMIT 1",
@@ -1868,8 +1871,8 @@ impl VaultDb {
                         };
                         if let Some(fid) = archive_id {
                             let _ = self.conn.execute(
-                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2",
-                                params![fid, msg_id],
+                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2 AND vault_id = ?3",
+                                params![fid, msg_id, vault_id],
                             );
                         }
                     }
@@ -1882,8 +1885,8 @@ impl VaultDb {
                         };
                         if let Some(fid) = trash_id {
                             let _ = self.conn.execute(
-                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2",
-                                params![fid, msg_id],
+                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2 AND vault_id = ?3",
+                                params![fid, msg_id, vault_id],
                             );
                         }
                     }

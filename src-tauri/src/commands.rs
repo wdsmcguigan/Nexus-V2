@@ -1435,10 +1435,11 @@ pub async fn send_unsubscribe(
     let link = parsed.get("link").and_then(|v| v.as_str()).map(String::from);
 
     if let Some(url) = post_url {
+        let safe = validate_unsubscribe_url(&url)?;
         // RFC 8058 one-click POST
         let client = reqwest::Client::new();
         let res = client
-            .post(&url)
+            .post(safe.as_str())
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body("List-Unsubscribe=One-Click")
             .send()
@@ -1449,12 +1450,46 @@ pub async fn send_unsubscribe(
         }
         // Fall through to link if POST failed
         if let Some(fallback) = link {
+            validate_unsubscribe_url(&fallback)?;
             return Ok(fallback);
         }
         return Err(format!("POST failed: {}", res.status()));
     }
 
+    if let Some(ref l) = link {
+        validate_unsubscribe_url(l)?;
+    }
     link.ok_or_else(|| "no unsubscribe link found".to_string())
+}
+
+/// Validate that an unsubscribe URL is safe to request: must be https and must not target
+/// private/loopback addresses (SSRF guard). Returns the parsed URL on success.
+fn validate_unsubscribe_url(raw: &str) -> std::result::Result<reqwest::Url, String> {
+    let url = reqwest::Url::parse(raw).map_err(|_| "Invalid unsubscribe URL".to_string())?;
+    if url.scheme() != "https" {
+        return Err("Unsubscribe URL must use HTTPS".to_string());
+    }
+    if let Some(host) = url.host_str() {
+        // Block loopback and well-known internal hostnames
+        if matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0") {
+            return Err("Unsubscribe URL targets a local address".to_string());
+        }
+        // Block RFC-1918 / link-local IPv4 and loopback IPv6
+        if let Ok(addr) = host.parse::<std::net::IpAddr>() {
+            let blocked = match addr {
+                std::net::IpAddr::V4(v4) => {
+                    v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_broadcast()
+                }
+                std::net::IpAddr::V6(v6) => v6.is_loopback(),
+            };
+            if blocked {
+                return Err("Unsubscribe URL targets a private/internal address".to_string());
+            }
+        }
+    } else {
+        return Err("Unsubscribe URL has no host".to_string());
+    }
+    Ok(url)
 }
 
 fn fire_notification(app: &tauri::AppHandle, count: u32) {
