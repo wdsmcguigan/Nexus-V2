@@ -29,6 +29,7 @@ pub struct GmailSyncer {
     pub vault_id: String,
     access_token: Arc<tokio::sync::RwLock<String>>,
     mail_dir: PathBuf,
+    client_mode: String,
     app: tauri::AppHandle,
 }
 
@@ -38,6 +39,7 @@ impl GmailSyncer {
         vault_id: String,
         access_token: String,
         vault_path: &std::path::Path,
+        client_mode: String,
         app: tauri::AppHandle,
     ) -> Self {
         let mail_dir = vault_path.join("mail");
@@ -46,6 +48,7 @@ impl GmailSyncer {
             vault_id,
             access_token: Arc::new(tokio::sync::RwLock::new(access_token)),
             mail_dir,
+            client_mode,
             app,
         }
     }
@@ -178,6 +181,45 @@ impl GmailSyncer {
 
     // ─── Phase 2: DB writes (synchronous, called from blocking context) ───────
 
+    /// Write a minimal .eml file for a newly synced message (local-first mode only).
+    fn write_eml_file(&self, db: &VaultDb, msg: &ParsedMessage) -> Result<()> {
+        let folder_disk_path = db.folder_disk_path(&msg.folder_id);
+        let target_dir = if folder_disk_path.is_empty() {
+            self.mail_dir.join("inbox")
+        } else {
+            self.mail_dir.join(&folder_disk_path)
+        };
+        std::fs::create_dir_all(&target_dir)?;
+
+        let from_email = msg.from_addr["email"].as_str().unwrap_or_default();
+        let from_name = msg.from_addr["name"].as_str().unwrap_or_default();
+        let to_list: String = msg.to_addrs.iter().map(|t| {
+            let name = t["name"].as_str().unwrap_or_default();
+            let email = t["email"].as_str().unwrap_or_default();
+            if name.is_empty() { email.to_string() } else { format!("{name} <{email}>") }
+        }).collect::<Vec<_>>().join(", ");
+        let date = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(msg.received_at)
+            .unwrap_or_default()
+            .format("%a, %d %b %Y %H:%M:%S +0000")
+            .to_string();
+
+        let html_body = msg.body_html.as_deref().unwrap_or_default();
+        let eml_content = format!(
+            "MIME-Version: 1.0\r\nDate: {date}\r\nFrom: {from_name} <{from_email}>\r\nTo: {to_list}\r\nSubject: {subject}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{html_body}",
+            subject = msg.subject,
+        );
+
+        let eml_path = target_dir.join(format!("{}.eml", msg.id));
+        std::fs::write(&eml_path, eml_content.as_bytes())?;
+
+        // Record the on-disk path so MOVE_TO_FOLDER can relocate the file later.
+        let _ = db.conn.execute(
+            "UPDATE messages SET eml_path = ?1 WHERE id = ?2",
+            rusqlite::params![eml_path.to_str().unwrap_or_default(), msg.id],
+        );
+        Ok(())
+    }
+
     /// Write the results of `fetch_initial` to the database atomically.
     pub fn commit_initial(&self, db: &VaultDb, result: FetchResult) -> Result<SyncStats> {
         db.conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -188,6 +230,11 @@ impl GmailSyncer {
             for msg in &result.messages {
                 if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
                     inserted += 1;
+                    if self.client_mode == "local-first" {
+                        if let Err(e) = self.write_eml_file(db, msg) {
+                            log::warn!("local-first: failed to write .eml for {}: {e}", msg.id);
+                        }
+                    }
                 }
             }
             if let Some(hid) = &result.history_id {
@@ -212,6 +259,11 @@ impl GmailSyncer {
             for msg in &result.new_messages {
                 if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
                     inserted += 1;
+                    if self.client_mode == "local-first" {
+                        if let Err(e) = self.write_eml_file(db, msg) {
+                            log::warn!("local-first: failed to write .eml for {}: {e}", msg.id);
+                        }
+                    }
                 }
             }
             for (provider_id, labels) in &result.label_additions {
