@@ -643,6 +643,9 @@ fn parse_gmail_message_full(
         collect_attachments(p, &mut attachments);
     }
 
+    let list_unsubscribe = payload.and_then(|p| get_payload_header(p, "List-Unsubscribe"));
+    let list_unsubscribe_post = payload.and_then(|p| get_payload_header(p, "List-Unsubscribe-Post"));
+
     Ok(ParsedMessage {
         id: nexus_id,
         provider_id: meta.id,
@@ -661,6 +664,8 @@ fn parse_gmail_message_full(
         flags_read,
         eml_path: None,
         attachments,
+        list_unsubscribe,
+        list_unsubscribe_post,
     })
 }
 

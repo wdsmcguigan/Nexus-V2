@@ -1,19 +1,19 @@
 /**
- * Full-text search index (EP-3 web phase).
+ * Full-text search index.
  *
- * Uses MiniSearch (pure JS, BM25 ranking) for the browser. EP-4 (Tauri) will
- * replace this with SQLite-FTS5 running in-process on the native side where
- * the corpus is real .eml files and scale can reach 100k+ messages.
+ * In Tauri (native): routes to SQLite-FTS5 via IPC for BM25 ranking at scale.
+ * In the browser: uses MiniSearch (pure JS, BM25) for web dev mode.
  *
  * Fields indexed: subject (boost 3), body (boost 1), notes (boost 2).
  * The singleton ftsIndex is populated by initStore() in fixtures.ts alongside
  * the LocalStore hydration, and updated incrementally via addMessage /
- * removeMessage when mutations occur (future: EP-4+).
+ * removeMessage when mutations occur.
  */
 
 import MiniSearch from "minisearch";
 import type { Message } from "@/data/types";
 import type { BodyStore } from "@/storage/bodyStore";
+import { isTauri, searchMessages } from "@/storage/tauri";
 
 export interface FTSResult {
   id: string;
@@ -90,6 +90,18 @@ export class FTSIndex {
   /** Returns a Set of message IDs matching the query (for use in queryMessages). */
   searchIds(query: string): Set<string> {
     return new Set(this.search(query).map((r) => r.id));
+  }
+
+  /**
+   * Search via Tauri FTS5 IPC when running in the native shell; falls back to
+   * the in-process MiniSearch index in web dev mode.
+   */
+  async searchIpc(query: string, vaultId: string, limit = 200): Promise<Set<string>> {
+    if (isTauri()) {
+      const ids = await searchMessages(query, vaultId, limit);
+      return new Set(ids);
+    }
+    return this.searchIds(query);
   }
 
   private _stripHtml(html: string): string {

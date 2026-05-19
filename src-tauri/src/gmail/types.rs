@@ -21,6 +21,8 @@ pub struct ParsedMessage {
     pub flags_read: bool,
     pub eml_path: Option<String>,
     pub attachments: Vec<ParsedAttachment>,
+    pub list_unsubscribe: Option<String>,
+    pub list_unsubscribe_post: Option<String>,
 }
 
 /// Minimal Gmail API message list entry

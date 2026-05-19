@@ -1336,6 +1336,133 @@ fn open_browser(app: &tauri::AppHandle, url: &str) -> Result<()> {
     app.shell().open(url, None).context("opening system browser")
 }
 
-fn fire_notification(_app: &tauri::AppHandle, _count: u32) {
-    // Notifications wired up in Phase 4c when app is properly signed
+// ─── EP7 commands ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn search_messages(
+    query: String,
+    vault_id: String,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<String>, String> {
+    let db_path = state.vault_path.lock().unwrap().clone()
+        .ok_or_else(|| "no vault open".to_string())?;
+    let limit = limit.unwrap_or(200) as usize;
+    let db = VaultDb::open(&db_path, "nexus").map_err(|e| e.to_string())?;
+    db.search_fts5(&query, &vault_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_rules(
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<JsonValue>, String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.get_rules(&vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_rule(
+    vault_id: String,
+    rule: JsonValue,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.upsert_rule(&vault_id, &rule).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_rule(
+    id: String,
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.delete_rule(&id, &vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_templates(
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<JsonValue>, String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.get_templates(&vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_template(
+    vault_id: String,
+    template: JsonValue,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.upsert_template(&vault_id, &template).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_template(
+    id: String,
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.db.lock().unwrap();
+    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.delete_template(&id, &vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn send_unsubscribe(
+    message_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    // Returns the mailto/https URL so the frontend can handle it, or "posted" if we sent the POST.
+    let list_unsubscribe_json: Option<String> = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+        db.get_list_unsubscribe(&message_id).map_err(|e| e.to_string())?
+    };
+
+    let json_str = list_unsubscribe_json.ok_or_else(|| "no unsubscribe header".to_string())?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| e.to_string())?;
+
+    let post_url = parsed.get("post").and_then(|v| v.as_str()).map(String::from);
+    let link = parsed.get("link").and_then(|v| v.as_str()).map(String::from);
+
+    if let Some(url) = post_url {
+        // RFC 8058 one-click POST
+        let client = reqwest::Client::new();
+        let res = client
+            .post(&url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body("List-Unsubscribe=One-Click")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if res.status().is_success() {
+            return Ok("posted".to_string());
+        }
+        // Fall through to link if POST failed
+        if let Some(fallback) = link {
+            return Ok(fallback);
+        }
+        return Err(format!("POST failed: {}", res.status()));
+    }
+
+    link.ok_or_else(|| "no unsubscribe link found".to_string())
+}
+
+fn fire_notification(app: &tauri::AppHandle, count: u32) {
+    use tauri_plugin_notification::NotificationExt;
+    let body = if count == 1 {
+        "1 new message".to_string()
+    } else {
+        format!("{count} new messages")
+    };
+    let _ = app.notification().builder().title("Nexus").body(&body).show();
 }

@@ -26,6 +26,8 @@ import {
   HardDrive,
   Trash2,
   AlertTriangle,
+  Zap,
+  FileText,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -47,6 +49,8 @@ import {
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
+import { RulesSettings } from "@/components/settings/RulesSettings";
+import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -654,7 +658,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
   const clientMode = useWorkspace((s) => s.clientMode);
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates">("accounts");
 
   React.useEffect(() => {
     if (clientMode !== "local-first" && activeSection === "relay") {
@@ -666,6 +670,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     { id: "accounts" as const, label: "Accounts", icon: <Mail size={14} /> },
     { id: "preferences" as const, label: "Preferences", icon: <SlidersHorizontal size={14} /> },
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
+    { id: "rules" as const, label: "Rules", icon: <Zap size={14} /> },
+    { id: "templates" as const, label: "Templates", icon: <FileText size={14} /> },
     ...(clientMode === "local-first"
       ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
       : []),
@@ -902,6 +908,10 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               <CustomFieldsSettings />
             </div>
           )}
+
+          {activeSection === "rules" && <RulesSettings />}
+
+          {activeSection === "templates" && <TemplatesSettings />}
 
           {activeSection === "relay" && <RelaySection />}
         </div>

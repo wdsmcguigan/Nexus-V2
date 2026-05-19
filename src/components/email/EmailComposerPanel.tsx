@@ -13,6 +13,7 @@ import {
   Paperclip,
   X,
   ChevronDown,
+  FileText,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -298,6 +299,10 @@ export function EmailComposerPanel() {
     return [];
   });
   const [bccRecipients, setBccRecipients] = React.useState<string[]>(() => _draft?.bccRecipients ?? []);
+  const [fromAccountId, setFromAccountId] = React.useState<string>(() => {
+    const accounts = Array.from(localStore.accounts.values());
+    return accounts.find((a) => a.provider === "gmail")?.id ?? accounts[0]?.id ?? "";
+  });
   const [draftInput, setDraftInput] = React.useState("");
   const [ccDraftInput, setCcDraftInput] = React.useState("");
   const [bccDraftInput, setBccDraftInput] = React.useState("");
@@ -352,6 +357,8 @@ export function EmailComposerPanel() {
 
   const [discardOpen, setDiscardOpen] = React.useState(false);
   const [sending, setSending] = React.useState(false);
+  const [showTemplates, setShowTemplates] = React.useState(false);
+  const templates = Array.from(localStore.templates?.values() ?? []);
   const [countdown, setCountdown] = React.useState(0);
   const sendTimeoutRef = React.useRef<number | null>(null);
   const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
@@ -364,15 +371,15 @@ export function EmailComposerPanel() {
     const bodyHtml = editor?.getHTML() ?? "";
     if (isTauri()) {
       const accounts = Array.from(localStore.accounts.values());
-      const gmailAccount = accounts.find((a) => a.provider === "gmail");
-      if (!gmailAccount) { toast.error("No Gmail account connected"); return; }
+      const selectedAccount = accounts.find((a) => a.id === fromAccountId) ?? accounts.find((a) => a.provider === "gmail");
+      if (!selectedAccount) { toast.error("No account connected"); return; }
       try {
         const attachmentPayloads = attachments.length > 0
           ? await Promise.all(attachments.map(readFileAsBase64))
           : undefined;
         await sendMessage({
-          accountId: gmailAccount.id,
-          from: gmailAccount.email,
+          accountId: selectedAccount.id,
+          from: selectedAccount.email,
           to: recipients,
           cc: ccRecipients.length > 0 ? ccRecipients : undefined,
           bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
@@ -472,9 +479,8 @@ export function EmailComposerPanel() {
     }
   }
 
-  const fromEmail =
-    Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ??
-    "me@nexus.app";
+  const allAccounts = Array.from(localStore.accounts.values());
+  const fromAccount = allAccounts.find((a) => a.id === fromAccountId) ?? allAccounts[0];
 
   const headerMeta = mode
     ? `${mode === "forward" ? "Fwd" : "Re"}: ${replyMsg?.fromAddr.name ?? "draft"}`
@@ -502,10 +508,21 @@ export function EmailComposerPanel() {
       <div className="flex h-full flex-col">
         {/* From */}
         <FieldRow label="From">
-          <button type="button" className="flex h-9 w-full items-center gap-1 text-left">
-            <span className="font-mono text-mono-sm text-text-secondary">{fromEmail}</span>
-            <ChevronDown size={12} className="text-text-tertiary" />
-          </button>
+          {allAccounts.length <= 1 ? (
+            <span className="font-mono text-mono-sm text-text-secondary py-2">
+              {fromAccount?.email ?? "me@nexus.app"}
+            </span>
+          ) : (
+            <select
+              value={fromAccountId}
+              onChange={(e) => setFromAccountId(e.target.value)}
+              className="h-9 w-full bg-transparent font-mono text-mono-sm text-text-secondary focus:outline-none"
+            >
+              {allAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.email}</option>
+              ))}
+            </select>
+          )}
         </FieldRow>
 
         {/* To */}
@@ -588,6 +605,46 @@ export function EmailComposerPanel() {
           <ToolbarBtn icon={ListOrdered} label="Numbered list" active={editor?.isActive("orderedList")} onClick={() => editor?.chain().focus().toggleOrderedList().run()} />
           <ToolbarBtn icon={Quote} label="Blockquote" active={editor?.isActive("blockquote")} onClick={() => editor?.chain().focus().toggleBlockquote().run()} />
           <ToolbarBtn icon={Code} label="Inline code" active={editor?.isActive("code")} onClick={() => editor?.chain().focus().toggleCode().run()} />
+          {templates.length > 0 && (
+            <>
+              <span className="mx-1 h-4 w-px bg-border-default" />
+              <div className="relative">
+                <Tooltip label="Insert template">
+                  <button
+                    type="button"
+                    onClick={() => setShowTemplates((v) => !v)}
+                    className={cn(
+                      "flex h-6 w-6 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-secondary",
+                      showTemplates && "bg-surface-3 text-text-secondary",
+                    )}
+                  >
+                    <FileText size={13} />
+                  </button>
+                </Tooltip>
+                {showTemplates && (
+                  <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded-md border border-border-subtle bg-surface-2 py-1 shadow-lg">
+                    {templates.map((tmpl) => (
+                      <button
+                        key={tmpl.id}
+                        type="button"
+                        onClick={() => {
+                          if (tmpl.subject) setSubject(tmpl.subject);
+                          editor?.commands.setContent(tmpl.bodyHtml);
+                          setShowTemplates(false);
+                        }}
+                        className="flex w-full flex-col px-3 py-2 text-left hover:bg-surface-3"
+                      >
+                        <span className="text-body text-text-primary">{tmpl.name}</span>
+                        {tmpl.subject && (
+                          <span className="text-small text-text-tertiary truncate">{tmpl.subject}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Tiptap editor */}

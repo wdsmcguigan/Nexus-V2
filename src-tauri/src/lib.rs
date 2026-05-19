@@ -24,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             db: Mutex::new(None),
             vault_path: Mutex::new(None),
@@ -59,6 +60,15 @@ pub fn run() {
             commands::add_imap_account,
             commands::sync_account_now,
             commands::start_outlook_oauth,
+            // EP-7 commands
+            commands::search_messages,
+            commands::get_rules,
+            commands::save_rule,
+            commands::delete_rule,
+            commands::get_templates,
+            commands::save_template,
+            commands::delete_template,
+            commands::send_unsubscribe,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

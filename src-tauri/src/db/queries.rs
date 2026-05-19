@@ -23,6 +23,8 @@ pub struct HydratePayload {
     pub mutations: Vec<JsonValue>,
     pub contacts: Vec<JsonValue>,
     pub saved_views: Vec<JsonValue>,
+    pub rules: Vec<JsonValue>,
+    pub templates: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -40,6 +42,8 @@ impl VaultDb {
             mutations: vec![],
             contacts: self.load_contacts(vault_id)?,
             saved_views: self.load_saved_views(vault_id)?,
+            rules: self.get_rules(vault_id)?,
+            templates: self.get_templates(vault_id)?,
         })
     }
 
@@ -648,18 +652,56 @@ impl VaultDb {
             return Ok(false);
         }
 
+        // Build list_unsubscribe_json from parsed fields
+        let list_unsubscribe_json: Option<String> = if msg.list_unsubscribe.is_some() || msg.list_unsubscribe_post.is_some() {
+            let mut map = serde_json::Map::new();
+            // Extract the first URL from the List-Unsubscribe header (comma-separated angle-bracket list)
+            if let Some(raw) = &msg.list_unsubscribe {
+                let link = raw.split(',')
+                    .filter_map(|part| {
+                        let trimmed = part.trim().trim_start_matches('<').trim_end_matches('>');
+                        if trimmed.starts_with("http") || trimmed.starts_with("mailto") {
+                            Some(trimmed.to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .next();
+                if let Some(url) = link {
+                    map.insert("link".into(), serde_json::Value::String(url));
+                }
+            }
+            if let Some(post) = &msg.list_unsubscribe_post {
+                // Extract the https URL for POST (RFC 8058)
+                let post_url = msg.list_unsubscribe.as_deref().unwrap_or("").split(',')
+                    .filter_map(|part| {
+                        let trimmed = part.trim().trim_start_matches('<').trim_end_matches('>');
+                        if trimmed.starts_with("https") { Some(trimmed.to_string()) } else { None }
+                    })
+                    .next();
+                if post.contains("One-Click") {
+                    if let Some(url) = post_url {
+                        map.insert("post".into(), serde_json::Value::String(url));
+                    }
+                }
+            }
+            if map.is_empty() { None } else { Some(serde_json::Value::Object(map).to_string()) }
+        } else {
+            None
+        };
+
         self.conn.execute(
             "INSERT OR IGNORE INTO messages (
                 id, vault_id, folder_id, thread_id, subject, snippet, body_ref, received_at,
                 from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                 attachment_refs_json, custom_fields_json,
                 flags_read, flags_answered, flags_draft, flags_flagged,
-                provider_id, provider_account_id, eml_path
+                provider_id, provider_account_id, eml_path, list_unsubscribe_json
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                 ?9, ?10, ?11, ?12, ?13, '{}',
                 ?14, 0, 0, 0,
-                ?15, ?16, ?17
+                ?15, ?16, ?17, ?18
             )",
             params![
                 msg.id, vault_id, msg.folder_id, msg.thread_id,
@@ -671,7 +713,8 @@ impl VaultDb {
                 serde_json::to_string(&msg.attachments)?,
                 if msg.flags_read { 1 } else { 0 },
                 msg.provider_id, msg.account_id,
-                msg.eml_path
+                msg.eml_path,
+                list_unsubscribe_json
             ],
         )?;
 
@@ -687,6 +730,15 @@ impl VaultDb {
         if let Some(html) = &msg.body_html {
             self.upsert_body(&msg.body_ref, html)?;
         }
+
+        // Apply rules to newly received message
+        let from_str = msg.from_addr.get("email")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let subject = msg.subject.clone();
+        let has_attachment = !msg.attachments.is_empty();
+        self.apply_rules_to_message(vault_id, &msg.id, &from_str, &subject, has_attachment, &msg.label_ids, &[] as &[String])?;
 
         Ok(true)
     }
@@ -1574,6 +1626,331 @@ impl VaultDb {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })?;
         rows.map(|r| r.context("loading missing body row")).collect()
+    }
+
+    // ─── EP7: FTS5 search ─────────────────────────────────────────────────────
+
+    pub fn search_fts5(&self, query: &str, vault_id: &str, limit: usize) -> Result<Vec<String>> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Dispatch field-prefix operators to SQL, otherwise use FTS5
+        if let Some(addr) = q.strip_prefix("from:") {
+            let pattern = format!("%{}%", addr.trim());
+            let mut stmt = self.conn.prepare(
+                "SELECT id FROM messages WHERE vault_id = ?1 AND from_addr_json LIKE ?2 LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(params![vault_id, pattern, limit as i64], |r| r.get(0))?;
+            return rows.map(|r| r.map_err(anyhow::Error::from)).collect();
+        }
+
+        if let Some(addr) = q.strip_prefix("to:") {
+            let pattern = format!("%{}%", addr.trim());
+            let mut stmt = self.conn.prepare(
+                "SELECT id FROM messages WHERE vault_id = ?1 AND (to_addrs_json LIKE ?2 OR cc_addrs_json LIKE ?2) LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(params![vault_id, pattern, limit as i64], |r| r.get(0))?;
+            return rows.map(|r| r.map_err(anyhow::Error::from)).collect();
+        }
+
+        if let Some(term) = q.strip_prefix("tag:") {
+            let tag = term.trim();
+            let mut stmt = self.conn.prepare(
+                "SELECT m.id FROM messages m JOIN message_tags mt ON mt.message_id = m.id
+                 WHERE m.vault_id = ?1 AND mt.tag = ?2 LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(params![vault_id, tag, limit as i64], |r| r.get(0))?;
+            return rows.map(|r| r.map_err(anyhow::Error::from)).collect();
+        }
+
+        if let Some(name) = q.strip_prefix("label:") {
+            let pattern = format!("%{}%", name.trim());
+            let mut stmt = self.conn.prepare(
+                "SELECT m.id FROM messages m
+                 JOIN message_labels ml ON ml.message_id = m.id
+                 JOIN labels l ON l.id = ml.label_id
+                 WHERE m.vault_id = ?1 AND l.name LIKE ?2 LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(params![vault_id, pattern, limit as i64], |r| r.get(0))?;
+            return rows.map(|r| r.map_err(anyhow::Error::from)).collect();
+        }
+
+        if q == "has:attachment" {
+            let mut stmt = self.conn.prepare(
+                "SELECT id FROM messages WHERE vault_id = ?1 AND attachment_refs_json != '[]' LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![vault_id, limit as i64], |r| r.get(0))?;
+            return rows.map(|r| r.map_err(anyhow::Error::from)).collect();
+        }
+
+        // General FTS5 query — fall back to LIKE if FTS5 raises a syntax error
+        let fts_result = (|| -> Result<Vec<String>> {
+            let mut stmt = self.conn.prepare(
+                "SELECT mf.message_id FROM messages_fts mf
+                 JOIN messages m ON m.id = mf.message_id
+                 WHERE m.vault_id = ?1 AND messages_fts MATCH ?2
+                 ORDER BY rank LIMIT ?3",
+            )?;
+            let rows = stmt.query_map(params![vault_id, q, limit as i64], |r| r.get(0))?;
+            rows.map(|r| r.map_err(anyhow::Error::from)).collect()
+        })();
+
+        match fts_result {
+            Ok(ids) => Ok(ids),
+            Err(_) => {
+                // Malformed FTS5 query — fall back to simple LIKE on subject + snippet
+                let pattern = format!("%{}%", q);
+                let mut stmt = self.conn.prepare(
+                    "SELECT id FROM messages WHERE vault_id = ?1 AND (subject LIKE ?2 OR snippet LIKE ?2) LIMIT ?3",
+                )?;
+                let rows = stmt.query_map(params![vault_id, pattern, limit as i64], |r| r.get(0))?;
+                rows.map(|r| r.map_err(anyhow::Error::from)).collect()
+            }
+        }
+    }
+
+    // ─── EP7: Rules ───────────────────────────────────────────────────────────
+
+    pub fn get_rules(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, name, conditions_json, condition_logic, actions_json, enabled, position
+             FROM rules WHERE vault_id = ?1 ORDER BY position ASC",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "conditions": serde_json::from_str::<serde_json::Value>(&r.get::<_, String>(3)?).unwrap_or(serde_json::json!([])),
+                "conditionLogic": r.get::<_, String>(4)?,
+                "actions": serde_json::from_str::<serde_json::Value>(&r.get::<_, String>(5)?).unwrap_or(serde_json::json!([])),
+                "enabled": r.get::<_, bool>(6)?,
+                "position": r.get::<_, i64>(7)?,
+            }))
+        })?;
+        rows.map(|r| r.context("loading rule")).collect()
+    }
+
+    pub fn upsert_rule(&self, vault_id: &str, rule: &JsonValue) -> Result<()> {
+        let id = rule["id"].as_str().unwrap_or("").to_string();
+        let name = rule["name"].as_str().unwrap_or("").to_string();
+        let conditions = rule["conditions"].to_string();
+        let condition_logic = rule["conditionLogic"].as_str().unwrap_or("AND").to_string();
+        let actions = rule["actions"].to_string();
+        let enabled = rule["enabled"].as_bool().unwrap_or(true);
+        let position = rule["position"].as_i64().unwrap_or(0);
+        self.conn.execute(
+            "INSERT INTO rules (id, vault_id, name, conditions_json, condition_logic, actions_json, enabled, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name,
+               conditions_json = excluded.conditions_json,
+               condition_logic = excluded.condition_logic,
+               actions_json = excluded.actions_json,
+               enabled = excluded.enabled,
+               position = excluded.position",
+            params![id, vault_id, name, conditions, condition_logic, actions, enabled, position],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_rule(&self, id: &str, vault_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM rules WHERE id = ?1 AND vault_id = ?2", params![id, vault_id])?;
+        Ok(())
+    }
+
+    pub fn apply_rules_to_message(
+        &self,
+        vault_id: &str,
+        msg_id: &str,
+        from_addr: &str,
+        subject: &str,
+        has_attachment: bool,
+        label_ids: &[String],
+        _tags: &[String],
+    ) -> Result<()> {
+        let rules = self.get_rules(vault_id)?;
+        for rule in &rules {
+            if !rule["enabled"].as_bool().unwrap_or(false) {
+                continue;
+            }
+            let conditions = match rule["conditions"].as_array() {
+                Some(c) => c,
+                None => continue,
+            };
+            let logic = rule["conditionLogic"].as_str().unwrap_or("AND");
+
+            let matches: Vec<bool> = conditions.iter().map(|cond| {
+                let field = cond["field"].as_str().unwrap_or("");
+                let op = cond["op"].as_str().unwrap_or("");
+                let value = cond["value"].as_str().unwrap_or("").to_lowercase();
+                match field {
+                    "from" => apply_str_op(op, &from_addr.to_lowercase(), &value),
+                    "subject" => apply_str_op(op, &subject.to_lowercase(), &value),
+                    "has_attachment" => has_attachment == (value == "true"),
+                    "label" => label_ids.iter().any(|id| id.to_lowercase() == value),
+                    _ => false,
+                }
+            }).collect();
+
+            let rule_matches = if logic == "OR" {
+                matches.iter().any(|&m| m)
+            } else {
+                !matches.is_empty() && matches.iter().all(|&m| m)
+            };
+
+            if !rule_matches {
+                continue;
+            }
+
+            let actions = match rule["actions"].as_array() {
+                Some(a) => a,
+                None => continue,
+            };
+            for action in actions {
+                let kind = action["kind"].as_str().unwrap_or("");
+                let value = action["value"].as_str().unwrap_or("");
+                match kind {
+                    "ADD_LABEL" => {
+                        let _ = self.conn.execute(
+                            "INSERT OR IGNORE INTO message_labels (message_id, label_id) VALUES (?1, ?2)",
+                            params![msg_id, value],
+                        );
+                    }
+                    "REMOVE_LABEL" => {
+                        let _ = self.conn.execute(
+                            "DELETE FROM message_labels WHERE message_id = ?1 AND label_id = ?2",
+                            params![msg_id, value],
+                        );
+                    }
+                    "MARK_READ" => {
+                        let _ = self.conn.execute(
+                            "UPDATE messages SET flags_read = 1 WHERE id = ?1",
+                            params![msg_id],
+                        );
+                    }
+                    "ADD_TAG" => {
+                        let _ = self.conn.execute(
+                            "INSERT OR IGNORE INTO message_tags (message_id, tag) VALUES (?1, ?2)",
+                            params![msg_id, value],
+                        );
+                    }
+                    "SET_STATUS" => {
+                        let _ = self.conn.execute(
+                            "UPDATE messages SET status_id = ?1 WHERE id = ?2",
+                            params![value, msg_id],
+                        );
+                    }
+                    "SET_PRIORITY" => {
+                        if let Ok(p) = value.parse::<i64>() {
+                            let _ = self.conn.execute(
+                                "UPDATE messages SET priority = ?1 WHERE id = ?2",
+                                params![p, msg_id],
+                            );
+                        }
+                    }
+                    "STAR" => {
+                        let star = if value.is_empty() { "yellow-star" } else { value };
+                        let _ = self.conn.execute(
+                            "UPDATE messages SET star = ?1 WHERE id = ?2",
+                            params![star, msg_id],
+                        );
+                    }
+                    "ARCHIVE" => {
+                        // Find the archive folder for this vault
+                        let archive_id: Option<String> = {
+                            let mut stmt = self.conn.prepare(
+                                "SELECT id FROM folders WHERE vault_id = ?1 AND system_kind = 'archive' LIMIT 1",
+                            )?;
+                            stmt.query_row(params![vault_id], |r| r.get(0)).optional()?
+                        };
+                        if let Some(fid) = archive_id {
+                            let _ = self.conn.execute(
+                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2",
+                                params![fid, msg_id],
+                            );
+                        }
+                    }
+                    "TRASH" => {
+                        let trash_id: Option<String> = {
+                            let mut stmt = self.conn.prepare(
+                                "SELECT id FROM folders WHERE vault_id = ?1 AND system_kind = 'trash-bin' LIMIT 1",
+                            )?;
+                            stmt.query_row(params![vault_id], |r| r.get(0)).optional()?
+                        };
+                        if let Some(fid) = trash_id {
+                            let _ = self.conn.execute(
+                                "UPDATE messages SET folder_id = ?1 WHERE id = ?2",
+                                params![fid, msg_id],
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // ─── EP7: Templates ───────────────────────────────────────────────────────
+
+    pub fn get_templates(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, name, subject, body_html, created_at FROM templates WHERE vault_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "subject": r.get::<_, String>(3)?,
+                "bodyHtml": r.get::<_, String>(4)?,
+                "createdAt": r.get::<_, i64>(5)?,
+            }))
+        })?;
+        rows.map(|r| r.context("loading template")).collect()
+    }
+
+    pub fn upsert_template(&self, vault_id: &str, tmpl: &JsonValue) -> Result<()> {
+        let id = tmpl["id"].as_str().unwrap_or("").to_string();
+        let name = tmpl["name"].as_str().unwrap_or("").to_string();
+        let subject = tmpl["subject"].as_str().unwrap_or("").to_string();
+        let body_html = tmpl["bodyHtml"].as_str().unwrap_or("").to_string();
+        let created_at = tmpl["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        self.conn.execute(
+            "INSERT INTO templates (id, vault_id, name, subject, body_html, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET name = excluded.name, subject = excluded.subject, body_html = excluded.body_html",
+            params![id, vault_id, name, subject, body_html, created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_template(&self, id: &str, vault_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM templates WHERE id = ?1 AND vault_id = ?2", params![id, vault_id])?;
+        Ok(())
+    }
+
+    // ─── EP7: List-Unsubscribe ────────────────────────────────────────────────
+
+    pub fn get_list_unsubscribe(&self, message_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT list_unsubscribe_json FROM messages WHERE id = ?1 LIMIT 1",
+        )?;
+        stmt.query_row(params![message_id], |r| r.get(0)).optional()
+            .map_err(anyhow::Error::from)
+    }
+}
+
+fn apply_str_op(op: &str, haystack: &str, needle: &str) -> bool {
+    match op {
+        "contains" => haystack.contains(needle),
+        "equals" => haystack == needle,
+        "starts_with" => haystack.starts_with(needle),
+        "not_contains" => !haystack.contains(needle),
+        _ => false,
     }
 }
 

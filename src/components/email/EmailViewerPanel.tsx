@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ImageIcon,
   Mail,
+  MailX,
   Star,
   Archive,
   Trash2,
@@ -41,7 +42,7 @@ import { localStore } from "@/storage/local";
 import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody, downloadAttachment } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment, sendUnsubscribe } from "@/storage/tauri";
 import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
@@ -435,6 +436,35 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
               <ShieldCheck size={10} />
               <span>isolated content</span>
             </div>
+            {msg.listUnsubscribeJson && (
+              <Tooltip label="Unsubscribe from this sender">
+                <button
+                  type="button"
+                  className="mt-1 flex items-center gap-1 text-overline uppercase text-text-tertiary hover:text-accent transition-colors"
+                  onClick={async () => {
+                    try {
+                      if (isTauri()) {
+                        const result = await sendUnsubscribe(msg.id);
+                        if (result === "posted") {
+                          toast.success("Unsubscribed successfully");
+                        } else {
+                          window.open(result, "_blank");
+                        }
+                      } else {
+                        const parsed = JSON.parse(msg.listUnsubscribeJson!);
+                        const url = parsed.link ?? parsed.post;
+                        if (url) window.open(url, "_blank");
+                      }
+                    } catch (e) {
+                      toast.error(`Unsubscribe failed: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  }}
+                >
+                  <MailX size={10} />
+                  <span>unsubscribe</span>
+                </button>
+              </Tooltip>
+            )}
           </div>
         </div>
 

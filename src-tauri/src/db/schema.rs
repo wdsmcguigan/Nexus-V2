@@ -224,4 +224,39 @@ CREATE TABLE IF NOT EXISTS saved_views (
 pub const MIGRATION_SQL: &str = r#"
 ALTER TABLE accounts ADD COLUMN sync_cursor TEXT;
 ALTER TABLE accounts ADD COLUMN settings_json TEXT;
+ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT;
+CREATE TABLE IF NOT EXISTS rules (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    conditions_json TEXT NOT NULL,
+    condition_logic TEXT NOT NULL DEFAULT 'AND',
+    actions_json TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL DEFAULT '',
+    body_html TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, message_id, subject, notes)
+    VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_ad BEFORE DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, message_id, subject, notes)
+    VALUES ('delete', old.rowid, old.id, old.subject, COALESCE(old.notes, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, message_id, subject, notes)
+    VALUES ('delete', old.rowid, old.id, old.subject, COALESCE(old.notes, ''));
+  INSERT INTO messages_fts(rowid, message_id, subject, notes)
+    VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
+END;
+INSERT OR IGNORE INTO messages_fts(rowid, message_id, subject, notes)
+  SELECT rowid, id, subject, COALESCE(notes,'') FROM messages;
 "#;

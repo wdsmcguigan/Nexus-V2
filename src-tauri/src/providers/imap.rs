@@ -378,6 +378,8 @@ fn parse_imap_fetch(
         flags_read,
         eml_path: None,
         attachments: vec![],
+        list_unsubscribe: None,
+        list_unsubscribe_post: None,
     })
 }
 
