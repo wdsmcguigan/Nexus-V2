@@ -8,7 +8,7 @@ Quick orientation for AI coding agents and new contributors. Read this first; di
 
 Nexus is a **local-first, privacy-focused email client for macOS** built with Tauri 2 (Rust backend) and React 18 (TypeScript frontend). All mail data lives in a local SQLite vault encrypted with SQLCipher. Cross-device sync is optional and E2EE via a self-hosted relay server.
 
-Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay).
+Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay), EP-6 (multi-provider: IMAP/SMTP/Outlook), EP-7 (FTS5 + rules engine + quick wins).
 
 ---
 
@@ -50,7 +50,7 @@ Nexus-V2/
 │   └── components/             # UI components (see docs/developer-guide.md)
 ├── src-tauri/src/              # Rust backend
 │   ├── lib.rs                  # AppState, plugin init, invoke_handler! registration
-│   ├── commands.rs             # 17 IPC command implementations
+│   ├── commands.rs             # 25+ IPC command implementations
 │   ├── crypto.rs               # XChaCha20-Poly1305 + BLAKE3 + enrollment code gen
 │   ├── db/
 │   │   ├── schema.rs           # SQLite DDL (tables + indexes)
@@ -167,6 +167,8 @@ Gmail OAuth requires a Google Cloud project with the Gmail API enabled and `http
 **Gmail OAuth redirect URI:** The local OAuth flow listens on a random ephemeral port. You need `http://localhost` (without a specific port) added as an authorized redirect URI in your Google Cloud Console project, or Gmail auth will fail with `redirect_uri_mismatch`.
 
 **pnpm workspace:** This is a pnpm workspace. Always run `pnpm install` from the root, not inside subdirectories. The `relay-server/` Rust crate is a separate Cargo workspace (its own `Cargo.lock`), not part of the root pnpm workspace.
+
+**Rules/Templates mutation pipeline:** Rules and templates must be saved via `saveRuleMutation()` / `saveTemplateMutation()` / `deleteRuleMutation()` / `deleteTemplateMutation()` in `src/state/mutations.ts` — NOT by calling the IPC functions directly. Direct IPC calls bypass the local store and the relay queue.
 
 ---
 
