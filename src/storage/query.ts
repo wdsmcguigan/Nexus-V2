@@ -185,7 +185,7 @@ export function queryMessages(
       }
       case "receivedAt":
       default:
-        return (b.receivedAt - a.receivedAt) * dir;
+        return (a.receivedAt - b.receivedAt) * dir;
     }
   });
 

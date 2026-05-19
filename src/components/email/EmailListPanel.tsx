@@ -22,6 +22,7 @@ import {
   Bookmark,
   Tag,
   MessagesSquare,
+  ArrowDownUp,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
@@ -148,10 +149,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   }, []);
 
   const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
   const [groupBySta, setGroupBySta] = React.useState(false);
 
   const title = useSelectionTitle();
-  const allMessages = useVisibleMessagesForPanel(panelId, sortBy);
+  const allMessages = useVisibleMessagesForPanel(panelId, sortBy, sortDir);
 
   // Collapse to one row per threadId when threaded view is active
   const messages = React.useMemo(() => {
@@ -623,6 +625,24 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
+
+        {/* Sort direction toggle — only shown for receivedAt (time-based sorts) */}
+        {sortBy === "receivedAt" && (
+          <Tooltip label={sortDir === "desc" ? "Showing newest first" : "Showing oldest first"}>
+            <button
+              type="button"
+              onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
+              className={cn(
+                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
+                "hover:bg-surface-2 hover:text-text-secondary",
+                sortDir === "asc" ? "text-text-secondary" : "text-text-tertiary",
+              )}
+            >
+              <ArrowDownUp size={10} />
+              {sortDir === "desc" ? "Newest" : "Oldest"}
+            </button>
+          </Tooltip>
+        )}
 
         <span className="text-caption text-text-muted">·</span>
 

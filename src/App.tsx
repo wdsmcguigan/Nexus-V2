@@ -2,6 +2,7 @@ import { Component, useState, useEffect, type ReactNode } from "react";
 import { Workspace } from "@/components/Workspace";
 import { VaultSetup } from "@/components/onboarding/VaultSetup";
 import { isTauri, getVaultPath, repairMessageBodies } from "@/storage/tauri";
+import { bodyStore } from "@/storage/bodyStore";
 
 interface ErrorBoundaryState {
   error: Error | null;
@@ -50,7 +51,7 @@ export default function App() {
       const hasPendingStep = pendingStep === "mode" || pendingStep === "gmail";
       setShowOnboarding(!path || hasPendingStep);
       if (path && !hasPendingStep) {
-        repairMessageBodies().catch(() => {});
+        repairMessageBodies().then(() => bodyStore.clear()).catch(() => {});
       }
     });
   }, []);

@@ -248,11 +248,11 @@ export function useVisibleMessages(
   return useMemo(() => {
     // Saved view: its filter is complete — use directly.
     if (savedViewId) {
-      return queryMessages({ ...activeFilter, sortBy, sortDir, limit: 500 }, localStore).items;
+      return queryMessages({ ...activeFilter, sortBy, sortDir, limit: 2000 }, localStore).items;
     }
 
     // Nav selection + overlay filter pills.
-    const base: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    const base: MetadataFilter = { sortBy, sortDir, limit: 2000 };
     const lbl = localStore.labels.get(folderId);
     if (lbl) {
       base.labelIds = [folderId];
@@ -318,9 +318,9 @@ export function useVisibleMessagesForPanel(
     const savedViewId = panelState?.selectedSavedViewId ?? globalSavedViewId;
 
     if (savedViewId) {
-      return queryMessages({ ...filter, sortBy, sortDir, limit: 500 }, localStore).items;
+      return queryMessages({ ...filter, sortBy, sortDir, limit: 2000 }, localStore).items;
     }
-    const base: MetadataFilter = { sortBy, sortDir, limit: 500 };
+    const base: MetadataFilter = { sortBy, sortDir, limit: 2000 };
     const lbl = localStore.labels.get(folderId);
     if (lbl) {
       base.labelIds = [folderId];
