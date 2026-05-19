@@ -296,7 +296,7 @@ where
 }
 
 fn decode_imap_utf7(s: &str) -> String {
-    utf7_imap::decode_utf7_imap(s.to_string()).unwrap_or_else(|_| s.to_string())
+    utf7_imap::decode_utf7_imap(s.to_string())
 }
 
 fn parse_imap_fetch(

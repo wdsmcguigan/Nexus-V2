@@ -3,6 +3,7 @@ use lettre::{
     transport::smtp::authentication::Credentials, AsyncSmtpTransport, AsyncTransport,
     Tokio1Executor,
 };
+use mailparse::MailHeaderMap;
 
 use crate::providers::imap::{Security, SmtpConfig};
 

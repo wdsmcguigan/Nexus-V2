@@ -849,6 +849,7 @@ pub async fn add_imap_account(
     };
 
     tokio::spawn(async move {
+        use crate::providers::MailProvider;
         let provider = ImapProvider::new(
             account_id_clone.clone(),
             vault_id_clone.clone(),
