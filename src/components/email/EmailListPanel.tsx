@@ -808,6 +808,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                         if (c && !isSelected) toggleEmailSelection(msg.id);
                         if (!c && isSelected) toggleEmailSelection(msg.id);
                       }}
+                      onMoveToFolder={() => setFolderPickerMsgId(msg.id)}
                     />
                   </EmailRowContextMenu>
                 </div>
