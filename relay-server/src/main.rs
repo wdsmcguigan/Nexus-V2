@@ -15,9 +15,12 @@ mod routes;
 
 use std::sync::{Arc, Mutex};
 use anyhow::Result;
-use axum::Router;
+use axum::{extract::DefaultBodyLimit, Router};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
+
+/// Maximum body size per request (1 MB). Mutations are E2EE blobs; 1 MB is generous.
+const MAX_BODY_BYTES: usize = 1 * 1024 * 1024;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -36,6 +39,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .merge(routes::router(Arc::clone(&shared)))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(CorsLayer::permissive());
 
     let addr = format!("{host}:{port}");

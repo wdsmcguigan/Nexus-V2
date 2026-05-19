@@ -19,6 +19,9 @@ impl RelayDb {
                  received_at INTEGER NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_rm_vault_seq ON relay_mutations(vault_id, seq);
+             -- Prevent the same device from pushing the same lamport twice
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_rm_vault_device_lamport
+                 ON relay_mutations(vault_id, device_id, lamport);
              CREATE TABLE IF NOT EXISTS enroll_sessions (
                  code_hash           TEXT PRIMARY KEY,
                  vault_id            TEXT NOT NULL,
