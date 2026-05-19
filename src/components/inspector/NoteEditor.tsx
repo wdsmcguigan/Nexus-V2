@@ -5,6 +5,7 @@
  */
 import * as React from "react";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +49,7 @@ export function NoteEditor({ messageId, notes }: NoteEditorProps) {
 
   const charCount = value.length;
   const previewHtml = previewing && value.trim()
-    ? (marked.parse(value) as string)
+    ? DOMPurify.sanitize(marked.parse(value) as string)
     : null;
 
   return (
@@ -75,7 +76,6 @@ export function NoteEditor({ messageId, notes }: NoteEditorProps) {
       {/* Edit / preview area */}
       {previewing && previewHtml ? (
         <div
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: markdown rendered from user's own notes
           dangerouslySetInnerHTML={{ __html: previewHtml }}
           className={cn(
             "min-h-[96px] rounded-xs border border-border-subtle bg-surface-1 p-2",

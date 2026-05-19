@@ -33,6 +33,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
 import { cn, formatBytes } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
+import DOMPurify from "dompurify";
 import { isTauri, sendMessage, type AttachmentPayload } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
@@ -629,7 +630,7 @@ export function EmailComposerPanel() {
                         type="button"
                         onClick={() => {
                           if (tmpl.subject) setSubject(tmpl.subject);
-                          editor?.commands.setContent(tmpl.bodyHtml);
+                          editor?.commands.setContent(DOMPurify.sanitize(tmpl.bodyHtml));
                           setShowTemplates(false);
                         }}
                         className="flex w-full flex-col px-3 py-2 text-left hover:bg-surface-3"

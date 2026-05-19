@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { RuleEditorDialog } from "@/components/settings/RuleEditorDialog";
 import { localStore } from "@/storage/local";
 import { isTauri, saveRule, deleteRule } from "@/storage/tauri";
+import { saveRuleMutation, deleteRuleMutation } from "@/state/mutations";
 import type { Rule } from "@/data/types";
 import { cn } from "@/lib/utils";
 
@@ -25,18 +26,24 @@ export function RulesSettings() {
   const vaultId = localStore.vault?.id ?? "local";
 
   async function handleSave(rule: Rule) {
-    const exists = rules.find((r) => r.id === rule.id);
-    const updated = exists
-      ? rules.map((r) => (r.id === rule.id ? rule : r))
-      : [...rules, { ...rule, position: rules.length }];
-    setRules(updated);
+    const ruleWithPosition = rules.find((r) => r.id === rule.id)
+      ? rule
+      : { ...rule, position: rules.length };
+    saveRuleMutation(ruleWithPosition);
+    setRules((prev) => {
+      const exists = prev.find((r) => r.id === ruleWithPosition.id);
+      return exists
+        ? prev.map((r) => (r.id === ruleWithPosition.id ? ruleWithPosition : r))
+        : [...prev, ruleWithPosition];
+    });
     if (isTauri()) {
-      await saveRule(vaultId, rule);
+      await saveRule(vaultId, ruleWithPosition);
     }
     setDialogOpen(false);
   }
 
   async function handleDelete(id: string) {
+    deleteRuleMutation(id);
     setRules((prev) => prev.filter((r) => r.id !== id));
     if (isTauri()) {
       await deleteRule(id, vaultId);
@@ -45,6 +52,7 @@ export function RulesSettings() {
 
   async function handleToggle(rule: Rule) {
     const updated = { ...rule, enabled: !rule.enabled };
+    saveRuleMutation(updated);
     setRules((prev) => prev.map((r) => (r.id === rule.id ? updated : r)));
     if (isTauri()) {
       await saveRule(vaultId, updated);

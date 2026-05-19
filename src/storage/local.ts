@@ -562,6 +562,34 @@ export class LocalStore {
   getSavedViewsSorted(): SavedView[] {
     return Array.from(this.savedViews.values()).sort((a, b) => a.position - b.position);
   }
+
+  // ── Rule CRUD (EP-7) ─────────────────────────────────────────────
+
+  putRule(rule: Rule): void {
+    this.rules.set(rule.id, rule);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteRule(id: string): void {
+    this.rules.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  // ── Template CRUD (EP-7) ─────────────────────────────────────────
+
+  putTemplate(template: Template): void {
+    this.templates.set(template.id, template);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteTemplate(id: string): void {
+    this.templates.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
 }
 
 // ─── Singleton ───────────────────────────────────────────────────────────────

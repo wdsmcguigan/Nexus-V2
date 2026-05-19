@@ -22,9 +22,11 @@ import {
   type Mutation,
   type MutationKind,
   type MetadataFilter,
+  type Rule,
   type SavedView,
   type StarStyle,
   type Status,
+  type Template,
 } from "@/data/types";
 import { LocalStore, localStore as _defaultStore } from "@/storage/local";
 import { isTauri, applyMutationIpc } from "@/storage/tauri";
@@ -479,6 +481,32 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.deleteContact(contactId);
       break;
     }
+
+    // ── Rule ops ─────────────────────────────────────────────────
+    case "CREATE_RULE":
+    case "UPDATE_RULE": {
+      const rule = m.payload as Rule;
+      store.putRule(rule);
+      break;
+    }
+    case "DELETE_RULE": {
+      const { ruleId } = m.payload as { ruleId: string };
+      store.deleteRule(ruleId);
+      break;
+    }
+
+    // ── Template ops ──────────────────────────────────────────────
+    case "CREATE_TEMPLATE":
+    case "UPDATE_TEMPLATE": {
+      const template = m.payload as Template;
+      store.putTemplate(template);
+      break;
+    }
+    case "DELETE_TEMPLATE": {
+      const { templateId } = m.payload as { templateId: string };
+      store.deleteTemplate(templateId);
+      break;
+    }
   }
 }
 
@@ -684,4 +712,26 @@ export function updateContact(
 export function deleteContact(id: string, store: LocalStore = _defaultStore): void {
   recordMutation("DELETE_CONTACT", { contactId: id }, store);
   store.deleteContact(id);
+}
+
+// ── Rule ops ─────────────────────────────────────────────────────────────────
+
+export function saveRuleMutation(rule: Rule, store: LocalStore = _defaultStore): void {
+  const exists = store.rules.has(rule.id);
+  recordMutation(exists ? "UPDATE_RULE" : "CREATE_RULE", rule, store);
+}
+
+export function deleteRuleMutation(ruleId: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_RULE", { ruleId }, store);
+}
+
+// ── Template ops ──────────────────────────────────────────────────────────────
+
+export function saveTemplateMutation(template: Template, store: LocalStore = _defaultStore): void {
+  const exists = store.templates.has(template.id);
+  recordMutation(exists ? "UPDATE_TEMPLATE" : "CREATE_TEMPLATE", template, store);
+}
+
+export function deleteTemplateMutation(templateId: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_TEMPLATE", { templateId }, store);
 }

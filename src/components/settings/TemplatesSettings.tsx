@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/Button";
 import { localStore } from "@/storage/local";
 import { isTauri, saveTemplate, deleteTemplate } from "@/storage/tauri";
+import { saveTemplateMutation, deleteTemplateMutation } from "@/state/mutations";
 import type { Template } from "@/data/types";
 
 function SectionHeader({ children }: { children: React.ReactNode }) {
@@ -130,10 +131,11 @@ export function TemplatesSettings() {
   const vaultId = localStore.vault?.id ?? "local";
 
   async function handleSave(tmpl: Template) {
-    const exists = templates.find((t) => t.id === tmpl.id);
-    setTemplates((prev) =>
-      exists ? prev.map((t) => (t.id === tmpl.id ? tmpl : t)) : [...prev, tmpl]
-    );
+    saveTemplateMutation(tmpl);
+    setTemplates((prev) => {
+      const exists = prev.find((t) => t.id === tmpl.id);
+      return exists ? prev.map((t) => (t.id === tmpl.id ? tmpl : t)) : [...prev, tmpl];
+    });
     if (isTauri()) {
       await saveTemplate(vaultId, tmpl);
     }
@@ -141,6 +143,7 @@ export function TemplatesSettings() {
   }
 
   async function handleDelete(id: string) {
+    deleteTemplateMutation(id);
     setTemplates((prev) => prev.filter((t) => t.id !== id));
     if (isTauri()) {
       await deleteTemplate(id, vaultId);
