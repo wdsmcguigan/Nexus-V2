@@ -192,10 +192,28 @@ pub async fn start_gmail_oauth(
 }
 
 /// Get a valid access token for an account, refreshing only if the stored one is expired.
+/// Serialized via `token_refresh_lock` to prevent thundering-herd double-refresh when
+/// two concurrent IPC commands both see an expired token.
 async fn get_valid_token(
     state: &AppState,
     account_id: &str,
 ) -> std::result::Result<String, String> {
+    // Fast path: check without lock first.
+    let (access_token, is_valid) = {
+        let db = state.db.lock().unwrap();
+        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let at = db.get_access_token(account_id)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let valid = db.token_is_valid(account_id).unwrap_or(false);
+        (at, valid)
+    };
+    if is_valid && !access_token.is_empty() {
+        return Ok(access_token);
+    }
+
+    // Slow path: serialize refresh attempts so concurrent commands don't both refresh.
+    let _guard = state.token_refresh_lock.lock().await;
     let (refresh_token, access_token, is_valid) = {
         let db = state.db.lock().unwrap();
         let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
@@ -208,7 +226,6 @@ async fn get_valid_token(
         let valid = db.token_is_valid(account_id).unwrap_or(false);
         (rt, at, valid)
     };
-
     if is_valid && !access_token.is_empty() {
         return Ok(access_token);
     }
@@ -309,6 +326,9 @@ pub async fn repair_message_bodies(
             Err(e) => log::warn!("body repair failed for {account_id}: {e}"),
         }
     }
+    if total > 0 {
+        let _ = app.emit("vault:hydrate-needed", ());
+    }
     Ok(total)
 }
 
@@ -370,6 +390,39 @@ pub async fn send_message(
     Ok(gmail_id)
 }
 
+fn sanitize_filename(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("attachment");
+    if base == ".." || base == "." { return "attachment".to_string(); }
+    let s: String = base.chars().map(|c| match c {
+        '<' | '>' | ':' | '"' | '|' | '?' | '*' => '_',
+        c if c.is_control() => '_',
+        c => c,
+    }).collect();
+    let trimmed = s.trim_start_matches('.');
+    let result: String = trimmed.chars().take(150).collect();
+    if result.is_empty() { "attachment".to_string() } else { result }
+}
+
+fn unique_download_path(dir: &std::path::Path, filename: &str) -> std::path::PathBuf {
+    let dest = dir.join(filename);
+    if !dest.exists() { return dest; }
+    let stem = std::path::Path::new(filename)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(filename);
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| format!(".{s}"))
+        .unwrap_or_default();
+    let mut n = 1u32;
+    loop {
+        let candidate = dir.join(format!("{stem} ({n}){ext}"));
+        if !candidate.exists() { return candidate; }
+        n += 1;
+    }
+}
+
 // ─── File system helpers ─────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -383,26 +436,7 @@ pub async fn save_file_to_downloads(
         .download_dir()
         .map_err(|e| e.to_string())?;
 
-    // Avoid clobbering — append (1), (2), etc. if file exists
-    let mut dest = downloads_dir.join(&filename);
-    if dest.exists() {
-        let stem = std::path::Path::new(&filename)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&filename);
-        let ext = std::path::Path::new(&filename)
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| format!(".{s}"))
-            .unwrap_or_default();
-        let mut n = 1u32;
-        loop {
-            dest = downloads_dir.join(format!("{stem} ({n}){ext}"));
-            if !dest.exists() { break; }
-            n += 1;
-        }
-    }
-
+    let dest = unique_download_path(&downloads_dir, &filename);
     std::fs::write(&dest, content.as_bytes()).map_err(|e| e.to_string())?;
     Ok(dest.to_string_lossy().into_owned())
 }
@@ -454,7 +488,8 @@ pub async fn download_attachment(
         .path()
         .download_dir()
         .map_err(|e| e.to_string())?;
-    let dest = downloads_dir.join(&filename);
+    let safe_name = sanitize_filename(&filename);
+    let dest = unique_download_path(&downloads_dir, &safe_name);
     std::fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
 
     Ok(dest.to_string_lossy().into_owned())
@@ -674,13 +709,30 @@ pub fn start_inbox_poller(
     client_secret: String,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-        interval.tick().await; // skip immediate first tick — initial sync already runs on connect
+        let mut backoff = crate::gmail::backoff::SyncBackoff::new();
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await; // initial sync already runs on connect
 
         loop {
-            interval.tick().await;
-            if let Err(e) = poll_all_accounts(&vault_path, &app, &client_id, &client_secret).await {
-                log::warn!("Inbox poll error: {e}");
+            if backoff.is_open() {
+                log::warn!(
+                    "Sync circuit breaker open ({} consecutive failures) — pausing poller",
+                    backoff.consecutive_failures()
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                continue;
+            }
+
+            match poll_all_accounts(&vault_path, &app, &client_id, &client_secret).await {
+                Ok(()) => {
+                    backoff.record_success();
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                }
+                Err(e) => {
+                    backoff.record_failure();
+                    let delay = backoff.delay();
+                    log::warn!("Inbox poll error (failure #{}, retrying in {:.0}s): {e}", backoff.consecutive_failures(), delay.as_secs_f64());
+                    tokio::time::sleep(delay).await;
+                }
             }
         }
     });

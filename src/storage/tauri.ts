@@ -209,6 +209,13 @@ export async function sendMessage(params: {
   return invoke<string>("send_message", { accountId: params.accountId, rawEml: b64 });
 }
 
+function encodeRfc2047(text: string): string {
+  if ([...text].every((c) => c.charCodeAt(0) < 128)) return text;
+  const bytes = new TextEncoder().encode(text);
+  const b64 = btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""));
+  return `=?UTF-8?B?${b64}?=`;
+}
+
 function buildRfc822(params: {
   from: string;
   to: string[];
@@ -224,7 +231,7 @@ function buildRfc822(params: {
   hdrs.push(`To: ${params.to.join(", ")}`);
   if (params.cc?.length) hdrs.push(`Cc: ${params.cc.join(", ")}`);
   if (params.bcc?.length) hdrs.push(`Bcc: ${params.bcc.join(", ")}`);
-  hdrs.push(`Subject: ${params.subject}`);
+  hdrs.push(`Subject: ${encodeRfc2047(params.subject)}`);
   hdrs.push(`MIME-Version: 1.0`);
   if (params.replyToMessageId) {
     hdrs.push(`In-Reply-To: ${params.replyToMessageId}`);

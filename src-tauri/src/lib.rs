@@ -6,12 +6,14 @@ mod relay;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
+use tokio::sync::Mutex as AsyncMutex;
 
 /// Shared application state, held behind a Mutex so commands can mutate it.
 pub struct AppState {
     pub db: Mutex<Option<db::VaultDb>>,
     pub vault_path: Mutex<Option<String>>,
     pub relay: Arc<Mutex<relay::RelayState>>,
+    pub token_refresh_lock: AsyncMutex<()>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -24,6 +26,7 @@ pub fn run() {
             db: Mutex::new(None),
             vault_path: Mutex::new(None),
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
+            token_refresh_lock: AsyncMutex::new(()),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,

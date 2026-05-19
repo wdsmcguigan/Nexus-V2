@@ -41,6 +41,11 @@ export class FTSIndex {
 
   private _indexed = new Set<string>();
 
+  reindex(messages: Message[], bodies: Pick<BodyStore, "get">): void {
+    this._indexed.clear();
+    this.indexMessages(messages, bodies);
+  }
+
   indexMessages(messages: Message[], bodies: Pick<BodyStore, "get">): void {
     const docs: FTSDocument[] = [];
     for (const msg of messages) {

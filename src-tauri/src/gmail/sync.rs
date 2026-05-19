@@ -178,56 +178,63 @@ impl GmailSyncer {
 
     // ─── Phase 2: DB writes (synchronous, called from blocking context) ───────
 
-    /// Write the results of `fetch_initial` to the database.
-    /// This is synchronous — call from `tokio::task::spawn_blocking`.
+    /// Write the results of `fetch_initial` to the database atomically.
     pub fn commit_initial(&self, db: &VaultDb, result: FetchResult) -> Result<SyncStats> {
-        db.ensure_gmail_labels(&self.vault_id, &result.label_infos)?;
-        let total = result.messages.len() as u32;
-        let mut inserted = 0u32;
-        for msg in &result.messages {
-            if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
-                inserted += 1;
+        db.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let outcome = (|| {
+            db.ensure_gmail_labels(&self.vault_id, &result.label_infos)?;
+            let total = result.messages.len() as u32;
+            let mut inserted = 0u32;
+            for msg in &result.messages {
+                if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
+                    inserted += 1;
+                }
             }
+            if let Some(hid) = &result.history_id {
+                db.update_history_id(&self.account_id, hid)?;
+            }
+            Ok(SyncStats { fetched: total, inserted, updated: 0 })
+        })();
+        match outcome {
+            Ok(stats) => { db.conn.execute_batch("COMMIT")?; Ok(stats) }
+            Err(e) => { let _ = db.conn.execute_batch("ROLLBACK"); Err(e) }
         }
-        // Persist historyId so subsequent polls use incremental sync (not full re-fetch).
-        if let Some(hid) = &result.history_id {
-            db.update_history_id(&self.account_id, hid)?;
-        }
-        Ok(SyncStats {
-            fetched: total,
-            inserted,
-            updated: 0,
-        })
     }
 
-    /// Write incremental results to the database.
+    /// Write incremental results to the database atomically.
     pub fn commit_incremental(&self, db: &VaultDb, result: IncrementalResult) -> Result<SyncStats> {
-        let fetched = result.new_messages.len() as u32;
-        let mut inserted = 0u32;
-        let mut updated = 0u32;
+        db.conn.execute_batch("BEGIN IMMEDIATE")?;
+        let outcome = (|| {
+            let fetched = result.new_messages.len() as u32;
+            let mut inserted = 0u32;
+            let mut updated = 0u32;
 
-        for msg in &result.new_messages {
-            if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
-                inserted += 1;
-            }
-        }
-        for (provider_id, labels) in &result.label_additions {
-            for label_id in labels {
-                if db.add_label_by_provider_id(provider_id, label_id).is_ok() {
-                    updated += 1;
+            for msg in &result.new_messages {
+                if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
+                    inserted += 1;
                 }
             }
-        }
-        for (provider_id, labels) in &result.label_removals {
-            for label_id in labels {
-                if db.remove_label_by_provider_id(provider_id, label_id).is_ok() {
-                    updated += 1;
+            for (provider_id, labels) in &result.label_additions {
+                for label_id in labels {
+                    if db.add_label_by_provider_id(provider_id, label_id).is_ok() {
+                        updated += 1;
+                    }
                 }
             }
+            for (provider_id, labels) in &result.label_removals {
+                for label_id in labels {
+                    if db.remove_label_by_provider_id(provider_id, label_id).is_ok() {
+                        updated += 1;
+                    }
+                }
+            }
+            db.update_history_id(&self.account_id, &result.new_history_id)?;
+            Ok(SyncStats { fetched, inserted, updated })
+        })();
+        match outcome {
+            Ok(stats) => { db.conn.execute_batch("COMMIT")?; Ok(stats) }
+            Err(e) => { let _ = db.conn.execute_batch("ROLLBACK"); Err(e) }
         }
-        db.update_history_id(&self.account_id, &result.new_history_id)?;
-
-        Ok(SyncStats { fetched, inserted, updated })
     }
 
     // ─── Convenience wrappers ─────────────────────────────────────────────────
@@ -249,7 +256,13 @@ impl GmailSyncer {
             None => self.initial_sync_with_db(db_path).await,
             Some(hid) => {
                 match self.fetch_incremental(&hid).await? {
-                    None => self.initial_sync_with_db(db_path).await, // expired
+                    None => {
+                        log::warn!("History expired for {} — clearing historyId, running full resync", self.account_id);
+                        let db = VaultDb::open(db_path, "nexus")?;
+                        db.clear_history_id(&self.account_id)?;
+                        drop(db);
+                        self.initial_sync_with_db(db_path).await
+                    }
                     Some(result) => {
                         let db = VaultDb::open(db_path, "nexus")?;
                         self.commit_incremental(&db, result)
@@ -289,13 +302,14 @@ impl GmailSyncer {
                 let _permit = sem.acquire().await.unwrap();
                 let body_ref = format!("body-{provider_id}");
                 let stored = match fetch_and_parse_message(&client, &token, &provider_id, &account_id, &vault_id).await {
-                    Ok(parsed) => {
+                    Ok(Some(parsed)) => {
                         if let Some(html) = parsed.body_html {
                             if let Ok(db) = VaultDb::open(&db_path, "nexus") {
                                 db.upsert_body(&body_ref, &html).is_ok()
                             } else { false }
                         } else { false }
                     }
+                    Ok(None) => false, // deleted — skip silently
                     Err(e) => {
                         log::warn!("body repair: fetch failed for {provider_id}: {e}");
                         false
@@ -319,16 +333,19 @@ impl GmailSyncer {
         #[derive(serde::Deserialize)]
         struct Profile { #[serde(rename = "historyId")] history_id: String }
         let url = format!("{GMAIL_API}/profile");
-        let resp: Profile = client
+        let resp = client
             .get(&url)
             .bearer_auth(token)
             .send()
             .await
-            .context("fetching profile")?
-            .json()
-            .await
-            .context("parsing profile")?;
-        Ok(resp.history_id)
+            .context("fetching profile")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Gmail profile API {status}: {body}"));
+        }
+        let profile: Profile = resp.json().await.context("parsing profile")?;
+        Ok(profile.history_id)
     }
 
     async fn fetch_labels(
@@ -370,15 +387,18 @@ impl GmailSyncer {
                 url.push_str(&format!("&pageToken={pt}"));
             }
 
-            let resp: GmailListResponse = client
+            let raw = client
                 .get(&url)
                 .bearer_auth(token)
                 .send()
                 .await
-                .context("listing messages")?
-                .json()
-                .await
-                .context("parsing message list")?;
+                .context("listing messages")?;
+            if !raw.status().is_success() {
+                let status = raw.status();
+                let body = raw.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Gmail list API {status}: {body}"));
+            }
+            let resp: GmailListResponse = raw.json().await.context("parsing message list")?;
 
             let msgs = resp.messages.unwrap_or_default();
             let page_exhausted = msgs.len() < PAGE_SIZE as usize || resp.next_page_token.is_none();
@@ -445,7 +465,8 @@ impl GmailSyncer {
         let mut out = Vec::new();
         for h in handles {
             match h.await {
-                Ok(Ok(msg)) => out.push(msg),
+                Ok(Ok(Some(msg))) => out.push(msg),
+                Ok(Ok(None)) => {} // deleted — skip silently
                 Ok(Err(e)) => log::warn!("Message fetch failed: {e}"),
                 Err(e) => log::warn!("Task panicked: {e}"),
             }
@@ -459,21 +480,54 @@ impl GmailSyncer {
         token: &str,
         start_history_id: &str,
     ) -> Result<GmailHistoryResponse> {
-        let url = format!(
+        let base_url = format!(
             "{GMAIL_API}/history?startHistoryId={start_history_id}&historyTypes=messageAdded&historyTypes=labelAdded&historyTypes=labelRemoved"
         );
-        let resp = client
-            .get(&url)
-            .bearer_auth(token)
-            .send()
-            .await
-            .context("fetching history")?;
 
-        if resp.status() == reqwest::StatusCode::NOT_FOUND {
-            return Err(anyhow::anyhow!("history_expired"));
+        let mut all_history: Vec<GmailHistory> = Vec::new();
+        let mut latest_history_id: Option<String> = None;
+        let mut page_token: Option<String> = None;
+
+        loop {
+            let mut url = base_url.clone();
+            if let Some(ref pt) = page_token {
+                url.push_str(&format!("&pageToken={pt}"));
+            }
+
+            let resp = client
+                .get(&url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .context("fetching history")?;
+
+            if resp.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err(anyhow::anyhow!("history_expired"));
+            }
+            if !resp.status().is_success() {
+                let status = resp.status();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(anyhow::anyhow!("Gmail history API {status}: {body}"));
+            }
+
+            let page: GmailHistoryResponse = resp.json().await.context("parsing history response")?;
+
+            if latest_history_id.is_none() {
+                latest_history_id = page.history_id.clone();
+            }
+            all_history.extend(page.history.unwrap_or_default());
+
+            match page.next_page_token {
+                Some(t) if !t.is_empty() => page_token = Some(t),
+                _ => break,
+            }
         }
 
-        resp.json().await.context("parsing history response")
+        Ok(GmailHistoryResponse {
+            history: if all_history.is_empty() { None } else { Some(all_history) },
+            history_id: latest_history_id,
+            next_page_token: None,
+        })
     }
 }
 
@@ -488,26 +542,34 @@ pub struct IncrementalResult {
 // ─── Message fetching + parsing ───────────────────────────────────────────────
 
 /// Fetch a single message using format=full (headers + body, no raw attachment bytes).
-/// This is much more reliable than format=raw for large messages.
+/// Returns Ok(None) when the message has been deleted (HTTP 404) — caller should skip silently.
 async fn fetch_and_parse_message(
     client: &reqwest::Client,
     token: &str,
     msg_id: &str,
     account_id: &str,
     vault_id: &str,
-) -> Result<ParsedMessage> {
+) -> Result<Option<ParsedMessage>> {
     let url = format!("{GMAIL_API}/messages/{msg_id}?format=full");
-    let meta: GmailMessageMeta = client
+    let resp = client
         .get(&url)
         .bearer_auth(token)
         .send()
         .await
-        .context("fetching message")?
-        .json()
-        .await
-        .context("parsing message")?;
+        .context("fetching message")?;
 
-    parse_gmail_message_full(meta, account_id, vault_id)
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        log::debug!("Message {msg_id} not found (deleted) — skipping");
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!("Gmail message API {status}: {body}"));
+    }
+
+    let meta: GmailMessageMeta = resp.json().await.context("parsing message")?;
+    parse_gmail_message_full(meta, account_id, vault_id).map(Some)
 }
 
 /// Parse a GmailMessageMeta (format=full) into a ParsedMessage.
