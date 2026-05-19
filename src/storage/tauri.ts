@@ -87,6 +87,47 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
+// ─── EP6 Multi-Provider ───────────────────────────────────────────────────────
+
+import type { DiscoveryResult, ImapAccountInput, SyncStats } from "@/data/types";
+
+export async function discoverImapSettings(email: string): Promise<DiscoveryResult> {
+  return invoke<DiscoveryResult>("discover_imap_settings", { email });
+}
+
+export async function testImapConnection(params: {
+  host: string;
+  port: number;
+  security: string;
+  username: string;
+  password: string;
+}): Promise<boolean> {
+  return invoke<boolean>("test_imap_connection", params);
+}
+
+export async function addImapAccount(params: ImapAccountInput): Promise<OAuthResult> {
+  return invoke<OAuthResult>("add_imap_account", {
+    email: params.email,
+    displayName: params.displayName ?? null,
+    imapHost: params.imapHost,
+    imapPort: params.imapPort,
+    imapSecurity: params.imapSecurity,
+    imapUsername: params.imapUsername,
+    imapPassword: params.imapPassword,
+    smtpHost: params.smtpHost,
+    smtpPort: params.smtpPort,
+    smtpSecurity: params.smtpSecurity,
+  });
+}
+
+export async function syncAccountNow(accountId: string): Promise<SyncStats> {
+  return invoke<SyncStats>("sync_account_now", { accountId });
+}
+
+export async function startOutlookOAuth(): Promise<OAuthResult> {
+  return invoke<OAuthResult>("start_outlook_oauth");
+}
+
 export async function disconnectAccount(
   accountId: string,
   dataAction: "keep" | "delete_messages" | "delete_all",

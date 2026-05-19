@@ -218,3 +218,10 @@ CREATE TABLE IF NOT EXISTS saved_views (
     created_at INTEGER NOT NULL
 );
 "#;
+
+/// Idempotent migration DDL run after SCHEMA_SQL on every startup.
+/// Each statement is executed individually; "duplicate column name" errors are ignored.
+pub const MIGRATION_SQL: &str = r#"
+ALTER TABLE accounts ADD COLUMN sync_cursor TEXT;
+ALTER TABLE accounts ADD COLUMN settings_json TEXT;
+"#;

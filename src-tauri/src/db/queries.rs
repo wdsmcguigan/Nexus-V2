@@ -1486,6 +1486,71 @@ impl VaultDb {
         }).optional()?)
     }
 
+    // ─── EP6 multi-provider additions ─────────────────────────────────────────────
+
+    /// Return (account_id, vault_id, provider) for all accounts of any provider.
+    pub fn all_accounts(&self) -> Result<Vec<(String, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, provider FROM accounts",
+        )?;
+        let rows = stmt.query_map(params![], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })?;
+        rows.map(|r| r.context("loading account row")).collect()
+    }
+
+    /// Get sync_cursor (falls back to history_id for backwards compatibility).
+    pub fn get_sync_cursor(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT COALESCE(sync_cursor, history_id) FROM accounts WHERE id = ?1",
+        )?;
+        Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
+    }
+
+    /// Update sync_cursor.
+    pub fn update_sync_cursor(&self, account_id: &str, cursor: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET sync_cursor = ?1 WHERE id = ?2",
+            params![cursor, account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Clear sync_cursor (triggers full resync).
+    pub fn clear_sync_cursor(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET sync_cursor = NULL WHERE id = ?1",
+            params![account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get settings_json for an account.
+    pub fn get_settings_json(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT settings_json FROM accounts WHERE id = ?1",
+        )?;
+        Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
+    }
+
+    /// Save settings_json for an account (provider-specific connection params).
+    pub fn save_settings_json(&self, account_id: &str, settings_json: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET settings_json = ?1 WHERE id = ?2",
+            params![settings_json, account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Save encrypted credential (IMAP password stored in access_token column).
+    pub fn save_credential(&self, account_id: &str, encrypted_credential: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET access_token = ?1 WHERE id = ?2",
+            params![encrypted_credential, account_id],
+        )?;
+        Ok(())
+    }
+
     /// Return all Gmail accounts as (account_id, vault_id) pairs.
     pub fn all_gmail_accounts(&self) -> Result<Vec<(String, String)>> {
         let mut stmt = self.conn.prepare(

@@ -26,6 +26,54 @@ export interface Account {
   syncStatus: "idle" | "syncing" | "pending" | "error";
 }
 
+// ─── EP6 — Multi-Provider Types ──────────────────────────────────────────────
+
+export type ImapSecurity = "tls" | "starttls" | "plain";
+
+export interface ImapServerConfig {
+  host: string;
+  port: number;
+  security: ImapSecurity;
+  username: string;
+  password: string;
+}
+
+export interface SmtpServerConfig {
+  host: string;
+  port: number;
+  security: ImapSecurity;
+  username: string;
+  password: string;
+}
+
+export interface ImapAccountInput {
+  email: string;
+  displayName?: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecurity: ImapSecurity;
+  imapUsername: string;
+  imapPassword: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: ImapSecurity;
+}
+
+export interface DiscoveryResult {
+  imap: ImapServerConfig | null;
+  smtp: SmtpServerConfig | null;
+  /** "known" | "discovered" | "guessed" */
+  confidence: string;
+  requiresAppPassword: boolean;
+  oauthUrl: string | null;
+}
+
+export interface SyncStats {
+  fetched: number;
+  inserted: number;
+  updated: number;
+}
+
 // ─── CNT — Contact ────────────────────────────────────────────────────────────
 export interface Contact {
   id: string;
