@@ -280,16 +280,26 @@ function SystemLabelRow({ label }: { label: LabelType }) {
   const count = useLabelCount(label.id);
   const active = folderId === label.id;
   const Icon = (label.systemKind && SYSTEM_LABEL_ICON[label.systemKind]) || Inbox;
+  const [dragOver, setDragOver] = React.useState(false);
 
   return (
     <button
       type="button"
       onClick={() => setFolder(label.id)}
       data-label-id={label.id}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const msgId = e.dataTransfer.getData("message-id");
+        if (msgId) Mut.addLabel(localStore, msgId, label.id);
+      }}
       className={cn(
         "group/row relative flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left",
         "transition-colors duration-fast ease-out",
         "focus-visible:outline-none focus-visible:shadow-focus",
+        dragOver && "bg-accent/20 ring-1 ring-accent",
         active
           ? "bg-accent-soft text-text-primary"
           : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
@@ -349,6 +359,7 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
   const [renaming, setRenaming] = React.useState(false);
   const [recoloring, setRecoloring] = React.useState(false);
   const [creatingChild, setCreatingChild] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
 
   // Show only the last segment so nested labels don't repeat the full path.
   const displayName = label.name.includes("/")
@@ -389,10 +400,19 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
             onClick={() => setFolder(label.id)}
             data-label-id={label.id}
             style={{ paddingLeft: indentPx + 8 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const msgId = e.dataTransfer.getData("message-id");
+              if (msgId) Mut.addLabel(localStore, msgId, label.id);
+            }}
             className={cn(
               "group/row relative flex h-8 w-full items-center gap-2 rounded-sm pr-2 text-left",
               "transition-colors duration-fast ease-out",
               "focus-visible:outline-none focus-visible:shadow-focus",
+              dragOver && "bg-accent/20 ring-1 ring-accent",
               active
                 ? "bg-accent-soft text-text-primary"
                 : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
@@ -496,6 +516,7 @@ function FolderTreeNode({
   const [expanded, setExpanded] = React.useState(true);
   const [renaming, setRenaming] = React.useState(false);
   const [recoloring, setRecoloring] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
 
   const ctxItems: CtxItem[] = [
     {
@@ -550,10 +571,19 @@ function FolderTreeNode({
             onClick={() => setFolder(folder.id)}
             data-folder-id={folder.id}
             style={{ paddingLeft: indentPx + 8 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const msgId = e.dataTransfer.getData("message-id");
+              if (msgId) Mut.moveToFolder(localStore, msgId, folder.id);
+            }}
             className={cn(
               "group/row relative flex h-8 w-full items-center gap-2 rounded-sm pr-2 text-left",
               "transition-colors duration-fast ease-out",
               "focus-visible:outline-none focus-visible:shadow-focus",
+              dragOver && "bg-accent/20 ring-1 ring-accent",
               active
                 ? "bg-accent-soft text-text-primary"
                 : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
