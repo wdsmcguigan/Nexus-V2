@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive } from "lucide-react";
+import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive, PlusCircle } from "lucide-react";
 import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { ftsIndex } from "@/storage/fts";
@@ -7,9 +7,9 @@ import { bodyStore } from "@/storage/bodyStore";
 import { useWorkspace } from "@/state/workspace";
 import type { ClientMode } from "@/lib/clientMode";
 import { seedDefaultCustomFields } from "@/lib/defaultCustomFields";
-import { GmailConnect } from "./GmailConnect";
+import { AddAccountModal } from "./AddAccountModal";
 
-type Step = "vault" | "mode" | "gmail" | "done";
+type Step = "vault" | "mode" | "accounts" | "done";
 
 const STEP_KEY = "nexus-onboarding-step";
 
@@ -19,9 +19,12 @@ interface Props {
 
 export function VaultSetup({ onComplete }: Props) {
   const [step, setStep] = useState<Step>(() => {
-    const saved = localStorage.getItem(STEP_KEY) as Step | null;
-    return saved === "mode" || saved === "gmail" ? saved : "vault";
+    const saved = localStorage.getItem(STEP_KEY);
+    if (saved === "mode") return "mode";
+    if (saved === "accounts" || saved === "gmail") return "accounts";
+    return "vault";
   });
+  const [showAddAccount, setShowAddAccount] = useState(false);
   const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -79,15 +82,16 @@ export function VaultSetup({ onComplete }: Props) {
 
   function handleModeSelect(mode: ClientMode) {
     setClientMode(mode);
-    advanceTo("gmail");
+    advanceTo("accounts");
   }
 
-  function handleGmailConnected(_accountId: string, _email: string) {
+  function handleAccountConnected(_accountId: string, _email: string) {
+    setShowAddAccount(false);
     advanceTo("done");
     setTimeout(onComplete, 800);
   }
 
-  function handleSkipGmail() {
+  function handleSkipAccounts() {
     advanceTo("done");
     setTimeout(onComplete, 0);
   }
@@ -203,16 +207,39 @@ export function VaultSetup({ onComplete }: Props) {
     );
   }
 
-  if (step === "gmail") {
+  if (step === "accounts") {
     return (
       <div className={`flex flex-col items-center justify-center min-h-screen bg-neutral-950 text-white ${fadeClass}`}>
-        <GmailConnect onConnected={handleGmailConnected} />
-        <button
-          onClick={handleSkipGmail}
-          className="mt-2 text-xs text-neutral-500 hover:text-neutral-400 underline"
-        >
-          Skip for now
-        </button>
+        <div className="flex flex-col items-center gap-6 p-8 max-w-sm w-full">
+          <div className="text-center">
+            <h1 className="text-xl font-semibold mb-1">Connect an account</h1>
+            <p className="text-sm text-neutral-400">
+              Sync Gmail, Outlook, iCloud, Fastmail, or any IMAP account.
+            </p>
+          </div>
+
+          <button
+            onClick={() => setShowAddAccount(true)}
+            className="flex items-center gap-2 w-full justify-center px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+          >
+            <PlusCircle className="h-4 w-4" />
+            Connect an account
+          </button>
+
+          <button
+            onClick={handleSkipAccounts}
+            className="text-xs text-neutral-500 hover:text-neutral-400 underline"
+          >
+            Skip for now
+          </button>
+        </div>
+
+        {showAddAccount && (
+          <AddAccountModal
+            onConnected={handleAccountConnected}
+            onClose={() => setShowAddAccount(false)}
+          />
+        )}
       </div>
     );
   }

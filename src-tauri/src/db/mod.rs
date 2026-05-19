@@ -40,6 +40,8 @@ impl VaultDb {
             .context("running schema DDL")?;
         self.run_column_migrations()
             .context("running column migrations")?;
+        self.run_ep6_migrations()
+            .context("running EP6 column migrations")?;
         Ok(())
     }
 
@@ -63,6 +65,23 @@ impl VaultDb {
         let _ = self.conn.execute_batch(
             "DELETE FROM message_bodies WHERE html LIKE '<pre>%';"
         );
+        Ok(())
+    }
+
+    /// Apply EP6 migrations (sync_cursor, settings_json columns on accounts).
+    fn run_ep6_migrations(&self) -> Result<()> {
+        for stmt in schema::MIGRATION_SQL
+            .split(';')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Err(e) = self.conn.execute_batch(stmt) {
+                let msg = e.to_string();
+                if !msg.contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
         Ok(())
     }
 }

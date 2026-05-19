@@ -234,6 +234,20 @@ in `custom_field_values(message_id, field_id, value_text, value_number,
 value_date, value_bool)` for fast indexed filter.
 **Lives in**: `src/storage/local.ts` (Epic 0).
 
+### RULE — Automation Rule
+**Is**: A saved automation that fires when an inbound message matches one or more conditions. Conditions test message fields (from, subject, has_attachment, label, tag) with string operators (contains, equals, starts_with, not_contains) combined with AND or OR logic. Actions include ADD_LABEL, REMOVE_LABEL, SET_STATUS, SET_PRIORITY, ADD_TAG, STAR, MARK_READ, ARCHIVE, TRASH.
+**Is NOT**: A filter (`MetadataFilter` — synchronous, query-time); rules fire once at ingest time.
+**Cardinality / shape**: many per vault; typed `{ id, vaultId, name, conditions: RuleCondition[], conditionLogic: 'AND'|'OR', actions: RuleAction[], enabled: boolean, position: number }`.
+**Lives in**: `src/data/types.ts`, `src-tauri/src/db/queries.rs` (`apply_rules_to_message`), `src/components/settings/RulesSettings.tsx`, `src/components/settings/RuleEditorDialog.tsx`.
+**See also**: `MSG`, `LBL`, `TAG`, `STA`.
+
+### TMPL — Email Template
+**Is**: A saved subject + HTML body pair that can be applied to the composer with one click to pre-fill a new message.
+**Is NOT**: A draft (a specific in-progress message); templates are reusable archetypes with no recipients.
+**Cardinality / shape**: many per vault; typed `{ id, vaultId, name, subject: string, bodyHtml: string, createdAt: number }`.
+**Lives in**: `src/data/types.ts`, `src-tauri/src/db/queries.rs`, `src/components/settings/TemplatesSettings.tsx`, `src/components/email/EmailComposerPanel.tsx` (picker).
+**See also**: `MSG`.
+
 ---
 
 ## 4. Components
@@ -530,6 +544,17 @@ the app **requires** adding a kind here.
 **Custom fields**
 - `CREATE_CUSTOM_FIELD` / `UPDATE_CUSTOM_FIELD` / `DELETE_CUSTOM_FIELD`
 - `SET_CUSTOM_FIELD_VALUE` / `CLEAR_CUSTOM_FIELD_VALUE`
+
+**Automation rules**
+- `CREATE_RULE` — Create a new automation rule
+- `UPDATE_RULE` — Update an existing rule's conditions/actions/enabled state
+- `DELETE_RULE` — Delete a rule by id
+- `REORDER_RULES` — Reorder rules by position
+
+**Templates**
+- `CREATE_TEMPLATE` — Create a new email template
+- `UPDATE_TEMPLATE` — Update an existing template
+- `DELETE_TEMPLATE` — Delete a template by id
 
 **Message ops**
 - `READ` / `UNREAD` / `ARCHIVE` / `SNOOZE` / `DELETE_MESSAGE`

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS folders (
     system_kind TEXT,
     position INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_folders_vault ON folders(vault_id);
 
 CREATE TABLE IF NOT EXISTS labels (
     id TEXT PRIMARY KEY,
@@ -42,6 +43,7 @@ CREATE TABLE IF NOT EXISTS labels (
     position INTEGER NOT NULL DEFAULT 0,
     provider_id TEXT   -- Gmail label id (e.g. "INBOX", "Label_123")
 );
+CREATE INDEX IF NOT EXISTS idx_labels_vault ON labels(vault_id);
 
 CREATE TABLE IF NOT EXISTS statuses (
     id TEXT PRIMARY KEY,
@@ -102,6 +104,20 @@ CREATE TABLE IF NOT EXISTS messages (
     provider_account_id TEXT,
     eml_path TEXT              -- absolute path to .eml on disk
 );
+-- Primary sort for inbox load: vault → folder → time
+CREATE INDEX IF NOT EXISTS idx_messages_vault_folder_time ON messages(vault_id, folder_id, received_at DESC);
+-- Time-sorted listing across all folders in a vault
+CREATE INDEX IF NOT EXISTS idx_messages_vault_time ON messages(vault_id, received_at DESC);
+-- Thread grouping
+CREATE INDEX IF NOT EXISTS idx_messages_vault_thread ON messages(vault_id, thread_id);
+-- Unread count and filter (partial index — only indexes the unread rows)
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(vault_id, received_at DESC) WHERE flags_read = 0;
+-- Kanban / status-grouped views
+CREATE INDEX IF NOT EXISTS idx_messages_vault_status ON messages(vault_id, status_id);
+-- Gmail sync duplicate check (hot path: called on every upsert)
+CREATE INDEX IF NOT EXISTS idx_messages_provider ON messages(provider_account_id, provider_id);
+-- Account-scoped bulk deletes (disconnect_account)
+CREATE INDEX IF NOT EXISTS idx_messages_account ON messages(vault_id, provider_account_id);
 
 CREATE TABLE IF NOT EXISTS message_labels (
     message_id TEXT NOT NULL,
@@ -192,6 +208,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_contacts_vault ON contacts(vault_id);
 
 CREATE TABLE IF NOT EXISTS contact_emails (
     contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
@@ -217,4 +234,49 @@ CREATE TABLE IF NOT EXISTS saved_views (
     position   INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_saved_views_vault ON saved_views(vault_id);
+"#;
+
+/// Idempotent migration DDL run after SCHEMA_SQL on every startup.
+/// Each statement is executed individually; "duplicate column name" errors are ignored.
+pub const MIGRATION_SQL: &str = r#"
+ALTER TABLE accounts ADD COLUMN sync_cursor TEXT;
+ALTER TABLE accounts ADD COLUMN settings_json TEXT;
+ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT;
+CREATE TABLE IF NOT EXISTS rules (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    conditions_json TEXT NOT NULL,
+    condition_logic TEXT NOT NULL DEFAULT 'AND',
+    actions_json TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_rules_vault ON rules(vault_id, enabled);
+CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    subject TEXT NOT NULL DEFAULT '',
+    body_html TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_templates_vault ON templates(vault_id);
+CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, message_id, subject, notes)
+    VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_ad BEFORE DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, message_id, subject, notes)
+    VALUES ('delete', old.rowid, old.id, old.subject, COALESCE(old.notes, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, message_id, subject, notes)
+    VALUES ('delete', old.rowid, old.id, old.subject, COALESCE(old.notes, ''));
+  INSERT INTO messages_fts(rowid, message_id, subject, notes)
+    VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
+END;
+INSERT OR IGNORE INTO messages_fts(rowid, message_id, subject, notes)
+  SELECT rowid, id, subject, COALESCE(notes,'') FROM messages;
 "#;

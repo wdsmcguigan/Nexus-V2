@@ -31,6 +31,10 @@ export interface HydratePayload {
   messages: unknown[];
   tagUsage: unknown[];
   mutations: unknown[];
+  contacts: unknown[];
+  savedViews: unknown[];
+  rules: unknown[];
+  templates: unknown[];
 }
 
 export async function loadVaultData(vaultPath: string): Promise<HydratePayload> {
@@ -85,6 +89,47 @@ export async function startGmailOAuth(): Promise<OAuthResult> {
 
 export async function syncGmailNow(accountId: string): Promise<{ fetched: number; inserted: number; updated: number }> {
   return invoke("sync_gmail_now", { accountId });
+}
+
+// ─── EP6 Multi-Provider ───────────────────────────────────────────────────────
+
+import type { DiscoveryResult, ImapAccountInput, SyncStats } from "@/data/types";
+
+export async function discoverImapSettings(email: string): Promise<DiscoveryResult> {
+  return invoke<DiscoveryResult>("discover_imap_settings", { email });
+}
+
+export async function testImapConnection(params: {
+  host: string;
+  port: number;
+  security: string;
+  username: string;
+  password: string;
+}): Promise<boolean> {
+  return invoke<boolean>("test_imap_connection", params);
+}
+
+export async function addImapAccount(params: ImapAccountInput): Promise<OAuthResult> {
+  return invoke<OAuthResult>("add_imap_account", {
+    email: params.email,
+    displayName: params.displayName ?? null,
+    imapHost: params.imapHost,
+    imapPort: params.imapPort,
+    imapSecurity: params.imapSecurity,
+    imapUsername: params.imapUsername,
+    imapPassword: params.imapPassword,
+    smtpHost: params.smtpHost,
+    smtpPort: params.smtpPort,
+    smtpSecurity: params.smtpSecurity,
+  });
+}
+
+export async function syncAccountNow(accountId: string): Promise<SyncStats> {
+  return invoke<SyncStats>("sync_account_now", { accountId });
+}
+
+export async function startOutlookOAuth(): Promise<OAuthResult> {
+  return invoke<OAuthResult>("start_outlook_oauth");
 }
 
 export async function disconnectAccount(
@@ -207,6 +252,43 @@ export async function sendMessage(params: {
     .replace(/\//g, "_")
     .replace(/=+$/, "");
   return invoke<string>("send_message", { accountId: params.accountId, rawEml: b64 });
+}
+
+// ─── EP-7: Search, Rules, Templates, Unsubscribe ─────────────────────────────
+
+import type { Rule, Template } from "@/data/types";
+
+export async function searchMessages(query: string, vaultId: string, limit = 200): Promise<string[]> {
+  return invoke<string[]>("search_messages", { query, vaultId, limit });
+}
+
+export async function getRules(vaultId: string): Promise<Rule[]> {
+  return invoke<Rule[]>("get_rules", { vaultId });
+}
+
+export async function saveRule(vaultId: string, rule: Rule): Promise<void> {
+  return invoke<void>("save_rule", { vaultId, rule });
+}
+
+export async function deleteRule(id: string, vaultId: string): Promise<void> {
+  return invoke<void>("delete_rule", { id, vaultId });
+}
+
+export async function getTemplates(vaultId: string): Promise<Template[]> {
+  return invoke<Template[]>("get_templates", { vaultId });
+}
+
+export async function saveTemplate(vaultId: string, template: Template): Promise<void> {
+  return invoke<void>("save_template", { vaultId, template });
+}
+
+export async function deleteTemplate(id: string, vaultId: string): Promise<void> {
+  return invoke<void>("delete_template", { id, vaultId });
+}
+
+/** Returns "posted" if RFC 8058 one-click POST succeeded, or a URL to open in the browser. */
+export async function sendUnsubscribe(messageId: string): Promise<string> {
+  return invoke<string>("send_unsubscribe", { messageId });
 }
 
 function encodeRfc2047(text: string): string {

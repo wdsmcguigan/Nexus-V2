@@ -14,6 +14,13 @@ use crate::db::RelayDb;
 
 pub type SharedDb = Arc<Mutex<RelayDb>>;
 
+/// Ten minutes in milliseconds — server-controlled enrollment window.
+const ENROLL_TTL_MS: i64 = 10 * 60 * 1_000;
+
+fn lock_db(db: &SharedDb) -> Result<std::sync::MutexGuard<RelayDb>, (StatusCode, &'static str)> {
+    db.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database unavailable"))
+}
+
 pub fn router(db: SharedDb) -> Router {
     Router::new()
         .route("/api/v1/mutations", post(push_mutation))
@@ -44,7 +51,10 @@ async fn push_mutation(State(db): State<SharedDb>, Json(req): Json<PushReq>) -> 
         Err(_) => return (StatusCode::BAD_REQUEST, "bad base64").into_response(),
     };
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
     match db.conn.execute(
         "INSERT INTO relay_mutations (vault_id, device_id, lamport, ciphertext, received_at) \
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -83,7 +93,10 @@ struct PullResp {
 async fn pull_mutations(State(db): State<SharedDb>, Query(q): Query<PullQuery>) -> impl IntoResponse {
     let after = q.after.unwrap_or(0);
     let exclude = q.exclude_device.as_deref().unwrap_or("");
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
 
     let mut stmt = match db.conn.prepare(
         "SELECT seq, device_id, lamport, ciphertext FROM relay_mutations \
@@ -129,7 +142,7 @@ struct EnrollReq {
     vault_id: String,
     code_hash: String,
     encrypted_vault_key_b64: String,
-    expires_at: i64,
+    // expires_at from client is intentionally ignored — server sets a fixed TTL
 }
 
 async fn create_enroll_session(State(db): State<SharedDb>, Json(req): Json<EnrollReq>) -> impl IntoResponse {
@@ -138,13 +151,17 @@ async fn create_enroll_session(State(db): State<SharedDb>, Json(req): Json<Enrol
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
-    // Clean expired
+    // Server controls TTL — client cannot extend the enrollment window
+    let expires_at = now + ENROLL_TTL_MS;
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
     let _ = db.conn.execute("DELETE FROM enroll_sessions WHERE expires_at < ?1", params![now]);
     match db.conn.execute(
         "INSERT OR REPLACE INTO enroll_sessions \
          (code_hash, vault_id, encrypted_vault_key, expires_at, attempts) VALUES (?1, ?2, ?3, ?4, 0)",
-        params![req.code_hash, req.vault_id, encrypted_key, req.expires_at],
+        params![req.code_hash, req.vault_id, encrypted_key, expires_at],
     ) {
         Ok(_) => StatusCode::OK.into_response(),
         Err(e) => {
@@ -165,7 +182,10 @@ async fn fetch_enroll_session(
     Path(code_hash): Path<String>,
 ) -> impl IntoResponse {
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
 
     let row: Option<(String, Vec<u8>, i64, i64)> = match db.conn.query_row(
         "SELECT vault_id, encrypted_vault_key, expires_at, attempts \
@@ -192,11 +212,7 @@ async fn fetch_enroll_session(
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
 
-    let _ = db.conn.execute(
-        "UPDATE enroll_sessions SET attempts = attempts + 1 WHERE code_hash = ?1",
-        params![code_hash],
-    );
-    // One-time use
+    // One-time use — delete before returning so the key cannot be fetched again
     let _ = db.conn.execute("DELETE FROM enroll_sessions WHERE code_hash = ?1", params![code_hash]);
 
     Json(EnrollFetchResp {

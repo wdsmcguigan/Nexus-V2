@@ -18,9 +18,11 @@ import type {
   Label,
   Message,
   Mutation,
+  Rule,
   SavedView,
   Status,
   TagUsage,
+  Template,
   Vault,
 } from "@/data/types";
 
@@ -38,6 +40,8 @@ interface StorageSnapshot {
   tagUsage: TagUsage[];
   mutations: Mutation[];
   contacts?: Contact[];
+  rules?: Rule[];
+  templates?: Template[];
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -67,6 +71,8 @@ export class LocalStore {
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
   contacts = new Map<string, Contact>();
+  rules = new Map<string, Rule>();
+  templates = new Map<string, Template>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -119,6 +125,8 @@ export class LocalStore {
     this.messages.clear();
     this.tagUsage.clear();
     this.savedViews.clear();
+    this.rules.clear();
+    this.templates.clear();
     this.mutations = [];
 
     // Clear indexes
@@ -143,6 +151,8 @@ export class LocalStore {
     for (const m of snap.mutations) this.mutations.push(m);
     for (const msg of snap.messages) this._insertMessageIndexes(msg);
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
+    for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
+    for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
 
     // Load explicit contacts from snapshot
     for (const c of (snap.contacts ?? [])) {
@@ -551,6 +561,34 @@ export class LocalStore {
   /** Sorted list of all saved views by position. */
   getSavedViewsSorted(): SavedView[] {
     return Array.from(this.savedViews.values()).sort((a, b) => a.position - b.position);
+  }
+
+  // ── Rule CRUD (EP-7) ─────────────────────────────────────────────
+
+  putRule(rule: Rule): void {
+    this.rules.set(rule.id, rule);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteRule(id: string): void {
+    this.rules.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  // ── Template CRUD (EP-7) ─────────────────────────────────────────
+
+  putTemplate(template: Template): void {
+    this.templates.set(template.id, template);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteTemplate(id: string): void {
+    this.templates.delete(id);
+    this._notify();
+    this._schedulePersist();
   }
 }
 

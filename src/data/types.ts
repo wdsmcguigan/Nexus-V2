@@ -26,6 +26,54 @@ export interface Account {
   syncStatus: "idle" | "syncing" | "pending" | "error";
 }
 
+// ─── EP6 — Multi-Provider Types ──────────────────────────────────────────────
+
+export type ImapSecurity = "tls" | "starttls" | "plain";
+
+export interface ImapServerConfig {
+  host: string;
+  port: number;
+  security: ImapSecurity;
+  username: string;
+  password: string;
+}
+
+export interface SmtpServerConfig {
+  host: string;
+  port: number;
+  security: ImapSecurity;
+  username: string;
+  password: string;
+}
+
+export interface ImapAccountInput {
+  email: string;
+  displayName?: string;
+  imapHost: string;
+  imapPort: number;
+  imapSecurity: ImapSecurity;
+  imapUsername: string;
+  imapPassword: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecurity: ImapSecurity;
+}
+
+export interface DiscoveryResult {
+  imap: ImapServerConfig | null;
+  smtp: SmtpServerConfig | null;
+  /** "known" | "discovered" | "guessed" */
+  confidence: string;
+  requiresAppPassword: boolean;
+  oauthUrl: string | null;
+}
+
+export interface SyncStats {
+  fetched: number;
+  inserted: number;
+  updated: number;
+}
+
 // ─── CNT — Contact ────────────────────────────────────────────────────────────
 export interface Contact {
   id: string;
@@ -271,6 +319,8 @@ export interface Message {
   /** Content-hash; body lives on disk / OPFS bodies cache. */
   bodyRef: string;
   attachmentRefs: AttachmentRef[];
+  /** Parsed List-Unsubscribe header JSON: { link?: string; post?: string } */
+  listUnsubscribeJson?: string;
 }
 
 // ─── VW-SAVED — Saved view ───────────────────────────────────────────────────
@@ -352,7 +402,16 @@ export type MutationKind =
   // Contact ops
   | "UPSERT_CONTACT"
   | "UPDATE_CONTACT"
-  | "DELETE_CONTACT";
+  | "DELETE_CONTACT"
+  // Rule ops (EP-7)
+  | "CREATE_RULE"
+  | "UPDATE_RULE"
+  | "DELETE_RULE"
+  | "REORDER_RULES"
+  // Template ops (EP-7)
+  | "CREATE_TEMPLATE"
+  | "UPDATE_TEMPLATE"
+  | "DELETE_TEMPLATE";
 
 export interface Mutation {
   id: string;
@@ -413,4 +472,53 @@ export interface QueryResult {
   took: number;
   /** Cursor for the next page, or null if exhausted. */
   nextCursor: string | null;
+}
+
+// ─── EP-7: Rules ─────────────────────────────────────────────────────────────
+
+export type RuleConditionField = "from" | "to" | "subject" | "has_attachment" | "tag" | "label";
+export type RuleConditionOp = "contains" | "equals" | "starts_with" | "not_contains";
+
+export interface RuleCondition {
+  field: RuleConditionField;
+  op: RuleConditionOp;
+  value: string;
+}
+
+export type RuleActionKind =
+  | "ADD_LABEL"
+  | "REMOVE_LABEL"
+  | "SET_STATUS"
+  | "SET_PRIORITY"
+  | "ADD_TAG"
+  | "ARCHIVE"
+  | "TRASH"
+  | "MARK_READ"
+  | "STAR";
+
+export interface RuleAction {
+  kind: RuleActionKind;
+  value?: string;
+}
+
+export interface Rule {
+  id: string;
+  vaultId: string;
+  name: string;
+  conditions: RuleCondition[];
+  conditionLogic: "AND" | "OR";
+  actions: RuleAction[];
+  enabled: boolean;
+  position: number;
+}
+
+// ─── EP-7: Templates ─────────────────────────────────────────────────────────
+
+export interface Template {
+  id: string;
+  vaultId: string;
+  name: string;
+  subject: string;
+  bodyHtml: string;
+  createdAt: number;
 }
