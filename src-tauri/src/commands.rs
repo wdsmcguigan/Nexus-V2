@@ -44,6 +44,41 @@ pub async fn load_vault_data(
         .map_err(|e| e.to_string())
 }
 
+/// Read the client mode from the vault's .nexus-mode file.
+/// Returns "traditional" if the file is absent or unreadable (safe default).
+pub fn read_client_mode(vault_path: &str) -> String {
+    let mode = std::fs::read_to_string(std::path::Path::new(vault_path).join(".nexus-mode"))
+        .unwrap_or_default();
+    let mode = mode.trim();
+    if mode == "local-first" { "local-first".to_string() } else { "traditional".to_string() }
+}
+
+#[tauri::command]
+pub async fn get_client_mode(state: State<'_, AppState>) -> std::result::Result<String, String> {
+    Ok(state.client_mode.lock().map_err(|_| "lock poisoned".to_string())?.clone())
+}
+
+#[tauri::command]
+pub async fn set_client_mode(
+    mode: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    if mode != "traditional" && mode != "local-first" {
+        return Err(format!("Invalid client mode: {mode}"));
+    }
+    let vault_path = state.vault_path.lock().map_err(|_| "lock poisoned".to_string())?.clone().unwrap_or_default();
+    if !vault_path.is_empty() {
+        let mode_file = std::path::Path::new(&vault_path).join(".nexus-mode");
+        std::fs::write(&mode_file, &mode).map_err(|e| e.to_string())?;
+        // In local-first mode, ensure the mail directory exists.
+        if mode == "local-first" {
+            let _ = std::fs::create_dir_all(std::path::Path::new(&vault_path).join("mail"));
+        }
+    }
+    *state.client_mode.lock().map_err(|_| "lock poisoned".to_string())? = mode;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn apply_mutation(
     state: State<'_, AppState>,
@@ -54,12 +89,133 @@ pub async fn apply_mutation(
 ) -> std::result::Result<(), String> {
     let payload_str = serde_json::to_string(&payload).map_err(|e| e.to_string())?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
-    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
-    db_guard
-        .as_ref()
-        .ok_or_else(|| "DB not open".to_string())?
-        .apply_mutation(&vault_id, &kind, &payload_str, &device_id, lamport)
-        .map_err(|e| e.to_string())
+    let client_mode = state.client_mode.lock().map_err(|_| "lock poisoned".to_string())?.clone();
+    let vault_path = state.vault_path.lock().map_err(|_| "lock poisoned".to_string())?.clone().unwrap_or_default();
+    let local_first = client_mode == "local-first" && !vault_path.is_empty();
+
+    // Pre-mutation reads needed for filesystem side-effects.
+    let pre_folder_disk_path: Option<String> = if local_first && (kind == "RENAME_FOLDER" || kind == "RECOLOR_FOLDER") {
+        let folder_id = payload["folderId"].as_str().unwrap_or_default().to_string();
+        let guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        guard.as_ref().map(|db| db.folder_disk_path(&folder_id))
+    } else {
+        None
+    };
+    let pre_eml_path: Option<String> = if local_first && kind == "MOVE_TO_FOLDER" {
+        let msg_id = payload["messageId"].as_str().unwrap_or_default().to_string();
+        let guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        guard.as_ref().and_then(|db| {
+            db.conn.query_row(
+                "SELECT eml_path FROM messages WHERE id = ?1",
+                rusqlite::params![msg_id.as_str()],
+                |r| r.get::<_, Option<String>>(0),
+            ).ok().flatten()
+        })
+    } else {
+        None
+    };
+
+    // Apply DB mutation.
+    {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        db_guard
+            .as_ref()
+            .ok_or_else(|| "DB not open".to_string())?
+            .apply_mutation(&vault_id, &kind, &payload_str, &device_id, lamport)
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Local-first filesystem side-effects (non-fatal — log only).
+    if local_first {
+        let mail_root = std::path::Path::new(&vault_path).join("mail");
+        if let Err(e) = apply_local_first_fs(
+            &state, &mail_root, &kind, &payload,
+            pre_folder_disk_path.as_deref(), pre_eml_path.as_deref(),
+        ) {
+            log::warn!("local-first FS effect failed ({kind}): {e}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Execute filesystem side-effects for mutations in local-first mode.
+fn apply_local_first_fs(
+    state: &AppState,
+    mail_root: &std::path::Path,
+    kind: &str,
+    payload: &JsonValue,
+    pre_folder_disk_path: Option<&str>,
+    pre_eml_path: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    match kind {
+        "CREATE_FOLDER" => {
+            let disk_path = payload["diskPath"].as_str().unwrap_or_default();
+            if !disk_path.is_empty() {
+                std::fs::create_dir_all(mail_root.join(disk_path))?;
+            }
+        }
+        "RENAME_FOLDER" => {
+            if let Some(old_path) = pre_folder_disk_path {
+                let folder_id = payload["folderId"].as_str().unwrap_or_default();
+                let new_path = {
+                    let guard = state.db.lock().map_err(|_| "lock poisoned")?;
+                    guard.as_ref().map(|db| db.folder_disk_path(folder_id)).unwrap_or_default()
+                };
+                if !new_path.is_empty() && old_path != new_path {
+                    let old_dir = mail_root.join(old_path);
+                    let new_dir = mail_root.join(&new_path);
+                    if old_dir.exists() {
+                        std::fs::rename(&old_dir, &new_dir)?;
+                        // Update eml_paths in DB for all messages that had the old prefix.
+                        let old_prefix = old_dir.to_string_lossy();
+                        let new_prefix = new_dir.to_string_lossy();
+                        if let Ok(guard) = state.db.lock() {
+                            if let Some(db) = guard.as_ref() {
+                                let _ = db.conn.execute(
+                                    "UPDATE messages SET eml_path = ?1 || SUBSTR(eml_path, LENGTH(?2) + 1) \
+                                     WHERE eml_path LIKE ?2 || '%'",
+                                    rusqlite::params![new_prefix.as_ref(), old_prefix.as_ref()],
+                                );
+                            }
+                        }
+                    } else {
+                        std::fs::create_dir_all(&new_dir)?;
+                    }
+                }
+            }
+        }
+        "MOVE_TO_FOLDER" => {
+            if let Some(old_eml) = pre_eml_path {
+                let msg_id = payload["messageId"].as_str().unwrap_or_default();
+                let folder_id = payload["folderId"].as_str().unwrap_or_default();
+                let new_folder_path = {
+                    let guard = state.db.lock().map_err(|_| "lock poisoned")?;
+                    guard.as_ref().map(|db| db.folder_disk_path(folder_id)).unwrap_or_default()
+                };
+                if !new_folder_path.is_empty() {
+                    let new_dir = mail_root.join(&new_folder_path);
+                    std::fs::create_dir_all(&new_dir)?;
+                    if let Some(fname) = std::path::Path::new(old_eml).file_name() {
+                        let new_eml_path = new_dir.join(fname);
+                        if std::path::Path::new(old_eml).exists() {
+                            std::fs::rename(old_eml, &new_eml_path)?;
+                        }
+                        if let Ok(guard) = state.db.lock() {
+                            if let Some(db) = guard.as_ref() {
+                                let _ = db.conn.execute(
+                                    "UPDATE messages SET eml_path = ?1 WHERE id = ?2",
+                                    rusqlite::params![new_eml_path.to_str().unwrap_or_default(), msg_id],
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -176,6 +332,7 @@ pub async fn start_gmail_oauth(
 
     // Kick off initial sync in background — fully async, no DB reference held across await
     let vault_path = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone().unwrap_or_default();
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
     let access_token = token_resp.access_token.clone();
     let vault_id_clone = vault_id.clone();
     let account_id_clone = account_id.clone();
@@ -192,6 +349,7 @@ pub async fn start_gmail_oauth(
             vault_id_clone,
             access_token,
             std::path::Path::new(&vault_path),
+            client_mode,
             app_handle.clone(),
         );
 
@@ -285,6 +443,7 @@ pub async fn sync_gmail_now(
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
 
     let token = get_valid_token(&state, &account_id).await?;
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
 
     let db_path = std::path::Path::new(&vault_path)
         .join("nexus.db")
@@ -296,6 +455,7 @@ pub async fn sync_gmail_now(
         vault_id,
         token,
         std::path::Path::new(&vault_path),
+        client_mode,
         app.clone(),
     );
 
@@ -327,6 +487,7 @@ pub async fn repair_message_bodies(
         db.all_gmail_accounts().map_err(|e| e.to_string())?
     };
 
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
     let mut total = 0usize;
     for (account_id, vault_id) in accounts {
         let token = match get_valid_token(&state, &account_id).await {
@@ -338,6 +499,7 @@ pub async fn repair_message_bodies(
             vault_id,
             token,
             std::path::Path::new(&vault_path),
+            client_mode.clone(),
             app.clone(),
         );
         match syncer.repair_missing_bodies(&db_path).await {
@@ -938,6 +1100,8 @@ pub async fn sync_account_now(
         .to_string_lossy()
         .into_owned();
 
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
+
     match provider.as_str() {
         "gmail" => {
             let token = get_valid_token(&state, &account_id).await?;
@@ -946,6 +1110,7 @@ pub async fn sync_account_now(
                 vault_id,
                 token,
                 std::path::Path::new(&vault_path),
+                client_mode,
                 app.clone(),
             );
             let stats = syncer
@@ -1141,6 +1306,8 @@ async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> 
 
     *state.db.lock().map_err(|_| anyhow!("vault lock poisoned"))? = Some(db);
     *state.vault_path.lock().map_err(|_| anyhow!("vault_path lock poisoned"))? = Some(vault_path.to_string());
+    // Load persisted client mode (defaults to "traditional" if first run or file absent).
+    *state.client_mode.lock().map_err(|_| anyhow!("client_mode lock poisoned"))? = read_client_mode(vault_path);
     save_vault_path_to_disk(vault_path)?;
 
     // Start outbound mutation drainer (no-op if Gmail creds not set)
@@ -1275,11 +1442,13 @@ async fn poll_all_accounts(
             }
         };
 
+        let client_mode = read_client_mode(vault_path);
         let syncer = crate::gmail::GmailSyncer::new(
             account_id.clone(),
             vault_id,
             access_token,
             std::path::Path::new(vault_path),
+            client_mode,
             app.clone(),
         );
 
