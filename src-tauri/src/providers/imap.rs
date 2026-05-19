@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
+use mailparse::MailHeaderMap;
 use serde::{Deserialize, Serialize};
 
 use super::{IncrementalResult, MailProvider, ProviderLabelInfo, SyncCursor};
@@ -145,7 +146,7 @@ async fn do_fetch_session<S>(
     account_id: &str,
 ) -> Result<(Vec<ProviderLabelInfo>, Vec<ParsedMessage>, Option<SyncCursor>)>
 where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send,
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + std::fmt::Debug,
 {
     use futures::TryStreamExt;
 
