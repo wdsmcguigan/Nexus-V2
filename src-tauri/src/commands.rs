@@ -902,14 +902,14 @@ pub async fn sync_account_now(
     let vault_path = state
         .vault_path
         .lock()
-        .unwrap()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
         .clone()
         .ok_or("No vault loaded")?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
 
     let (provider, settings_json) = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         let mut stmt = db
             .conn
             .prepare("SELECT provider, settings_json FROM accounts WHERE id = ?1")
@@ -948,8 +948,8 @@ pub async fn sync_account_now(
                 serde_json::from_str(&settings).map_err(|e| e.to_string())?;
 
             let encrypted_pw = {
-                let db = state.db.lock().unwrap();
-                let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
                 db.get_access_token(&account_id)
                     .map_err(|e| e.to_string())?
                     .unwrap_or_default()
@@ -1048,8 +1048,8 @@ pub async fn start_outlook_oauth(
     let expires_at = chrono::Utc::now().timestamp() + token_resp.expires_in;
 
     {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
         db.upsert_account(&account_id, &vault_id, "imap", &email, Some(&email))
             .map_err(|e| e.to_string())?;
 
@@ -1101,7 +1101,7 @@ fn get_vault_id(state: &AppState) -> Result<String> {
     let path = state
         .vault_path
         .lock()
-        .unwrap()
+        .map_err(|_| anyhow!("vault_path lock poisoned"))?
         .clone()
         .ok_or_else(|| anyhow!("No vault loaded"))?;
     let base = std::path::Path::new(&path)
@@ -1126,8 +1126,8 @@ async fn init_vault_inner(state: &AppState, vault_path: &str) -> Result<String> 
 
     db.ensure_vault(&vault_id, vault_path)?;
 
-    *state.db.lock().unwrap() = Some(db);
-    *state.vault_path.lock().unwrap() = Some(vault_path.to_string());
+    *state.db.lock().map_err(|_| anyhow!("vault lock poisoned"))? = Some(db);
+    *state.vault_path.lock().map_err(|_| anyhow!("vault_path lock poisoned"))? = Some(vault_path.to_string());
     save_vault_path_to_disk(vault_path)?;
 
     // Start outbound mutation drainer (no-op if Gmail creds not set)
@@ -1325,7 +1325,7 @@ fn save_vault_path_to_disk(path: &str) -> Result<()> {
 /// The vault data on disk is left untouched — this only clears the stored path.
 #[tauri::command]
 pub async fn reset_vault(state: State<'_, AppState>) -> std::result::Result<(), String> {
-    *state.vault_path.lock().unwrap() = None;
+    *state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())? = None;
     let path = dirs::data_local_dir()
         .ok_or_else(|| "no local data dir".to_string())?
         .join("Nexus")
@@ -1350,11 +1350,13 @@ pub async fn search_messages(
     limit: Option<u32>,
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
-    let db_path = state.vault_path.lock().unwrap().clone()
-        .ok_or_else(|| "no vault open".to_string())?;
-    let limit = limit.unwrap_or(200) as usize;
-    let db = VaultDb::open(&db_path, "nexus").map_err(|e| e.to_string())?;
-    db.search_fts5(&query, &vault_id, limit).map_err(|e| e.to_string())
+    let limit = limit.unwrap_or(200);
+    let results = {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+        db.search_fts5(&query, &vault_id, limit as usize).map_err(|e| e.to_string())?
+    };
+    Ok(results)
 }
 
 #[tauri::command]
@@ -1362,8 +1364,8 @@ pub async fn get_rules(
     vault_id: String,
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<JsonValue>, String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.get_rules(&vault_id).map_err(|e| e.to_string())
 }
 
@@ -1373,8 +1375,8 @@ pub async fn save_rule(
     rule: JsonValue,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.upsert_rule(&vault_id, &rule).map_err(|e| e.to_string())
 }
 
@@ -1384,8 +1386,8 @@ pub async fn delete_rule(
     vault_id: String,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.delete_rule(&id, &vault_id).map_err(|e| e.to_string())
 }
 
@@ -1394,8 +1396,8 @@ pub async fn get_templates(
     vault_id: String,
     state: State<'_, AppState>,
 ) -> std::result::Result<Vec<JsonValue>, String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.get_templates(&vault_id).map_err(|e| e.to_string())
 }
 
@@ -1405,8 +1407,8 @@ pub async fn save_template(
     template: JsonValue,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.upsert_template(&vault_id, &template).map_err(|e| e.to_string())
 }
 
@@ -1416,8 +1418,8 @@ pub async fn delete_template(
     vault_id: String,
     state: State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    let db = state.db.lock().unwrap();
-    let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
     db.delete_template(&id, &vault_id).map_err(|e| e.to_string())
 }
 
@@ -1428,8 +1430,8 @@ pub async fn send_unsubscribe(
 ) -> std::result::Result<String, String> {
     // Returns the mailto/https URL so the frontend can handle it, or "posted" if we sent the POST.
     let list_unsubscribe_json: Option<String> = {
-        let db = state.db.lock().unwrap();
-        let db = db.as_ref().ok_or_else(|| "no vault open".to_string())?;
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
         db.get_list_unsubscribe(&message_id).map_err(|e| e.to_string())?
     };
 
