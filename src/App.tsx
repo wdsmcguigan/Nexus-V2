@@ -59,7 +59,9 @@ export default function App() {
   // Loading state while we check for an existing vault
   if (showOnboarding === null) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-neutral-950" />
+      <div className="flex h-screen w-screen items-center justify-center bg-neutral-950">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+      </div>
     );
   }
 
