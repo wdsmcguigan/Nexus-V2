@@ -565,6 +565,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setClientMode: (mode) => {
     saveClientMode(mode);
     set({ clientMode: mode });
+    // Sync to Rust so the backend knows the mode for filesystem operations.
+    import("@/storage/tauri").then(({ isTauri, setClientModeIpc }) => {
+      if (isTauri()) setClientModeIpc(mode).catch((e) => console.warn("clientMode sync:", e));
+    });
   },
 
   // ── Email selection ────────────────────────────────────────────────────────

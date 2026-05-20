@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Info,
   AlertTriangle,
+  FolderInput,
   type LucideIcon,
 } from "lucide-react";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -42,6 +43,7 @@ interface EmailRowProps {
   onFocus: () => void;
   onToggleStar: () => void;
   onToggleCheck: (checked: boolean) => void;
+  onMoveToFolder?: () => void;
 }
 
 // ─── Star icon mapping ────────────────────────────────────────────────────────
@@ -97,6 +99,7 @@ export const EmailRow = React.memo(function EmailRow({
   onFocus,
   onToggleStar,
   onToggleCheck,
+  onMoveToFolder,
 }: EmailRowProps) {
   const showAvatar = density !== "compact";
   const showSnippet = density !== "compact";
@@ -119,6 +122,11 @@ export const EmailRow = React.memo(function EmailRow({
       aria-selected={inSelectionSet}
       data-density={density}
       data-state={selected ? "selected" : focused ? "focused" : "default"}
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("message-id", msg.id);
+      }}
       onClick={onSelect}
       onMouseEnter={onFocus}
       tabIndex={focused ? 0 : -1}
@@ -302,6 +310,22 @@ export const EmailRow = React.memo(function EmailRow({
           <BellOff size={10} className="text-text-tertiary opacity-dim" />
         )}
       </div>
+
+      {/* Move to folder button — shown on hover when handler is provided */}
+      {onMoveToFolder && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onMoveToFolder(); }}
+          aria-label="Move to folder"
+          className={cn(
+            "flex shrink-0 items-center justify-center self-start pt-1.5 w-5",
+            "opacity-0 group-hover/row:opacity-full transition-opacity duration-fast",
+            "text-text-tertiary hover:text-text-primary focus-visible:opacity-full focus-visible:shadow-focus rounded-xs",
+          )}
+        >
+          <FolderInput size={12} />
+        </button>
+      )}
 
       {/* Date + thread count */}
       <div

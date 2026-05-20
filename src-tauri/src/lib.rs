@@ -14,6 +14,8 @@ use tokio::sync::Mutex as AsyncMutex;
 pub struct AppState {
     pub db: Mutex<Option<db::VaultDb>>,
     pub vault_path: Mutex<Option<String>>,
+    /// "traditional" | "local-first" — persisted to {vault_path}/.nexus-mode
+    pub client_mode: Mutex<String>,
     pub relay: Arc<Mutex<relay::RelayState>>,
     pub token_refresh_lock: AsyncMutex<()>,
 }
@@ -28,6 +30,7 @@ pub fn run() {
         .manage(AppState {
             db: Mutex::new(None),
             vault_path: Mutex::new(None),
+            client_mode: Mutex::new("traditional".to_string()),
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
             token_refresh_lock: AsyncMutex::new(()),
         })
@@ -69,6 +72,8 @@ pub fn run() {
             commands::save_template,
             commands::delete_template,
             commands::send_unsubscribe,
+            commands::get_client_mode,
+            commands::set_client_mode,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

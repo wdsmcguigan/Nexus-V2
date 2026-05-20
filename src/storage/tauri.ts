@@ -58,6 +58,14 @@ export async function repairMessageBodies(): Promise<number> {
   return invoke<number>("repair_message_bodies");
 }
 
+export async function getClientMode(): Promise<"traditional" | "local-first"> {
+  return invoke<"traditional" | "local-first">("get_client_mode");
+}
+
+export async function setClientModeIpc(mode: "traditional" | "local-first"): Promise<void> {
+  return invoke<void>("set_client_mode", { mode });
+}
+
 export async function listAccounts(): Promise<unknown[]> {
   return invoke<unknown[]>("list_accounts");
 }

@@ -79,9 +79,13 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
       >
         <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} />
         <div className="min-w-0 flex-1">
-          <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
-          {!expanded && (
-            <span className="ml-2 text-small text-text-tertiary truncate">{msg.snippet}</span>
+          {expanded ? (
+            <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
+          ) : (
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0 font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
+              <span className="min-w-0 flex-1 truncate text-small text-text-tertiary">{msg.snippet}</span>
+            </div>
           )}
         </div>
         <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">

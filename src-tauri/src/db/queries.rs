@@ -619,6 +619,32 @@ impl VaultDb {
         Ok(stmt.query_row(params![vault_id, normalized], |r| r.get(0)).optional()?)
     }
 
+    /// Compute the slash-joined disk path for a folder by traversing parent slugs.
+    /// Returns "" for unknown folder IDs (labels / system mailboxes don't live on disk).
+    pub fn folder_disk_path(&self, folder_id: &str) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        let mut current = folder_id.to_string();
+        for _ in 0..10 {
+            let row: Option<(String, Option<String>)> = self.conn.query_row(
+                "SELECT disk_slug, parent_id FROM folders WHERE id = ?1",
+                params![current.as_str()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            ).optional().unwrap_or(None);
+            match row {
+                Some((slug, parent)) => {
+                    parts.push(slug);
+                    match parent {
+                        Some(p) => current = p,
+                        None => break,
+                    }
+                }
+                None => break,
+            }
+        }
+        parts.reverse();
+        parts.join("/")
+    }
+
     pub fn get_body(&self, body_ref: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT html FROM message_bodies WHERE body_ref = ?1",

@@ -11,6 +11,7 @@ import {
   MailQuestion,
   BellOff,
   Bell,
+  Folder,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -31,6 +32,7 @@ import { LabelCombobox } from "@/components/inspector/LabelCombobox";
 import { FlagPicker } from "@/components/inspector/FlagPicker";
 import { NoteEditor } from "@/components/inspector/NoteEditor";
 import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
+import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { Avatar } from "@/components/ui/Avatar";
 import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
 import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
@@ -99,6 +101,7 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
   const setMuted = useWorkspace((s) => s.setMuted);
   const removeLabel = useWorkspace((s) => s.removeLabel);
   const openComposer = useWorkspace((s) => s.openComposer);
+  const [folderPickerOpen, setFolderPickerOpen] = React.useState(false);
 
   // When this inspector panel was opened from a specific viewer, show that
   // viewer's effective email rather than the globally-selected one.
@@ -335,6 +338,25 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
           </div>
         </Section>
 
+        {/* INS-FOLDER */}
+        <Section label="Folder">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Folder size={13} className="shrink-0 text-text-tertiary" />
+              <span className="truncate text-small text-text-secondary">
+                {localStore.folders.get(msg.folderId)?.name ?? msg.folderId}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFolderPickerOpen(true)}
+              className="shrink-0 rounded-xs border border-border-subtle px-1.5 py-0.5 font-sans text-[10px] font-medium text-text-tertiary hover:border-border-default hover:bg-surface-3 hover:text-text-secondary transition-colors duration-fast"
+            >
+              Move…
+            </button>
+          </div>
+        </Section>
+
         {/* INS-CUSTOM-FIELDS — per-message editors (EP-2) */}
         <Section label="Custom Fields">
           <CustomFieldStrip messageId={msg.id} customFields={msg.customFields} />
@@ -371,6 +393,11 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
           </div>
         </Section>
       </div>
+      <FolderPickerDialog
+        messageId={msg.id}
+        open={folderPickerOpen}
+        onClose={() => setFolderPickerOpen(false)}
+      />
     </Panel>
   );
 }

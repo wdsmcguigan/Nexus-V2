@@ -87,11 +87,14 @@ function ContextMenu({
   items: CtxItem[];
 }) {
   const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     if (!menu) return;
     function close(e: MouseEvent | KeyboardEvent) {
       if (e instanceof KeyboardEvent && e.key !== "Escape") return;
+      // Don't close when the click is inside the menu itself — let onClick fire first
+      if (e instanceof MouseEvent && menuRef.current?.contains(e.target as Node)) return;
       setMenu(null);
     }
     document.addEventListener("mousedown", close, true);
@@ -117,8 +120,8 @@ function ContextMenu({
       {menu &&
         ReactDOM.createPortal(
           <div
+            ref={menuRef}
             style={{ position: "fixed", left: menu.x, top: menu.y, zIndex: 9999 }}
-            onMouseDown={(e) => e.stopPropagation()}
             className={cn(
               "min-w-[160px] overflow-hidden rounded-md border border-border-subtle",
               "bg-surface-2 p-1 shadow-lg",
@@ -277,16 +280,26 @@ function SystemLabelRow({ label }: { label: LabelType }) {
   const count = useLabelCount(label.id);
   const active = folderId === label.id;
   const Icon = (label.systemKind && SYSTEM_LABEL_ICON[label.systemKind]) || Inbox;
+  const [dragOver, setDragOver] = React.useState(false);
 
   return (
     <button
       type="button"
       onClick={() => setFolder(label.id)}
       data-label-id={label.id}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const msgId = e.dataTransfer.getData("message-id");
+        if (msgId) Mut.addLabel(localStore, msgId, label.id);
+      }}
       className={cn(
         "group/row relative flex h-8 w-full items-center gap-2 rounded-sm px-2 text-left",
         "transition-colors duration-fast ease-out",
         "focus-visible:outline-none focus-visible:shadow-focus",
+        dragOver && "bg-accent/20 ring-1 ring-accent",
         active
           ? "bg-accent-soft text-text-primary"
           : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
@@ -345,6 +358,8 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
   const active = folderId === label.id;
   const [renaming, setRenaming] = React.useState(false);
   const [recoloring, setRecoloring] = React.useState(false);
+  const [creatingChild, setCreatingChild] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
 
   // Show only the last segment so nested labels don't repeat the full path.
   const displayName = label.name.includes("/")
@@ -354,9 +369,10 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
   const indentPx = depth * 12;
 
   const ctxItems: CtxItem[] = [
-    { label: "Rename",  icon: Pencil,  onSelect: () => setRenaming(true) },
-    { label: "Recolor", icon: Palette, onSelect: () => setRecoloring(true) },
-    { label: "Delete",  icon: Trash,   destructive: true, onSelect: () => deleteLabel(label.id) },
+    { label: "Rename",        icon: Pencil,  onSelect: () => setRenaming(true) },
+    { label: "Recolor",       icon: Palette, onSelect: () => setRecoloring(true) },
+    { label: "New sub-label", icon: Plus,    onSelect: () => { setExpanded(true); setCreatingChild(true); } },
+    { label: "Delete",        icon: Trash,   destructive: true, onSelect: () => deleteLabel(label.id) },
   ];
 
   return (
@@ -384,10 +400,19 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
             onClick={() => setFolder(label.id)}
             data-label-id={label.id}
             style={{ paddingLeft: indentPx + 8 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const msgId = e.dataTransfer.getData("message-id");
+              if (msgId) Mut.addLabel(localStore, msgId, label.id);
+            }}
             className={cn(
               "group/row relative flex h-8 w-full items-center gap-2 rounded-sm pr-2 text-left",
               "transition-colors duration-fast ease-out",
               "focus-visible:outline-none focus-visible:shadow-focus",
+              dragOver && "bg-accent/20 ring-1 ring-accent",
               active
                 ? "bg-accent-soft text-text-primary"
                 : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
@@ -436,11 +461,32 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
           </button>
         </ContextMenu>
       )}
-      {hasChildren && expanded &&
-        children.map((child) => (
-          <LabelTreeNode key={child.id} label={child} depth={depth + 1} />
-        ))
-      }
+      {expanded && (
+        <>
+          {children.map((child) => (
+            <LabelTreeNode key={child.id} label={child} depth={depth + 1} />
+          ))}
+          {creatingChild && (
+            <div style={{ paddingLeft: indentPx + 20 }}>
+              <InlineCreate
+                onCommit={(name) => {
+                  Mut.createLabel(localStore, {
+                    id: `lbl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    vaultId: localStore.vault?.id ?? "local",
+                    kind: "user",
+                    name,
+                    color: label.color,
+                    parentId: label.id,
+                    position: children.length,
+                  });
+                  setCreatingChild(false);
+                }}
+                onCancel={() => setCreatingChild(false)}
+              />
+            </div>
+          )}
+        </>
+      )}
     </>
   );
 }
@@ -470,6 +516,7 @@ function FolderTreeNode({
   const [expanded, setExpanded] = React.useState(true);
   const [renaming, setRenaming] = React.useState(false);
   const [recoloring, setRecoloring] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
 
   const ctxItems: CtxItem[] = [
     {
@@ -524,10 +571,19 @@ function FolderTreeNode({
             onClick={() => setFolder(folder.id)}
             data-folder-id={folder.id}
             style={{ paddingLeft: indentPx + 8 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const msgId = e.dataTransfer.getData("message-id");
+              if (msgId) Mut.moveToFolder(localStore, msgId, folder.id);
+            }}
             className={cn(
               "group/row relative flex h-8 w-full items-center gap-2 rounded-sm pr-2 text-left",
               "transition-colors duration-fast ease-out",
               "focus-visible:outline-none focus-visible:shadow-focus",
+              dragOver && "bg-accent/20 ring-1 ring-accent",
               active
                 ? "bg-accent-soft text-text-primary"
                 : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
