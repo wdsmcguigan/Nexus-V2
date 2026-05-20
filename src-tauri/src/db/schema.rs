@@ -281,6 +281,4 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, message_id, subject, notes)
     VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
 END;
-INSERT OR IGNORE INTO messages_fts(rowid, message_id, subject, notes)
-  SELECT rowid, id, subject, COALESCE(notes,'') FROM messages;
 "#;

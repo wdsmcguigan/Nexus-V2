@@ -80,6 +80,11 @@ impl VaultDb {
         self.conn
             .execute_batch(schema::EP6_IDEMPOTENT_SQL)
             .context("EP6 idempotent DDL")?;
+        // Backfill FTS index from pre-existing messages. FTS5 content tables do not support
+        // INSERT OR IGNORE, so we use the built-in 'rebuild' command instead. Non-fatal.
+        let _ = self.conn.execute_batch(
+            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');",
+        );
         Ok(())
     }
 }
