@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 
 use super::VaultDb;
 
@@ -234,6 +235,7 @@ impl VaultDb {
     }
 
     fn load_messages(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        // Load the 2000 most recent messages (avoids huge IPC payloads on first hydration).
         let mut stmt = self.conn.prepare(
             "SELECT id, folder_id, thread_id, subject, snippet, body_ref, received_at,
                     status_id, priority, star, pinned, muted, notes, flag_json,
@@ -241,7 +243,7 @@ impl VaultDb {
                     attachment_refs_json, custom_fields_json,
                     flags_read, flags_answered, flags_draft, flags_flagged
              FROM messages WHERE vault_id = ?1
-             ORDER BY received_at DESC",
+             ORDER BY received_at DESC LIMIT 2000",
         )?;
 
         let msg_rows: Vec<(String, JsonValue)> = stmt.query_map(params![vault_id], |r| {
@@ -295,34 +297,54 @@ impl VaultDb {
         })?.map(|r| r.context("loading message row"))
           .collect::<Result<Vec<_>>>()?;
 
-        // Bulk-load label and tag associations
+        // Batch-load all label associations for this vault in a single query instead of
+        // one query per message. Avoids N+1 which would mean ~24k queries for 12k emails.
+        let mut label_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let mut ls = self.conn.prepare(
+                "SELECT ml.message_id, ml.label_id
+                 FROM message_labels ml
+                 INNER JOIN messages m ON ml.message_id = m.id
+                 WHERE m.vault_id = ?1",
+            )?;
+            for row in ls.query_map(params![vault_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, label_id) = row.context("loading label row")?;
+                label_map.entry(msg_id).or_default().push(label_id);
+            }
+        }
+
+        // Same for tags.
+        let mut tag_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let mut ts = self.conn.prepare(
+                "SELECT mt.message_id, mt.tag
+                 FROM message_tags mt
+                 INNER JOIN messages m ON mt.message_id = m.id
+                 WHERE m.vault_id = ?1",
+            )?;
+            for row in ts.query_map(params![vault_id], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, tag) = row.context("loading tag row")?;
+                tag_map.entry(msg_id).or_default().push(tag);
+            }
+        }
+
         let mut result = Vec::with_capacity(msg_rows.len());
         for (id, mut msg) in msg_rows {
-            msg["labelIds"] = self.load_message_labels(&id)?;
-            msg["tags"] = self.load_message_tags(&id)?;
+            msg["labelIds"] = label_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
+            msg["tags"] = tag_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
             result.push(msg);
         }
         Ok(result)
-    }
-
-    fn load_message_labels(&self, message_id: &str) -> Result<JsonValue> {
-        let mut stmt = self.conn.prepare(
-            "SELECT label_id FROM message_labels WHERE message_id = ?1",
-        )?;
-        let ids: Vec<JsonValue> = stmt.query_map(params![message_id], |r| {
-            r.get::<_, String>(0).map(JsonValue::String)
-        })?.map(|r| r.context("loading label id")).collect::<Result<_>>()?;
-        Ok(JsonValue::Array(ids))
-    }
-
-    fn load_message_tags(&self, message_id: &str) -> Result<JsonValue> {
-        let mut stmt = self.conn.prepare(
-            "SELECT tag FROM message_tags WHERE message_id = ?1",
-        )?;
-        let tags: Vec<JsonValue> = stmt.query_map(params![message_id], |r| {
-            r.get::<_, String>(0).map(JsonValue::String)
-        })?.map(|r| r.context("loading tag")).collect::<Result<_>>()?;
-        Ok(JsonValue::Array(tags))
     }
 
     pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
