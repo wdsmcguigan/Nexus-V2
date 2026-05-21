@@ -751,20 +751,20 @@ fn collect_body_from_payload(
     if mime == "text/plain" && text.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
             if let Some(bytes) = decode_b64url(data) {
-                if let Ok(s) = String::from_utf8(bytes) {
-                    if !s.trim().is_empty() {
-                        *text = Some(s);
-                    }
+                let s = String::from_utf8(bytes.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
+                if !s.trim().is_empty() {
+                    *text = Some(s);
                 }
             }
         }
     } else if mime == "text/html" && html.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
             if let Some(bytes) = decode_b64url(data) {
-                if let Ok(s) = String::from_utf8(bytes) {
-                    if !s.trim().is_empty() {
-                        *html = Some(s);
-                    }
+                let s = String::from_utf8(bytes.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
+                if !s.trim().is_empty() {
+                    *html = Some(s);
                 }
             }
         }

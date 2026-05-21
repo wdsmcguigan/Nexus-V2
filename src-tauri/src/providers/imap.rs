@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
-use mailparse::MailHeaderMap;
+use mailparse::{parse_mail, MailHeaderMap};
 use serde::{Deserialize, Serialize};
 
 use super::{IncrementalResult, MailProvider, ProviderLabelInfo, SyncCursor};
@@ -254,9 +254,15 @@ where
             }
         }
 
-        // Fetch headers only for efficiency — body is fetched on demand
+        // Fetch full RFC 2822 messages (limited to 200 most-recent) so we can
+        // extract proper HTML/text bodies with charset and CTE decoding.
+        let seq_range = if mbox.exists > 200 {
+            format!("{}:*", mbox.exists - 199)
+        } else {
+            "1:*".to_string()
+        };
         let mut fetches = match session
-            .fetch("1:*", "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER])")
+            .fetch(&seq_range, "(UID FLAGS RFC822)")
             .await
         {
             Ok(f) => f,
@@ -279,7 +285,7 @@ where
             }
 
             if let Some(msg) =
-                parse_imap_fetch(&fetch, account_id, vault_id, &folder_nexus_id)
+                parse_imap_message(&fetch, account_id, vault_id, &folder_nexus_id)
             {
                 all_messages.push(msg);
             }
@@ -299,32 +305,34 @@ fn decode_imap_utf7(s: &str) -> String {
     utf7_imap::decode_utf7_imap(s.to_string())
 }
 
-fn parse_imap_fetch(
+/// Parse a full RFC 2822 message (from RFC822 fetch) into a ParsedMessage.
+/// Uses mailparse::parse_mail so charset conversion and CTE decoding are
+/// handled automatically for all MIME parts.
+fn parse_imap_message(
     fetch: &async_imap::types::Fetch,
     account_id: &str,
-    vault_id: &str,
+    _vault_id: &str,
     folder_id: &str,
 ) -> Option<ParsedMessage> {
     let uid = fetch.uid?;
+
+    // fetch.body() returns the full RFC 2822 message for RFC822 fetch items.
+    let raw = fetch.body()?;
+    let parsed = parse_mail(raw).ok()?;
+
     let provider_id = format!("imap-uid-{uid}");
     let nexus_id = format!("msg-{account_id}-{uid}");
 
-    // Try to get header bytes for parsing
-    let raw_bytes = fetch.header()?;
-
-    let parsed = mailparse::parse_headers(raw_bytes).ok()?;
-    let headers = parsed.0;
-
-    let subject = headers
+    let subject = parsed.headers
         .get_first_value("Subject")
         .unwrap_or_else(|| "(no subject)".to_string());
-    let from_raw = headers.get_first_value("From").unwrap_or_default();
-    let to_raw = headers.get_first_value("To").unwrap_or_default();
-    let cc_raw = headers.get_first_value("Cc").unwrap_or_default();
-    let date_raw = headers.get_first_value("Date").unwrap_or_default();
-    let message_id = headers
-        .get_first_value("Message-ID")
-        .unwrap_or_default();
+    let from_raw = parsed.headers.get_first_value("From").unwrap_or_default();
+    let to_raw   = parsed.headers.get_first_value("To").unwrap_or_default();
+    let cc_raw   = parsed.headers.get_first_value("Cc").unwrap_or_default();
+    let date_raw = parsed.headers.get_first_value("Date").unwrap_or_default();
+    let message_id = parsed.headers.get_first_value("Message-ID").unwrap_or_default();
+    let in_reply_to = parsed.headers.get_first_value("In-Reply-To").unwrap_or_default();
+    let references  = parsed.headers.get_first_value("References").unwrap_or_default();
 
     let received_at = mailparse::dateparse(&date_raw)
         .ok()
@@ -332,28 +340,35 @@ fn parse_imap_fetch(
         .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
     let thread_id = {
-        let refs = headers
-            .get_first_value("References")
-            .unwrap_or_default();
-        let in_reply = headers
-            .get_first_value("In-Reply-To")
-            .unwrap_or_default();
-        let base = if !in_reply.is_empty() {
-            &in_reply
-        } else if !refs.is_empty() {
-            &refs
+        let base = if !in_reply_to.is_empty() {
+            in_reply_to.as_str()
+        } else if !references.is_empty() {
+            // References lists ancestors oldest-first; first entry is best root.
+            references.split_whitespace().next().unwrap_or(message_id.as_str())
         } else {
-            &message_id
+            message_id.as_str()
         };
-        format!(
-            "thr-{}",
-            base.trim_matches(['<', '>'])
-                .replace(['@', '.'], "-")
-        )
+        format!("thr-{}", base.trim_matches(['<', '>']).replace(['@', '.'], "-"))
     };
 
+    // Walk the MIME tree to find HTML and plain-text bodies.
+    let (html_body, text_body) = extract_body_parts(&parsed);
+
+    let body_html = html_body.or_else(|| {
+        text_body.as_ref().map(|t| {
+            format!(
+                "<pre style=\"white-space:pre-wrap;font-family:inherit;margin:0\">{}</pre>",
+                html_escape(t)
+            )
+        })
+    });
+
+    let snippet = text_body
+        .as_deref()
+        .map(|t| t.chars().take(200).collect::<String>())
+        .unwrap_or_else(|| subject.chars().take(200).collect());
+
     let body_ref = format!("body-{account_id}-{uid}");
-    let snippet = subject.chars().take(200).collect::<String>();
 
     let flags = fetch.flags().collect::<Vec<_>>();
     let flags_read = flags
@@ -369,7 +384,7 @@ fn parse_imap_fetch(
         subject,
         snippet,
         body_ref,
-        body_html: None, // fetched on demand
+        body_html,
         received_at,
         from_addr: parse_addr_json(&from_raw),
         to_addrs: parse_addrs_json(&to_raw),
@@ -381,6 +396,39 @@ fn parse_imap_fetch(
         list_unsubscribe: None,
         list_unsubscribe_post: None,
     })
+}
+
+/// Recursively walk MIME parts to find the best HTML and plain-text bodies.
+/// mailparse handles Content-Transfer-Encoding and charset conversion in
+/// get_body(), so the returned strings are already proper Unicode.
+fn extract_body_parts(mail: &mailparse::ParsedMail<'_>) -> (Option<String>, Option<String>) {
+    let mime = mail.ctype.mimetype.as_str();
+
+    if mime == "text/html" {
+        return (mail.get_body().ok(), None);
+    }
+    if mime == "text/plain" {
+        return (None, mail.get_body().ok());
+    }
+
+    let mut html: Option<String> = None;
+    let mut text: Option<String> = None;
+
+    for part in &mail.subparts {
+        let (h, t) = extract_body_parts(part);
+        if html.is_none() {
+            html = h;
+        }
+        if text.is_none() {
+            text = t;
+        }
+    }
+
+    (html, text)
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 fn parse_addr_json(raw: &str) -> serde_json::Value {

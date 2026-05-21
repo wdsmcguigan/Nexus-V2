@@ -50,22 +50,106 @@ import { pickPanelLink } from "@/design-system/tokens";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
 
+// ─── Shared email body renderer ──────────────────────────────────────────────
+// Uses contentDocument.write() + useLayoutEffect so height is measured
+// synchronously before the first browser paint — eliminates the "pop-in" where
+// content appeared clipped then jumped to full height.
+
+const IFRAME_CSS =
+  `html{margin:0;padding:0;overflow-x:hidden}` +
+  `body{margin:0;padding:0;background:#fff;color:#1a1a1a;font-size:14px;line-height:1.6;overflow-x:hidden;word-break:break-word}` +
+  `img{max-width:100%!important;height:auto!important}` +
+  `table{max-width:100%!important;word-break:break-word}` +
+  `td,th{max-width:0;word-break:break-word}` +
+  `a{color:#2563eb}`;
+
+// Applied AFTER DOMPurify so attribute structure is already clean.
+// Blanks out remote image URLs rather than removing the element, which
+// preserves layout while preventing tracking pixels and resource loads.
+function stripRemoteImages(html: string): string {
+  return html
+    .replace(/(<[^>]+\s)src=(["'])https?:\/\/[^"']*\2/gi, '$1src=""')
+    .replace(/(<[^>]+\s)srcset=(["'])[^"']*\2/gi, '$1srcset=""')
+    .replace(
+      /background-image\s*:\s*url\s*\(\s*["']?https?:\/\/[^)"']*["']?\s*\)/gi,
+      "background-image:none"
+    );
+}
+
+function EmailBody({ html, title, imagesShown }: { html: string; title: string; imagesShown: boolean }) {
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const roRef = React.useRef<ResizeObserver | null>(null);
+  const rafRef = React.useRef<number>(0);
+
+  React.useLayoutEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    roRef.current?.disconnect();
+    cancelAnimationFrame(rafRef.current);
+    const doc = iframe.contentDocument;
+    if (!doc) return;
+
+    const sanitized = DOMPurify.sanitize(html, {
+      FORBID_TAGS: ["script", "form", "meta"],
+      FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"],
+      ALLOW_DATA_ATTR: false,
+    });
+    const content = imagesShown ? sanitized : stripRemoteImages(sanitized);
+    doc.open();
+    doc.write(
+      `<!doctype html><html><head><meta name="color-scheme" content="light">` +
+      `<style>${IFRAME_CSS}</style></head><body>${content}</body></html>`
+    );
+    doc.close();
+
+    const applyHeight = () => {
+      if (!iframe.isConnected) return;
+      const h = doc.body?.scrollHeight ?? 0;
+      if (h > 0) iframe.style.height = `${h}px`;
+    };
+    applyHeight();
+
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(applyHeight);
+    });
+    if (doc.body) ro.observe(doc.body);
+    roRef.current = ro;
+
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [html, imagesShown]);
+
+  return (
+    <iframe
+      ref={iframeRef}
+      title={title}
+      sandbox="allow-same-origin"
+      className="block w-full"
+      style={{ height: 0 }}
+    />
+  );
+}
+
 // ─── Collapsed thread message row ─────────────────────────────────────────────
 
 function ThreadMessageRow({ msg }: { msg: Message }) {
   const [expanded, setExpanded] = React.useState(false);
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const [body, setBody] = React.useState<string>(
-    () => bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`
+  const [body, setBody] = React.useState<string | null>(
+    () => bodyStore.get(msg.bodyRef) ?? null
   );
   React.useEffect(() => {
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBody(cached); return; }
-    if (!isTauri()) return;
+    if (!isTauri()) { setBody(""); return; }
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBody(html); }
+      if (html) bodyStore.set(msg.bodyRef, html);
+      setBody(html ?? "");
     });
     return () => { cancelled = true; };
   }, [msg.bodyRef]);
@@ -97,12 +181,17 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         />
       </button>
       {expanded && (
-        <iframe
-          title={`Email from ${msg.fromAddr.name}`}
-          sandbox="allow-same-origin"
-          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%;height:auto}</style></head><body>${DOMPurify.sanitize(body, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
-          className="block h-48 w-full"
-        />
+        body === null ? (
+          <div className="flex h-12 items-center justify-center">
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+          </div>
+        ) : body === "" ? (
+          <div className="flex h-12 items-center justify-center">
+            <span className="text-small text-text-tertiary">No content</span>
+          </div>
+        ) : (
+          <EmailBody html={body} title={`Email from ${msg.fromAddr.name}`} imagesShown={false} />
+        )
       )}
     </div>
   );
@@ -123,8 +212,6 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const senderContact = useContactByEmail(msg?.fromAddr.email ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
-  const [bodyHeight, setBodyHeight] = React.useState(400);
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
 
   // Auto-mark as read after 500ms — gives time to skip past without marking
   React.useEffect(() => {
@@ -135,20 +222,23 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
 
-  // Async body loading: serve from cache or fetch via IPC on miss
-  const [bodyHtml, setBodyHtml] = React.useState<string>(() =>
-    msg ? (bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`) : ""
+  // Async body loading: null = loading, "" = no body, string = ready
+  // Bodies are stored locally in SQLite after sync — no network call.
+  // We load on-demand (not at startup) to avoid loading hundreds of MB into RAM.
+  const [bodyHtml, setBodyHtml] = React.useState<string | null>(() =>
+    msg ? (bodyStore.get(msg.bodyRef) ?? null) : null
   );
   React.useEffect(() => {
     if (!msg) return;
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBodyHtml(cached); return; }
-    setBodyHtml(`<p>${msg.snippet}</p>`);
-    if (!isTauri()) return;
+    if (!isTauri()) { setBodyHtml(""); return; }
+    setBodyHtml(null);
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); }
+      if (html) bodyStore.set(msg.bodyRef, html);
+      setBodyHtml(html ?? "");
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
@@ -224,7 +314,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml);
+  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
 
   return (
     <Panel
@@ -526,25 +616,20 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
         )}
 
         {/* Iframe sandbox boundary */}
-        <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
-          <div className="mx-auto max-w-[680px] overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-            <iframe
-              ref={iframeRef}
-              title={`Email body from ${msg.fromAddr.name}`}
-              sandbox="allow-same-origin"
-              srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>
-                html,body{margin:0;padding:24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}
-                p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px}ul,ol{margin:0 0 12px 24px}
-                a{color:#2563eb}img{max-width:100%;height:auto}
-              </style></head><body>${DOMPurify.sanitize(bodyHtml, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
-              className="block w-full"
-              style={{ height: bodyHeight }}
-              onLoad={() => {
-                const h = iframeRef.current?.contentDocument?.body?.scrollHeight;
-                if (h) setBodyHeight(h + 48);
-              }}
-            />
-          </div>
+        <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas">
+          {bodyHtml === null ? (
+            <div className="flex h-64 items-center justify-center">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+            </div>
+          ) : bodyHtml === "" ? (
+            <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1 px-6 py-5">
+              <p className="text-sm text-text-secondary leading-relaxed">{msg.snippet}</p>
+            </div>
+          ) : (
+            <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
+              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown} />
+            </div>
+          )}
         </div>
 
         {/* Attachment chips */}

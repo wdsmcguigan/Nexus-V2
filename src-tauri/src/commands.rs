@@ -20,9 +20,22 @@ pub async fn load_vault_data(
     app: tauri::AppHandle,
     vault_path: String,
 ) -> std::result::Result<HydratePayload, String> {
-    let vault_id = init_vault_inner_with_app(&state, &vault_path, &app)
-        .await
-        .map_err(|e| e.to_string())?;
+    // If the setup hook already opened this vault, skip re-initialization to avoid
+    // spawning duplicate background pollers and contending on the DB lock.
+    let already_open = state
+        .db
+        .lock()
+        .map_err(|_| "vault lock poisoned".to_string())?
+        .is_some();
+
+    let vault_id = if already_open {
+        get_vault_id(&state).map_err(|e| e.to_string())?
+    } else {
+        init_vault_inner_with_app(&state, &vault_path, &app)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+
     let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
     db_guard
         .as_ref()

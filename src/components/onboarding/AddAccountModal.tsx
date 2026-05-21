@@ -10,6 +10,7 @@ import {
   testImapConnection,
   addImapAccount,
   onSyncProgress,
+  onHydrateNeeded,
 } from "@/storage/tauri";
 import type { DiscoveryResult } from "@/data/types";
 
@@ -124,24 +125,46 @@ function GmailFlow({ onConnected, onBack }: { onConnected: Props["onConnected"];
   const [progress, setProgress] = useState({ fetched: 0, total: 0 });
   const [email, setEmail] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  // Refs so closures always see the latest values without re-creating listeners.
+  const listenersRef = useRef<{ progress?: () => void; hydrate?: () => void }>({});
+  const resultRef = useRef<{ accountId: string; email: string } | null>(null);
+  const syncStartedRef = useRef(false);
+
+  function cleanup() {
+    listenersRef.current.progress?.();
+    listenersRef.current.hydrate?.();
+    listenersRef.current = {};
+  }
 
   async function handleConnect() {
     setStatus("connecting");
     setErrorMsg("");
+    resultRef.current = null;
+    syncStartedRef.current = false;
+
     try {
-      const unlisten = await onSyncProgress(({ fetched, total }) => {
+      listenersRef.current.progress = await onSyncProgress(({ fetched, total }) => {
+        syncStartedRef.current = true;
         setStatus("syncing");
         setProgress({ fetched, total });
       });
+
+      // Close the modal only after the vault has actually been hydrated with the
+      // synced data (vault:hydrate-needed fires after sync writes to DB).
+      listenersRef.current.hydrate = await onHydrateNeeded(() => {
+        if (!resultRef.current || !syncStartedRef.current) return;
+        const { accountId, email: acctEmail } = resultRef.current;
+        cleanup();
+        setStatus("done");
+        setTimeout(() => onConnected(accountId, acctEmail), 600);
+      });
+
       const result = await startGmailOAuth();
+      resultRef.current = result;
       setEmail(result.email);
       setStatus("syncing");
-      setTimeout(() => {
-        unlisten();
-        setStatus("done");
-        setTimeout(() => onConnected(result.accountId, result.email), 600);
-      }, 1500);
     } catch (e) {
+      cleanup();
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : String(e));
     }
