@@ -41,6 +41,8 @@ import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
+import { bodyStore } from "@/storage/bodyStore";
+import { isTauri, getMessageBody } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
@@ -232,6 +234,19 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     },
     measureElement: (el) => el.getBoundingClientRect().height,
   });
+
+  // Preload bodies for the first 30 visible messages so clicking them is instant.
+  // Each fetch is fire-and-forget; bodyStore.get() guards against redundant calls.
+  React.useEffect(() => {
+    if (!isTauri()) return;
+    const toPreload = messages.slice(0, 30).filter((m) => !bodyStore.get(m.bodyRef));
+    if (toPreload.length === 0) return;
+    for (const msg of toPreload) {
+      getMessageBody(msg.bodyRef)
+        .then((html) => { if (html) bodyStore.set(msg.bodyRef, html); })
+        .catch(() => {});
+    }
+  }, [messages]);
 
   const isPanelFocused = activePanelId === panelId;
 

@@ -96,7 +96,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         <iframe
           title={`Email from ${msg.fromAddr.name}`}
           sandbox="allow-same-origin"
-          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html,body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%;height:auto}</style></head><body>${DOMPurify.sanitize(body, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
+          srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>html{margin:0;padding:0;overflow-x:hidden}body{margin:0;padding:16px 24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6;overflow-x:hidden;word-break:break-word}p{margin:0 0 12px}a{color:#2563eb}img{max-width:100%!important;height:auto}table{max-width:100%!important}td,th{word-break:break-word}</style></head><body>${DOMPurify.sanitize(body, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
           className="block h-48 w-full"
         />
       )}
@@ -131,20 +131,23 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
 
-  // Async body loading: serve from cache or fetch via IPC on miss
-  const [bodyHtml, setBodyHtml] = React.useState<string>(() =>
-    msg ? (bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`) : ""
+  // Async body loading: null = loading, "" = no body, string = ready
+  // Bodies are stored locally in SQLite after sync — no network call.
+  // We load on-demand (not at startup) to avoid loading hundreds of MB into RAM.
+  const [bodyHtml, setBodyHtml] = React.useState<string | null>(() =>
+    msg ? (bodyStore.get(msg.bodyRef) ?? null) : null
   );
   React.useEffect(() => {
     if (!msg) return;
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBodyHtml(cached); return; }
-    setBodyHtml(`<p>${msg.snippet}</p>`);
-    if (!isTauri()) return;
+    if (!isTauri()) { setBodyHtml(""); return; }
+    setBodyHtml(null);
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); }
+      if (html) bodyStore.set(msg.bodyRef, html);
+      setBodyHtml(html ?? "");
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
@@ -220,7 +223,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml);
+  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
 
   return (
     <Panel
@@ -523,24 +526,33 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Iframe sandbox boundary */}
         <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
-          <div className="mx-auto max-w-[680px] overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-            <iframe
-              ref={iframeRef}
-              title={`Email body from ${msg.fromAddr.name}`}
-              sandbox="allow-same-origin"
-              srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>
-                html,body{margin:0;padding:24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6}
-                p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px}ul,ol{margin:0 0 12px 24px}
-                a{color:#2563eb}img{max-width:100%;height:auto}
-              </style></head><body>${DOMPurify.sanitize(bodyHtml, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
-              className="block w-full"
-              style={{ height: bodyHeight }}
-              onLoad={() => {
-                const h = iframeRef.current?.contentDocument?.body?.scrollHeight;
-                if (h) setBodyHeight(h + 48);
-              }}
-            />
-          </div>
+          {bodyHtml === null ? (
+            <div className="flex h-64 items-center justify-center">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+            </div>
+          ) : (
+            <div className="mx-auto max-w-[680px] overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
+              <iframe
+                ref={iframeRef}
+                title={`Email body from ${msg.fromAddr.name}`}
+                sandbox="allow-same-origin"
+                srcDoc={`<!doctype html><html><head><meta name="color-scheme" content="light"><style>
+                  html{margin:0;padding:0;overflow-x:hidden}
+                  body{margin:0;padding:24px;background:#ffffff;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6;overflow-x:hidden;word-break:break-word}
+                  p{margin:0 0 12px}h1,h2,h3{margin:0 0 12px}ul,ol{margin:0 0 12px 24px}
+                  a{color:#2563eb}img{max-width:100%!important;height:auto}
+                  table{max-width:100%!important;border-collapse:collapse}
+                  td,th{word-break:break-word}
+                </style></head><body>${DOMPurify.sanitize(bodyHtml, { FORBID_TAGS: ["script", "form", "meta"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"], ALLOW_DATA_ATTR: false })}</body></html>`}
+                className="block w-full"
+                style={{ height: bodyHeight }}
+                onLoad={() => {
+                  const h = iframeRef.current?.contentDocument?.body?.scrollHeight;
+                  if (h) setBodyHeight(h + 48);
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* Attachment chips */}
