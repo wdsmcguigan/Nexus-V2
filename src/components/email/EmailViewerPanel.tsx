@@ -212,20 +212,23 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
 
-  // Async body loading: serve from cache or fetch via IPC on miss
-  const [bodyHtml, setBodyHtml] = React.useState<string>(() =>
-    msg ? (bodyStore.get(msg.bodyRef) ?? `<p>${msg.snippet}</p>`) : ""
+  // Async body loading: null = loading, "" = no body, string = ready
+  // Bodies are stored locally in SQLite after sync — no network call.
+  // We load on-demand (not at startup) to avoid loading hundreds of MB into RAM.
+  const [bodyHtml, setBodyHtml] = React.useState<string | null>(() =>
+    msg ? (bodyStore.get(msg.bodyRef) ?? null) : null
   );
   React.useEffect(() => {
     if (!msg) return;
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBodyHtml(cached); return; }
-    setBodyHtml(`<p>${msg.snippet}</p>`);
-    if (!isTauri()) return;
+    if (!isTauri()) { setBodyHtml(""); return; }
+    setBodyHtml(null);
     let cancelled = false;
     getMessageBody(msg.bodyRef).then((html) => {
       if (cancelled) return;
-      if (html) { bodyStore.set(msg.bodyRef, html); setBodyHtml(html); }
+      if (html) bodyStore.set(msg.bodyRef, html);
+      setBodyHtml(html ?? "");
     });
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
@@ -301,7 +304,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml);
+  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
 
   return (
     <Panel
@@ -603,14 +606,20 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
         )}
 
         {/* Iframe sandbox boundary */}
-        <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
-          <div className="mx-auto max-w-[680px] overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-            <EmailBody
-              html={bodyHtml}
-              title={`Email body from ${msg.fromAddr.name}`}
-              imagesShown={imagesShown}
-            />
-          </div>
+        <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas">
+          {bodyHtml === null ? (
+            <div className="flex h-64 items-center justify-center">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+            </div>
+          ) : bodyHtml === "" ? (
+            <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1 px-6 py-5">
+              <p className="text-sm text-text-secondary leading-relaxed">{msg.snippet}</p>
+            </div>
+          ) : (
+            <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
+              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown} />
+            </div>
+          )}
         </div>
 
         {/* Attachment chips */}

@@ -16,6 +16,7 @@ pub struct AppState {
     pub vault_path: Mutex<Option<String>>,
     pub relay: Arc<Mutex<relay::RelayState>>,
     pub token_refresh_lock: AsyncMutex<()>,
+    /// "traditional" | "local-first" — persisted to {vault_path}/.nexus-mode
     pub client_mode: Arc<Mutex<String>>,
 }
 
@@ -71,6 +72,7 @@ pub fn run() {
             commands::save_template,
             commands::delete_template,
             commands::send_unsubscribe,
+            commands::get_client_mode,
             commands::set_client_mode,
         ])
         .setup(|app| {

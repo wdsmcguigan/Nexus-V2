@@ -6,6 +6,7 @@ import { ftsIndex } from "@/storage/fts";
 import { bodyStore } from "@/storage/bodyStore";
 import { useWorkspace } from "@/state/workspace";
 import type { ClientMode } from "@/lib/clientMode";
+import { loadClientMode } from "@/lib/clientMode";
 import { seedDefaultCustomFields } from "@/lib/defaultCustomFields";
 import { AddAccountModal } from "./AddAccountModal";
 
@@ -72,6 +73,8 @@ export function VaultSetup({ onComplete }: Props) {
       }
 
       seedDefaultCustomFields();
+      // Sync stored client mode to Rust backend (covers returning users who skip onboarding).
+      setClientModeIpc(loadClientMode()).catch(() => {});
       advanceTo("mode");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
