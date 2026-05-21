@@ -85,6 +85,7 @@ export function VaultSetup({ onComplete }: Props) {
 
   function handleModeSelect(mode: ClientMode) {
     setClientMode(mode);
+    setClientModeIpc(mode).catch(() => {});
     advanceTo("accounts");
   }
 
