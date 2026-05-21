@@ -70,6 +70,11 @@ export async function setVaultPath(path: string): Promise<void> {
   return invoke<void>("set_vault_path", { path });
 }
 
+export async function setClientMode(mode: "traditional" | "local-first"): Promise<void> {
+  if (!isTauri()) return;
+  return invoke<void>("set_client_mode", { mode });
+}
+
 /** Forget the vault path so the app returns to onboarding on next launch.
  *  Vault data on disk is left untouched. */
 export async function resetVault(): Promise<void> {

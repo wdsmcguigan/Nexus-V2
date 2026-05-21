@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use base64::Engine;
+use chrono::TimeZone as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,6 +31,7 @@ pub struct GmailSyncer {
     access_token: Arc<tokio::sync::RwLock<String>>,
     mail_dir: PathBuf,
     app: tauri::AppHandle,
+    client_mode: String,
 }
 
 impl GmailSyncer {
@@ -39,6 +41,7 @@ impl GmailSyncer {
         access_token: String,
         vault_path: &std::path::Path,
         app: tauri::AppHandle,
+        client_mode: String,
     ) -> Self {
         let mail_dir = vault_path.join("mail");
         Self {
@@ -47,6 +50,7 @@ impl GmailSyncer {
             access_token: Arc::new(tokio::sync::RwLock::new(access_token)),
             mail_dir,
             app,
+            client_mode,
         }
     }
 
@@ -179,7 +183,7 @@ impl GmailSyncer {
     // ─── Phase 2: DB writes (synchronous, called from blocking context) ───────
 
     /// Write the results of `fetch_initial` to the database atomically.
-    pub fn commit_initial(&self, db: &VaultDb, result: FetchResult) -> Result<SyncStats> {
+    pub fn commit_initial(&self, db: &VaultDb, result: &FetchResult) -> Result<SyncStats> {
         db.conn.execute_batch("BEGIN IMMEDIATE")?;
         let outcome = (|| {
             db.ensure_gmail_labels(&self.vault_id, &result.label_infos)?;
@@ -202,7 +206,7 @@ impl GmailSyncer {
     }
 
     /// Write incremental results to the database atomically.
-    pub fn commit_incremental(&self, db: &VaultDb, result: IncrementalResult) -> Result<SyncStats> {
+    pub fn commit_incremental(&self, db: &VaultDb, result: &IncrementalResult) -> Result<SyncStats> {
         db.conn.execute_batch("BEGIN IMMEDIATE")?;
         let outcome = (|| {
             let fetched = result.new_messages.len() as u32;
@@ -243,7 +247,11 @@ impl GmailSyncer {
     pub async fn initial_sync_with_db(&self, db_path: &str) -> Result<SyncStats> {
         let fetch = self.fetch_initial().await?;
         let db = VaultDb::open(db_path, "nexus")?;
-        self.commit_initial(&db, fetch)
+        let stats = self.commit_initial(&db, &fetch)?;
+        if self.client_mode == "local-first" {
+            self.write_eml_files(&fetch.messages).await;
+        }
+        Ok(stats)
     }
 
     /// High-level incremental sync. Falls back to initial if history expired.
@@ -265,11 +273,67 @@ impl GmailSyncer {
                     }
                     Some(result) => {
                         let db = VaultDb::open(db_path, "nexus")?;
-                        self.commit_incremental(&db, result)
+                        let stats = self.commit_incremental(&db, &result)?;
+                        if self.client_mode == "local-first" && !result.new_messages.is_empty() {
+                            self.write_eml_files(&result.new_messages).await;
+                        }
+                        Ok(stats)
                     }
                 }
             }
         }
+    }
+
+    // ─── Local-First EML writing ──────────────────────────────────────────────
+
+    /// Write all messages as .eml files under mail_dir. Errors are logged, never propagated.
+    async fn write_eml_files(&self, messages: &[ParsedMessage]) {
+        if let Err(e) = tokio::fs::create_dir_all(&self.mail_dir).await {
+            log::warn!("EML: failed to create mail dir: {e}");
+            return;
+        }
+        for msg in messages {
+            let path = self.mail_dir.join(format!("{}.eml", msg.provider_id));
+            if let Err(e) = self.write_eml(msg, &path).await {
+                log::warn!("EML: failed to write {}: {e}", path.display());
+            }
+        }
+    }
+
+    async fn write_eml(&self, msg: &ParsedMessage, path: &std::path::Path) -> Result<()> {
+        let from = msg.from_addr
+            .get("address").and_then(|v| v.as_str()).unwrap_or("")
+            .to_string();
+        let to = msg.to_addrs.iter()
+            .filter_map(|v| v.get("address").and_then(|a| a.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let date = chrono::Utc.timestamp_opt(msg.received_at / 1000, 0)
+            .single()
+            .unwrap_or_else(chrono::Utc::now)
+            .format("%a, %d %b %Y %H:%M:%S +0000")
+            .to_string();
+
+        let body = msg.body_html.as_deref().unwrap_or(&msg.snippet);
+        let content_type = if msg.body_html.is_some() {
+            "text/html; charset=utf-8"
+        } else {
+            "text/plain; charset=utf-8"
+        };
+
+        let eml = format!(
+            "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nDate: {date}\r\nMessage-ID: <{id}@gmail.com>\r\nMIME-Version: 1.0\r\nContent-Type: {content_type}\r\n\r\n{body}",
+            from = from,
+            to = to,
+            subject = msg.subject,
+            date = date,
+            id = msg.provider_id,
+            content_type = content_type,
+            body = body,
+        );
+
+        tokio::fs::write(path, eml.as_bytes()).await.context("write eml")?;
+        Ok(())
     }
 
     /// Re-fetch and store HTML bodies for any messages missing from message_bodies.

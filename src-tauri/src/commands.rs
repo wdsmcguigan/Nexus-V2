@@ -83,6 +83,15 @@ pub async fn get_vault_path(
 }
 
 #[tauri::command]
+pub async fn set_client_mode(
+    state: State<'_, AppState>,
+    mode: String,
+) -> std::result::Result<(), String> {
+    *state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())? = mode;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn set_vault_path(
     state: State<'_, AppState>,
     path: String,
@@ -167,6 +176,7 @@ pub async fn start_gmail_oauth(
     let vault_id_clone = vault_id.clone();
     let account_id_clone = account_id.clone();
     let app_handle = app.clone();
+    let client_mode_clone = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
 
     tokio::spawn(async move {
         let db_path = std::path::Path::new(&vault_path)
@@ -180,6 +190,7 @@ pub async fn start_gmail_oauth(
             access_token,
             std::path::Path::new(&vault_path),
             app_handle.clone(),
+            client_mode_clone,
         );
 
         match syncer.initial_sync_with_db(&db_path).await {
@@ -270,6 +281,7 @@ pub async fn sync_gmail_now(
         .clone()
         .ok_or("No vault loaded")?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
 
     let token = get_valid_token(&state, &account_id).await?;
 
@@ -284,6 +296,7 @@ pub async fn sync_gmail_now(
         token,
         std::path::Path::new(&vault_path),
         app.clone(),
+        client_mode,
     );
 
     let stats = syncer
@@ -326,6 +339,7 @@ pub async fn repair_message_bodies(
             token,
             std::path::Path::new(&vault_path),
             app.clone(),
+            "traditional".to_string(), // repair never writes EML files
         );
         match syncer.repair_missing_bodies(&db_path).await {
             Ok(n) => { log::info!("body repair: fixed {n} bodies for {account_id}"); total += n; }
@@ -906,6 +920,7 @@ pub async fn sync_account_now(
         .clone()
         .ok_or("No vault loaded")?;
     let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let client_mode = state.client_mode.lock().map_err(|_| "client_mode lock poisoned".to_string())?.clone();
 
     let (provider, settings_json) = {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
@@ -934,6 +949,7 @@ pub async fn sync_account_now(
                 token,
                 std::path::Path::new(&vault_path),
                 app.clone(),
+                client_mode,
             );
             let stats = syncer
                 .incremental_sync_with_db(&db_path)
@@ -1144,7 +1160,7 @@ async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tau
         std::env::var("NEXUS_GMAIL_CLIENT_ID"),
         std::env::var("NEXUS_GMAIL_CLIENT_SECRET"),
     ) {
-        start_inbox_poller(vault_path.to_string(), app.clone(), client_id, client_secret);
+        start_inbox_poller(vault_path.to_string(), app.clone(), client_id, client_secret, Arc::clone(&state.client_mode));
     }
 
     // Start relay sync loop if configured.
@@ -1190,6 +1206,7 @@ pub fn start_inbox_poller(
     app: tauri::AppHandle,
     client_id: String,
     client_secret: String,
+    client_mode: Arc<std::sync::Mutex<String>>,
 ) {
     tokio::spawn(async move {
         let mut backoff = crate::gmail::backoff::SyncBackoff::new();
@@ -1205,7 +1222,8 @@ pub fn start_inbox_poller(
                 continue;
             }
 
-            match poll_all_accounts(&vault_path, &app, &client_id, &client_secret).await {
+            let mode = client_mode.lock().map(|g| g.clone()).unwrap_or_default();
+            match poll_all_accounts(&vault_path, &app, &client_id, &client_secret, &mode).await {
                 Ok(()) => {
                     backoff.record_success();
                     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
@@ -1227,6 +1245,7 @@ async fn poll_all_accounts(
     app: &tauri::AppHandle,
     client_id: &str,
     client_secret: &str,
+    client_mode: &str,
 ) -> Result<()> {
     let db_path = std::path::Path::new(vault_path)
         .join("nexus.db")
@@ -1268,6 +1287,7 @@ async fn poll_all_accounts(
             access_token,
             std::path::Path::new(vault_path),
             app.clone(),
+            client_mode.to_string(),
         );
 
         match syncer.incremental_sync_with_db(&db_path).await {

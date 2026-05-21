@@ -16,6 +16,7 @@ pub struct AppState {
     pub vault_path: Mutex<Option<String>>,
     pub relay: Arc<Mutex<relay::RelayState>>,
     pub token_refresh_lock: AsyncMutex<()>,
+    pub client_mode: Arc<Mutex<String>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,6 +31,7 @@ pub fn run() {
             vault_path: Mutex::new(None),
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
             token_refresh_lock: AsyncMutex::new(()),
+            client_mode: Arc::new(Mutex::new("traditional".to_string())),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
@@ -69,6 +71,7 @@ pub fn run() {
             commands::save_template,
             commands::delete_template,
             commands::send_unsubscribe,
+            commands::set_client_mode,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

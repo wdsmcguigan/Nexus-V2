@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive, PlusCircle } from "lucide-react";
-import { setVaultPath, loadVaultData, isTauri } from "@/storage/tauri";
+import { setVaultPath, loadVaultData, isTauri, setClientMode as setClientModeIpc } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { ftsIndex } from "@/storage/fts";
 import { bodyStore } from "@/storage/bodyStore";
@@ -82,6 +82,7 @@ export function VaultSetup({ onComplete }: Props) {
 
   function handleModeSelect(mode: ClientMode) {
     setClientMode(mode);
+    setClientModeIpc(mode).catch(() => {});
     advanceTo("accounts");
   }
 
