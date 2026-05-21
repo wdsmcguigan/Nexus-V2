@@ -671,6 +671,15 @@ impl VaultDb {
                .optional()?
         };
         if existing.is_some() {
+            // Message record exists, but the body might never have been stored (e.g.
+            // initial sync crashed mid-way, or the parse yielded None body_html at the
+            // time). Fill it in now so it isn't permanently missing.
+            if let Some(html) = &msg.body_html {
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_bodies (body_ref, html) VALUES (?1, ?2)",
+                    params![&msg.body_ref, html],
+                )?;
+            }
             return Ok(false);
         }
 

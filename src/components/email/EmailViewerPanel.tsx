@@ -604,8 +604,8 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
             </div>
           ) : bodyHtml === "" ? (
-            <div className="flex h-64 items-center justify-center">
-              <span className="text-small text-text-tertiary">No content available</span>
+            <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1 px-6 py-5">
+              <p className="text-sm text-text-secondary leading-relaxed">{msg.snippet}</p>
             </div>
           ) : (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
