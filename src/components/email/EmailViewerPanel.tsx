@@ -63,7 +63,20 @@ const IFRAME_CSS =
   `td,th{max-width:0;word-break:break-word}` +
   `a{color:#2563eb}`;
 
-function EmailBody({ html, title }: { html: string; title: string }) {
+// Applied AFTER DOMPurify so attribute structure is already clean.
+// Blanks out remote image URLs rather than removing the element, which
+// preserves layout while preventing tracking pixels and resource loads.
+function stripRemoteImages(html: string): string {
+  return html
+    .replace(/(<[^>]+\s)src=(["'])https?:\/\/[^"']*\2/gi, '$1src=""')
+    .replace(/(<[^>]+\s)srcset=(["'])[^"']*\2/gi, '$1srcset=""')
+    .replace(
+      /background-image\s*:\s*url\s*\(\s*["']?https?:\/\/[^)"']*["']?\s*\)/gi,
+      "background-image:none"
+    );
+}
+
+function EmailBody({ html, title, imagesShown }: { html: string; title: string; imagesShown: boolean }) {
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const roRef = React.useRef<ResizeObserver | null>(null);
   const rafRef = React.useRef<number>(0);
@@ -81,10 +94,11 @@ function EmailBody({ html, title }: { html: string; title: string }) {
       FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "action"],
       ALLOW_DATA_ATTR: false,
     });
+    const content = imagesShown ? sanitized : stripRemoteImages(sanitized);
     doc.open();
     doc.write(
       `<!doctype html><html><head><meta name="color-scheme" content="light">` +
-      `<style>${IFRAME_CSS}</style></head><body>${sanitized}</body></html>`
+      `<style>${IFRAME_CSS}</style></head><body>${content}</body></html>`
     );
     doc.close();
 
@@ -106,7 +120,7 @@ function EmailBody({ html, title }: { html: string; title: string }) {
       ro.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [html]);
+  }, [html, imagesShown]);
 
   return (
     <iframe
@@ -172,7 +186,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
             <span className="text-small text-text-tertiary">No content</span>
           </div>
         ) : (
-          <EmailBody html={body} title={`Email from ${msg.fromAddr.name}`} />
+          <EmailBody html={body} title={`Email from ${msg.fromAddr.name}`} imagesShown={false} />
         )
       )}
     </div>
@@ -609,7 +623,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
             </div>
           ) : (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} />
+              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown} />
             </div>
           )}
         </div>
