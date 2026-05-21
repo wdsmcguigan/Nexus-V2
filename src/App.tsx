@@ -48,7 +48,7 @@ export default function App() {
     }
     getVaultPath().then((path) => {
       const pendingStep = localStorage.getItem("nexus-onboarding-step");
-      const hasPendingStep = pendingStep === "mode" || pendingStep === "gmail";
+      const hasPendingStep = pendingStep === "mode" || pendingStep === "accounts" || pendingStep === "gmail";
       setShowOnboarding(!path || hasPendingStep);
       if (path && !hasPendingStep) {
         repairMessageBodies().then(() => bodyStore.clear()).catch(() => {});

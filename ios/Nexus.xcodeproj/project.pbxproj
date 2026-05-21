@@ -1,0 +1,618 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A53BC635ED5C68A4B7BC6CE /* _CryptoExtras in Frameworks */ = {isa = PBXBuildFile; productRef = 94145E90E98C99A62D0E4A0B /* _CryptoExtras */; };
+		121A1CF12CF550A5D1F425E4 /* MutationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A23A86964FDC5ED8AECB50 /* MutationEngine.swift */; };
+		1A7A325AF3DEF242CDA7B62C /* CryptoManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15B7C402C899D02348B6D61 /* CryptoManager.swift */; };
+		253611BDCCBA2F61EFD67609 /* CryptoManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33D928B808BD0DD9E598B3B8 /* CryptoManagerTests.swift */; };
+		2D070A45B9F7B41C75E9C1D7 /* Schema.sql in Resources */ = {isa = PBXBuildFile; fileRef = E636F72EA6D3C123784ED7A3 /* Schema.sql */; };
+		40284B6B22525D91448E3E0C /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 409FE783B3578D6E07865E5C /* Crypto */; };
+		588A1ECC9F51D8DC36172FBB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEDEF0206028945804ECC4E9 /* Models.swift */; };
+		5B235D60C2D83606682F287B /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1B8F51A160F2966B21F34F /* InboxView.swift */; };
+		5F7A42B45F8A47D2C85A2961 /* MutationEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22298DFB01DBA9DFB313E3D2 /* MutationEngineTests.swift */; };
+		7528D7B55AC0087A25DEEDF9 /* GmailSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431C19A8777C96E5C5744C5D /* GmailSync.swift */; };
+		8207667C3E55E2B42255EB10 /* VaultSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EC76F044172CD7BC00F7C67 /* VaultSetupView.swift */; };
+		866F53F5908346A9FB6871F0 /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C63057201AB8CE5B0DBC5DDC /* ComposeView.swift */; };
+		8E741F068A5919655C5C1A52 /* GmailAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB5A152AC1CF8820706AFB8D /* GmailAuth.swift */; };
+		91705279803AA3B943C3DDBF /* _CryptoExtras in Frameworks */ = {isa = PBXBuildFile; productRef = ADC3D5DF22B9FD8D00C0D574 /* _CryptoExtras */; };
+		A011FCC65BBC6C4B931C454D /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65DC1637D4A67A3BF483C379 /* AppState.swift */; };
+		A0E9F5AB0AFDBBC6678B6D4E /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D666AEE9CE41BE4B60D597F /* KeychainStore.swift */; };
+		A90BAF0AEC1C589135AB18A2 /* VaultDB.swift in Sources */ = {isa = PBXBuildFile; fileRef = D03779AD914713398A9F8D56 /* VaultDB.swift */; };
+		B737A59624C6208E64752356 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = 5562A2CDC2A4760ABF4E4896 /* Crypto */; };
+		CAC60A28C6DFAA611979A0DE /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 602007D4C8F66E0FDF554B81 /* MessageDetailView.swift */; };
+		DA125017379DB157ED9A04AC /* NexusApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867A1E30DF9D075F2FD5D3D7 /* NexusApp.swift */; };
+		E01B120CD844FA9EFF2BF14C /* GRDBSQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = 1BB5C93CED6566C033ADB73D /* GRDBSQLCipher */; };
+		E14ABE22688987A6F798DE48 /* RelayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF2B0F8FB7651920632F82D /* RelayClient.swift */; };
+		E1AE1880E0973899257BE022 /* GRDBSQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = 4B51E99BBCC8A6DA97D18214 /* GRDBSQLCipher */; };
+		F152DA246D488DE411251360 /* SyncEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 338D23C52D18E9D12BC75E53 /* SyncEngine.swift */; };
+		FC49F8BC3D42F7E5777CA55A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29192B176BE994B7929E2F56 /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A5AC4F8A845CB0DFA21DF1E1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6E0546D7A1020B804447C56B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C33A72293F18700680F43B8C;
+			remoteInfo = Nexus;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		22298DFB01DBA9DFB313E3D2 /* MutationEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationEngineTests.swift; sourceTree = "<group>"; };
+		29192B176BE994B7929E2F56 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		338D23C52D18E9D12BC75E53 /* SyncEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncEngine.swift; sourceTree = "<group>"; };
+		33D928B808BD0DD9E598B3B8 /* CryptoManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoManagerTests.swift; sourceTree = "<group>"; };
+		431C19A8777C96E5C5744C5D /* GmailSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailSync.swift; sourceTree = "<group>"; };
+		4EC76F044172CD7BC00F7C67 /* VaultSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSetupView.swift; sourceTree = "<group>"; };
+		602007D4C8F66E0FDF554B81 /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
+		65DC1637D4A67A3BF483C379 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		69ED62341195FDE8DC9B5405 /* NexusTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NexusTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7D666AEE9CE41BE4B60D597F /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		867A1E30DF9D075F2FD5D3D7 /* NexusApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusApp.swift; sourceTree = "<group>"; };
+		8C68E9120F392AAD932B623F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9BF2B0F8FB7651920632F82D /* RelayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelayClient.swift; sourceTree = "<group>"; };
+		AB5A152AC1CF8820706AFB8D /* GmailAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailAuth.swift; sourceTree = "<group>"; };
+		B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig; sourceTree = "<group>"; };
+		C63057201AB8CE5B0DBC5DDC /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
+		CC1B8F51A160F2966B21F34F /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
+		D03779AD914713398A9F8D56 /* VaultDB.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultDB.swift; sourceTree = "<group>"; };
+		D15B7C402C899D02348B6D61 /* CryptoManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoManager.swift; sourceTree = "<group>"; };
+		E636F72EA6D3C123784ED7A3 /* Schema.sql */ = {isa = PBXFileReference; lastKnownFileType = text; path = Schema.sql; sourceTree = "<group>"; };
+		F3A23A86964FDC5ED8AECB50 /* MutationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MutationEngine.swift; sourceTree = "<group>"; };
+		FCF0E4BE82C411A3DAAED3C7 /* Nexus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nexus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FEDEF0206028945804ECC4E9 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0717F30BCC141C38ED1CB4CD /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1AE1880E0973899257BE022 /* GRDBSQLCipher in Frameworks */,
+				B737A59624C6208E64752356 /* Crypto in Frameworks */,
+				91705279803AA3B943C3DDBF /* _CryptoExtras in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A6F3914FC42C2F4A0BEF5C4D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E01B120CD844FA9EFF2BF14C /* GRDBSQLCipher in Frameworks */,
+				40284B6B22525D91448E3E0C /* Crypto in Frameworks */,
+				0A53BC635ED5C68A4B7BC6CE /* _CryptoExtras in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0EBCEF7719D6AE51AC9B466C /* NexusTests */ = {
+			isa = PBXGroup;
+			children = (
+				33D928B808BD0DD9E598B3B8 /* CryptoManagerTests.swift */,
+				22298DFB01DBA9DFB313E3D2 /* MutationEngineTests.swift */,
+			);
+			path = NexusTests;
+			sourceTree = "<group>";
+		};
+		11E3CC88B7BCE0F356595ACA /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FCF0E4BE82C411A3DAAED3C7 /* Nexus.app */,
+				69ED62341195FDE8DC9B5405 /* NexusTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3FB9996F30B0DAF850730E44 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				65DC1637D4A67A3BF483C379 /* AppState.swift */,
+				8C68E9120F392AAD932B623F /* Info.plist */,
+				867A1E30DF9D075F2FD5D3D7 /* NexusApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4C1E6137A6EA9FA191EB9AA8 = {
+			isa = PBXGroup;
+			children = (
+				5E412486ED50A7F5F6A86C05 /* Nexus */,
+				0EBCEF7719D6AE51AC9B466C /* NexusTests */,
+				11E3CC88B7BCE0F356595ACA /* Products */,
+				B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */,
+			);
+			sourceTree = "<group>";
+		};
+		5E412486ED50A7F5F6A86C05 /* Nexus */ = {
+			isa = PBXGroup;
+			children = (
+				3FB9996F30B0DAF850730E44 /* App */,
+				EE8AEDB2FF4ABC0799C7A085 /* Crypto */,
+				C75B5493BC293663A3D59CF6 /* Data */,
+				E226A80E2FF621A6F678B9D0 /* Keychain */,
+				E9003BA78FF5636625EA987C /* Sync */,
+				9E5418DE8362D69C5E52BB07 /* UI */,
+			);
+			path = Nexus;
+			sourceTree = "<group>";
+		};
+		9E5418DE8362D69C5E52BB07 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				C63057201AB8CE5B0DBC5DDC /* ComposeView.swift */,
+				CC1B8F51A160F2966B21F34F /* InboxView.swift */,
+				602007D4C8F66E0FDF554B81 /* MessageDetailView.swift */,
+				29192B176BE994B7929E2F56 /* SettingsView.swift */,
+				4EC76F044172CD7BC00F7C67 /* VaultSetupView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		C75B5493BC293663A3D59CF6 /* Data */ = {
+			isa = PBXGroup;
+			children = (
+				FEDEF0206028945804ECC4E9 /* Models.swift */,
+				F3A23A86964FDC5ED8AECB50 /* MutationEngine.swift */,
+				E636F72EA6D3C123784ED7A3 /* Schema.sql */,
+				D03779AD914713398A9F8D56 /* VaultDB.swift */,
+			);
+			path = Data;
+			sourceTree = "<group>";
+		};
+		E226A80E2FF621A6F678B9D0 /* Keychain */ = {
+			isa = PBXGroup;
+			children = (
+				7D666AEE9CE41BE4B60D597F /* KeychainStore.swift */,
+			);
+			path = Keychain;
+			sourceTree = "<group>";
+		};
+		E9003BA78FF5636625EA987C /* Sync */ = {
+			isa = PBXGroup;
+			children = (
+				AB5A152AC1CF8820706AFB8D /* GmailAuth.swift */,
+				431C19A8777C96E5C5744C5D /* GmailSync.swift */,
+				9BF2B0F8FB7651920632F82D /* RelayClient.swift */,
+				338D23C52D18E9D12BC75E53 /* SyncEngine.swift */,
+			);
+			path = Sync;
+			sourceTree = "<group>";
+		};
+		EE8AEDB2FF4ABC0799C7A085 /* Crypto */ = {
+			isa = PBXGroup;
+			children = (
+				D15B7C402C899D02348B6D61 /* CryptoManager.swift */,
+			);
+			path = Crypto;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		2A1E5A123A1BF5FF36233484 /* NexusTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 126340C0FF895F25DCB8BA26 /* Build configuration list for PBXNativeTarget "NexusTests" */;
+			buildPhases = (
+				2B0306F2350409CF18E1A3B3 /* Sources */,
+				A6F3914FC42C2F4A0BEF5C4D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				64B63C38E4B0E2B503A2F82D /* PBXTargetDependency */,
+			);
+			name = NexusTests;
+			packageProductDependencies = (
+				1BB5C93CED6566C033ADB73D /* GRDBSQLCipher */,
+				409FE783B3578D6E07865E5C /* Crypto */,
+				94145E90E98C99A62D0E4A0B /* _CryptoExtras */,
+			);
+			productName = NexusTests;
+			productReference = 69ED62341195FDE8DC9B5405 /* NexusTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C33A72293F18700680F43B8C /* Nexus */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 53C579BF4CA941AFC4DF3BAE /* Build configuration list for PBXNativeTarget "Nexus" */;
+			buildPhases = (
+				9BA272A32A7DD46181642993 /* Sources */,
+				E4E36D2B6206FD87DA07FBF4 /* Resources */,
+				0717F30BCC141C38ED1CB4CD /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Nexus;
+			packageProductDependencies = (
+				4B51E99BBCC8A6DA97D18214 /* GRDBSQLCipher */,
+				5562A2CDC2A4760ABF4E4896 /* Crypto */,
+				ADC3D5DF22B9FD8D00C0D574 /* _CryptoExtras */,
+			);
+			productName = Nexus;
+			productReference = FCF0E4BE82C411A3DAAED3C7 /* Nexus.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6E0546D7A1020B804447C56B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = 17896972B6EAD3EB1C3E2233 /* Build configuration list for PBXProject "Nexus" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4C1E6137A6EA9FA191EB9AA8;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				898C58482D0A5156E973B0FC /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 11E3CC88B7BCE0F356595ACA /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C33A72293F18700680F43B8C /* Nexus */,
+				2A1E5A123A1BF5FF36233484 /* NexusTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E4E36D2B6206FD87DA07FBF4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2D070A45B9F7B41C75E9C1D7 /* Schema.sql in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2B0306F2350409CF18E1A3B3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				253611BDCCBA2F61EFD67609 /* CryptoManagerTests.swift in Sources */,
+				5F7A42B45F8A47D2C85A2961 /* MutationEngineTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9BA272A32A7DD46181642993 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A011FCC65BBC6C4B931C454D /* AppState.swift in Sources */,
+				866F53F5908346A9FB6871F0 /* ComposeView.swift in Sources */,
+				1A7A325AF3DEF242CDA7B62C /* CryptoManager.swift in Sources */,
+				8E741F068A5919655C5C1A52 /* GmailAuth.swift in Sources */,
+				7528D7B55AC0087A25DEEDF9 /* GmailSync.swift in Sources */,
+				5B235D60C2D83606682F287B /* InboxView.swift in Sources */,
+				A0E9F5AB0AFDBBC6678B6D4E /* KeychainStore.swift in Sources */,
+				CAC60A28C6DFAA611979A0DE /* MessageDetailView.swift in Sources */,
+				588A1ECC9F51D8DC36172FBB /* Models.swift in Sources */,
+				121A1CF12CF550A5D1F425E4 /* MutationEngine.swift in Sources */,
+				DA125017379DB157ED9A04AC /* NexusApp.swift in Sources */,
+				E14ABE22688987A6F798DE48 /* RelayClient.swift in Sources */,
+				FC49F8BC3D42F7E5777CA55A /* SettingsView.swift in Sources */,
+				F152DA246D488DE411251360 /* SyncEngine.swift in Sources */,
+				A90BAF0AEC1C589135AB18A2 /* VaultDB.swift in Sources */,
+				8207667C3E55E2B42255EB10 /* VaultSetupView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		64B63C38E4B0E2B503A2F82D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C33A72293F18700680F43B8C /* Nexus */;
+			targetProxy = A5AC4F8A845CB0DFA21DF1E1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		00EFA657DA51B02098A9D6ED /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		31506F6B136916F6C9AE4005 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nexus/App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nexus.app;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		31CFB435AC1B5F3DB183FD08 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Nexus/App/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nexus.app;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		958B4D27785146E84A1E24AF /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		D17B27C8C2387F063C632FC0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nexus.app.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nexus.app/Nexus";
+			};
+			name = Release;
+		};
+		DA1A129B45F0651E320D9A55 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = B861F4FF2FBE1EEC0060A628 /* Local.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nexus.app.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nexus.app/Nexus";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		126340C0FF895F25DCB8BA26 /* Build configuration list for PBXNativeTarget "NexusTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DA1A129B45F0651E320D9A55 /* Debug */,
+				D17B27C8C2387F063C632FC0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		17896972B6EAD3EB1C3E2233 /* Build configuration list for PBXProject "Nexus" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				00EFA657DA51B02098A9D6ED /* Debug */,
+				958B4D27785146E84A1E24AF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		53C579BF4CA941AFC4DF3BAE /* Build configuration list for PBXNativeTarget "Nexus" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				31CFB435AC1B5F3DB183FD08 /* Debug */,
+				31506F6B136916F6C9AE4005 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-crypto.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+		898C58482D0A5156E973B0FC /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/groue/GRDB.swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 6.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1BB5C93CED6566C033ADB73D /* GRDBSQLCipher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 898C58482D0A5156E973B0FC /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDBSQLCipher;
+		};
+		409FE783B3578D6E07865E5C /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = Crypto;
+		};
+		4B51E99BBCC8A6DA97D18214 /* GRDBSQLCipher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 898C58482D0A5156E973B0FC /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDBSQLCipher;
+		};
+		5562A2CDC2A4760ABF4E4896 /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = Crypto;
+		};
+		94145E90E98C99A62D0E4A0B /* _CryptoExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = _CryptoExtras;
+		};
+		ADC3D5DF22B9FD8D00C0D574 /* _CryptoExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 3E572A3A3E9C45AA30BB96EB /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = _CryptoExtras;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 6E0546D7A1020B804447C56B /* Project object */;
+}

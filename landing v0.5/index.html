@@ -1,0 +1,1197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Nexus — Your inbox is a database. Start treating it like one.</title>
+    <meta
+      name="description"
+      content="Nexus is a local-first, privacy-first email client with Airtable-grade metadata, kanban workflows, and zero-knowledge cross-device sync. Built for power users who outgrew Gmail's stars and folders."
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="canonical" href="https://wdsmcguigan.github.io/Nexus-V2/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Nexus — Your inbox is a database." />
+    <meta
+      property="og:description"
+      content="Local-first email client with Airtable-grade metadata, kanban, and zero-knowledge sync. For power users who outgrew Gmail."
+    />
+    <meta property="og:image" content="./og-image.svg" />
+    <meta property="og:url" content="https://wdsmcguigan.github.io/Nexus-V2/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Nexus — Your inbox is a database." />
+    <meta
+      name="twitter:description"
+      content="Local-first email client with Airtable-grade metadata, kanban, and zero-knowledge sync."
+    />
+    <meta name="twitter:image" content="./og-image.svg" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Tailwind — built statically from index.html via tailwind.src.css + tailwind.config.cjs -->
+    <link rel="stylesheet" href="./tailwind.css" />
+
+    <style>
+      /* NEXUS Design Tokens (mirrored from src/design-system/tokens.css) */
+      :root {
+        --color-bg-canvas: oklch(0.985 0.002 270);
+        --color-surface-1: oklch(1 0 0);
+        --color-surface-2: oklch(0.975 0.003 270);
+        --color-surface-3: oklch(0.955 0.004 270);
+        --color-surface-4: oklch(0.935 0.005 270);
+        --color-border-subtle: rgba(15, 17, 21, 0.06);
+        --color-border-default: rgba(15, 17, 21, 0.12);
+        --color-border-strong: rgba(15, 17, 21, 0.2);
+        --color-text-primary: oklch(0.18 0.005 270);
+        --color-text-secondary: oklch(0.38 0.005 270);
+        --color-text-tertiary: oklch(0.5 0.005 270);
+        --color-text-muted: oklch(0.58 0.005 270);
+        --color-accent: oklch(0.58 0.18 257);
+        --color-accent-hover: oklch(0.52 0.18 257);
+        --color-accent-soft: color-mix(in oklch, var(--color-accent) 14%, transparent);
+        --color-accent-ghost: color-mix(in oklch, var(--color-accent) 10%, transparent);
+        --color-success: oklch(0.56 0.155 152);
+        --color-warning: oklch(0.62 0.15 78);
+        --color-danger: oklch(0.56 0.22 25);
+        --shadow-l1: 0 1px 2px 0 rgba(15, 17, 21, 0.06);
+        --shadow-l2:
+          0 6px 16px -4px rgba(15, 17, 21, 0.12), 0 2px 4px -2px rgba(15, 17, 21, 0.08);
+        --shadow-l3:
+          0 16px 40px -8px rgba(15, 17, 21, 0.18), 0 4px 10px -4px rgba(15, 17, 21, 0.1);
+        --shadow-l4:
+          0 24px 56px -12px rgba(15, 17, 21, 0.22), 0 8px 16px -8px rgba(15, 17, 21, 0.12);
+        --radius-md: 6px;
+        --radius-lg: 8px;
+        --radius-xl: 12px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --color-bg-canvas: oklch(0.145 0.005 270);
+          --color-surface-1: oklch(0.18 0.005 270);
+          --color-surface-2: oklch(0.215 0.006 270);
+          --color-surface-3: oklch(0.255 0.007 270);
+          --color-surface-4: oklch(0.295 0.008 270);
+          --color-border-subtle: rgba(255, 255, 255, 0.06);
+          --color-border-default: rgba(255, 255, 255, 0.1);
+          --color-border-strong: rgba(255, 255, 255, 0.18);
+          --color-text-primary: oklch(0.97 0 0);
+          --color-text-secondary: oklch(0.78 0 0);
+          --color-text-tertiary: oklch(0.62 0 0);
+          --color-text-muted: oklch(0.5 0 0);
+          --color-accent: oklch(0.68 0.17 257);
+          --color-accent-hover: oklch(0.73 0.17 257);
+          --color-accent-soft: color-mix(in oklch, var(--color-accent) 18%, transparent);
+          --color-accent-ghost: color-mix(in oklch, var(--color-accent) 12%, transparent);
+          --color-success: oklch(0.74 0.155 152);
+          --color-warning: oklch(0.8 0.145 78);
+          --color-danger: oklch(0.66 0.22 25);
+          --shadow-l1: 0 1px 0 0 rgba(0, 0, 0, 0.45);
+          --shadow-l2:
+            0 8px 24px -8px rgba(0, 0, 0, 0.65), 0 2px 6px -2px rgba(0, 0, 0, 0.45);
+          --shadow-l3:
+            0 24px 48px -12px rgba(0, 0, 0, 0.7), 0 4px 12px -4px rgba(0, 0, 0, 0.5);
+          --shadow-l4:
+            0 32px 64px -16px rgba(0, 0, 0, 0.75), 0 8px 16px -8px rgba(0, 0, 0, 0.55);
+        }
+      }
+
+      html {
+        background: var(--color-bg-canvas);
+        color: var(--color-text-primary);
+        font-family:
+          'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        scroll-behavior: smooth;
+      }
+      body {
+        background: var(--color-bg-canvas);
+        color: var(--color-text-primary);
+      }
+      code,
+      .mono {
+        font-family:
+          'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+      }
+
+      ::selection {
+        background: var(--color-accent-soft);
+        color: var(--color-text-primary);
+      }
+
+      .surface-1 {
+        background: var(--color-surface-1);
+      }
+      .surface-2 {
+        background: var(--color-surface-2);
+      }
+      .surface-3 {
+        background: var(--color-surface-3);
+      }
+      .border-subtle {
+        border-color: var(--color-border-subtle);
+      }
+      .border-default {
+        border-color: var(--color-border-default);
+      }
+      .border-strong {
+        border-color: var(--color-border-strong);
+      }
+      .text-primary {
+        color: var(--color-text-primary);
+      }
+      .text-secondary {
+        color: var(--color-text-secondary);
+      }
+      .text-tertiary {
+        color: var(--color-text-tertiary);
+      }
+      .text-muted {
+        color: var(--color-text-muted);
+      }
+      .text-accent {
+        color: var(--color-accent);
+      }
+      .bg-accent {
+        background: var(--color-accent);
+      }
+      .bg-accent-soft {
+        background: var(--color-accent-soft);
+      }
+      .bg-accent-ghost {
+        background: var(--color-accent-ghost);
+      }
+      .shadow-l1 {
+        box-shadow: var(--shadow-l1);
+      }
+      .shadow-l2 {
+        box-shadow: var(--shadow-l2);
+      }
+      .shadow-l3 {
+        box-shadow: var(--shadow-l3);
+      }
+      .shadow-l4 {
+        box-shadow: var(--shadow-l4);
+      }
+
+      /* Subtle grid backdrop used in hero */
+      .grid-backdrop {
+        background-image:
+          radial-gradient(
+            circle at 50% 0%,
+            var(--color-accent-ghost) 0%,
+            transparent 55%
+          ),
+          linear-gradient(var(--color-border-subtle) 1px, transparent 1px),
+          linear-gradient(90deg, var(--color-border-subtle) 1px, transparent 1px);
+        background-size:
+          100% 100%,
+          48px 48px,
+          48px 48px;
+        background-position:
+          center top,
+          center center,
+          center center;
+      }
+
+      /* Browser-chrome frame around the demo iframe */
+      .chrome {
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-default);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: var(--shadow-l3);
+      }
+      .chrome-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 14px;
+        background: var(--color-surface-3);
+        border-bottom: 1px solid var(--color-border-subtle);
+      }
+      .chrome-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 9999px;
+        background: var(--color-surface-4);
+        border: 1px solid var(--color-border-default);
+      }
+      .chrome-url {
+        flex: 1;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        color: var(--color-text-tertiary);
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: 9999px;
+        padding: 4px 14px;
+        text-align: center;
+        max-width: 540px;
+        margin: 0 auto;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chrome iframe {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        background: var(--color-surface-1);
+      }
+      .chrome-iframe-wrap {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 11;
+        min-height: 820px;
+        max-height: calc(100vh - 80px);
+        background: var(--color-surface-1);
+      }
+      @media (max-width: 900px) {
+        .chrome-iframe-wrap {
+          aspect-ratio: 4 / 5;
+          min-height: 680px;
+          max-height: none;
+        }
+      }
+      @media (max-width: 600px) {
+        .chrome-iframe-wrap {
+          aspect-ratio: 3 / 4;
+          min-height: 560px;
+        }
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 44px;
+        padding: 0 22px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 15px;
+        line-height: 1;
+        border: 1px solid transparent;
+        transition:
+          background 0.15s ease,
+          border 0.15s ease,
+          transform 0.05s ease;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .btn:active {
+        transform: translateY(1px);
+      }
+      .btn-primary {
+        background: var(--color-accent);
+        color: white;
+        border-color: var(--color-accent);
+      }
+      .btn-primary:hover {
+        background: var(--color-accent-hover);
+        border-color: var(--color-accent-hover);
+      }
+      .btn-secondary {
+        background: var(--color-surface-1);
+        color: var(--color-text-primary);
+        border-color: var(--color-border-default);
+      }
+      .btn-secondary:hover {
+        border-color: var(--color-border-strong);
+        background: var(--color-surface-2);
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--color-text-secondary);
+        border-color: transparent;
+      }
+      .btn-ghost:hover {
+        color: var(--color-text-primary);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        background: var(--color-surface-2);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+      }
+      .badge-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 9999px;
+        background: var(--color-success);
+      }
+
+      .card {
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: 12px;
+        padding: 28px;
+        transition:
+          border 0.15s ease,
+          transform 0.15s ease;
+      }
+      .card:hover {
+        border-color: var(--color-border-default);
+      }
+
+      .feature-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        background: var(--color-accent-soft);
+        color: var(--color-accent);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 16px;
+      }
+
+      .pillar {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .pillar-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 9999px;
+        background: var(--color-accent);
+      }
+
+      /* Comparison table */
+      table.compare {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        background: var(--color-surface-1);
+        border: 1px solid var(--color-border-subtle);
+        border-radius: 12px;
+        overflow: hidden;
+        font-size: 14px;
+      }
+      table.compare th,
+      table.compare td {
+        padding: 14px 16px;
+        text-align: center;
+        border-bottom: 1px solid var(--color-border-subtle);
+        vertical-align: middle;
+      }
+      table.compare tr:last-child th,
+      table.compare tr:last-child td {
+        border-bottom: 0;
+      }
+      table.compare thead th {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--color-text-tertiary);
+        background: var(--color-surface-2);
+        border-bottom: 1px solid var(--color-border-default);
+      }
+      table.compare tbody th {
+        text-align: left;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+        background: var(--color-surface-2);
+        min-width: 230px;
+      }
+      table.compare td.nexus-col,
+      table.compare th.nexus-col {
+        background: var(--color-accent-ghost);
+        color: var(--color-text-primary);
+        font-weight: 600;
+      }
+      table.compare thead th.nexus-col {
+        color: var(--color-accent);
+      }
+      .mark-yes {
+        color: var(--color-success);
+        font-weight: 700;
+      }
+      .mark-no {
+        color: var(--color-text-muted);
+        font-weight: 500;
+      }
+      .mark-mid {
+        color: var(--color-warning);
+        font-weight: 600;
+      }
+      @media (max-width: 900px) {
+        .compare-scroll {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          margin: 0 -16px;
+          padding: 0 16px;
+        }
+        table.compare {
+          min-width: 760px;
+        }
+      }
+
+      /* Tally embed */
+      iframe[data-tally-src] {
+        width: 100%;
+        border: 0;
+        background: transparent;
+      }
+
+      /* Anchor offset for sticky-ish nav */
+      section[id] {
+        scroll-margin-top: 72px;
+      }
+
+      /* Reduce motion */
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          animation: none !important;
+        }
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+
+  <body class="font-sans">
+    <!-- Nav -->
+    <header
+      class="sticky top-0 z-30 backdrop-blur surface-1 border-b border-subtle"
+      style="background: color-mix(in oklch, var(--color-surface-1) 90%, transparent);"
+    >
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <a href="#top" class="flex items-center gap-2 font-semibold text-primary">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="4" fill="var(--color-accent)" />
+            <path d="M8 16V8L16 16V8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>Nexus</span>
+        </a>
+        <nav class="hidden md:flex items-center gap-6 text-sm text-secondary">
+          <a href="#different" class="hover:text-primary">What's different</a>
+          <a href="#demo" class="hover:text-primary">Demo</a>
+          <a href="#features" class="hover:text-primary">Features</a>
+          <a href="#compare" class="hover:text-primary">Compare</a>
+          <a href="#roadmap" class="hover:text-primary">Roadmap</a>
+        </nav>
+        <div class="flex items-center gap-2">
+          <a
+            href="https://github.com/wdsmcguigan/nexus-v2"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-ghost hidden sm:inline-flex"
+            aria-label="View Nexus on GitHub"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z" />
+            </svg>
+            <span>GitHub</span>
+          </a>
+          <a href="#waitlist" class="btn btn-primary text-sm h-9 px-4">Join waitlist</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- Hero -->
+      <section class="grid-backdrop">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 sm:pt-28 sm:pb-24 text-center">
+          <div class="flex justify-center mb-6">
+            <span class="badge"><span class="badge-dot"></span> Now in private beta</span>
+          </div>
+          <h1
+            class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-primary leading-[1.05] max-w-4xl mx-auto"
+          >
+            Your inbox is a database.<br />
+            <span class="text-accent">Start treating it like one.</span>
+          </h1>
+          <p class="mt-6 text-lg sm:text-xl text-secondary max-w-2xl mx-auto leading-relaxed">
+            Nexus is a local-first, privacy-first email client with Airtable-grade metadata,
+            kanban workflows, and zero-knowledge cross-device sync. Built for power users who
+            outgrew Gmail's stars and folders.
+          </p>
+          <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <a href="#waitlist" class="btn btn-primary">
+              Join the waitlist
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+            </a>
+            <a href="#demo" class="btn btn-secondary">See it live ↓</a>
+            <a
+              href="https://github.com/wdsmcguigan/nexus-v2"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-ghost"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+              Star on GitHub
+            </a>
+          </div>
+
+          <div class="mt-10 flex flex-wrap items-center justify-center gap-2">
+            <span class="badge">Local-first</span>
+            <span class="badge">E2EE sync</span>
+            <span class="badge">Open source</span>
+            <span class="badge">macOS native</span>
+          </div>
+
+          <!-- Sub-hero differentiator strip -->
+          <div class="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-4xl mx-auto text-left">
+            <div class="flex items-start gap-3">
+              <div class="feature-icon" style="margin-bottom: 0; width: 32px; height: 32px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+              </div>
+              <p class="text-sm text-secondary">
+                <span class="text-primary font-medium">Custom fields, statuses, kanban</span> — on every message.
+              </p>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="feature-icon" style="margin-bottom: 0; width: 32px; height: 32px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              </div>
+              <p class="text-sm text-secondary">
+                <span class="text-primary font-medium">Sub-10ms search</span> across 100k+ messages, fully offline.
+              </p>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="feature-icon" style="margin-bottom: 0; width: 32px; height: 32px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <p class="text-sm text-secondary">
+                <span class="text-primary font-medium">End-to-end encrypted sync.</span> We can't read it.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- What makes Nexus different -->
+      <section id="different" class="border-t border-subtle">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="max-w-2xl">
+            <p class="pillar mb-3"><span class="pillar-dot"></span> What makes Nexus different</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Four things every other email client gets wrong.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              Mainstream clients give you a list. Modern clients give you a faster list. Nexus
+              gives you a schema, a database, and the keys.
+            </p>
+          </div>
+
+          <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="card">
+              <div class="feature-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-primary">A real metadata layer</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Custom fields (text, number, date, select, person, URL), workflow statuses,
+                multi-style stars, priority ratings, structured notes — indexed and filterable.
+                Not tags. Not folders. A schema you control.
+              </p>
+              <p class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary italic">
+                Gmail gives you stars. Superhuman gives you faster stars. Nexus gives you a schema.
+              </p>
+            </div>
+
+            <div class="card">
+              <div class="feature-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v13a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V7"/><path d="M1 3h22v4H1z"/><path d="M10 12h4"/></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-primary">Local-first, by design</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Your mail lives as <code class="mono text-sm">.eml</code> files in a visible
+                Maildir folder and a SQLCipher-encrypted SQLite vault on your disk. Quit the app,
+                your data's still there. Open Finder, you can see it.
+              </p>
+              <p class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary italic">
+                Not local cache. Not "offline mode." Your disk is the source of truth.
+              </p>
+            </div>
+
+            <div class="card">
+              <div class="feature-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-primary">Zero-knowledge sync</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                XChaCha20-Poly1305 client-side encryption. The optional relay (run it yourself
+                or use ours) sees ciphertext blobs only. No vendor — including us — can read
+                your mail or your annotations.
+              </p>
+              <p class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary italic">
+                Sync should be a feature, not a surveillance vector.
+              </p>
+            </div>
+
+            <div class="card">
+              <div class="feature-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </div>
+              <h3 class="text-xl font-semibold text-primary">No lock-in, no proprietary blobs</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Maildir on disk means any IMAP-aware tool can read your mail tomorrow. No
+                Hey-style hostage data, no proprietary export-as-PDF charade. Nexus is a layer
+                on top of standards, not a replacement for them.
+              </p>
+              <p class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary italic">
+                The exit door is always open. You'll never need it.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Live demo -->
+      <section id="demo" class="border-t border-subtle" style="background: var(--color-surface-2);">
+        <div class="mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28" style="max-width: 1600px;">
+          <div class="max-w-2xl mx-auto text-center mb-10">
+            <p class="pillar mb-3 justify-center"><span class="pillar-dot"></span> Try it now</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Click around. No install, no signup.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              This is the actual Nexus web build, running against fixture data. Open the command
+              palette with <code class="mono text-sm px-1.5 py-0.5 rounded bg-accent-ghost">⌘K</code>,
+              switch to the kanban view, edit a custom field. Gmail sync and the encrypted local
+              vault are desktop-only.
+            </p>
+          </div>
+
+          <div class="chrome mx-auto" style="max-width: 1440px;">
+            <div class="chrome-bar" role="presentation">
+              <span class="chrome-dot" style="background: var(--color-danger); border-color: transparent;"></span>
+              <span class="chrome-dot" style="background: var(--color-warning); border-color: transparent;"></span>
+              <span class="chrome-dot" style="background: var(--color-success); border-color: transparent;"></span>
+              <span class="chrome-url" id="demo-url">nexus-v2-six.vercel.app</span>
+              <button
+                id="reset-demo"
+                type="button"
+                class="btn btn-ghost h-7 px-3 text-xs"
+                style="font-size: 12px;"
+                aria-label="Reset demo"
+              >Reset</button>
+            </div>
+            <div class="chrome-iframe-wrap">
+              <iframe
+                id="demo-iframe"
+                src="https://nexus-v2-six.vercel.app/"
+                title="Nexus live demo"
+                loading="lazy"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                referrerpolicy="no-referrer"
+                allow="clipboard-read; clipboard-write"
+              ></iframe>
+              <noscript>
+                <div class="p-8 text-center text-secondary">
+                  The live demo requires JavaScript.
+                  <a href="https://nexus-v2-six.vercel.app/" class="text-accent underline">
+                    Open it directly →
+                  </a>
+                </div>
+              </noscript>
+            </div>
+          </div>
+
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-4 text-sm text-tertiary">
+            <span class="inline-flex items-center gap-2">
+              <span class="mono px-1.5 py-0.5 rounded bg-accent-ghost text-primary">⌘K</span>
+              opens the command palette
+            </span>
+            <span class="hidden sm:inline">·</span>
+            <span>Try the View picker to switch to <span class="text-primary">Kanban</span></span>
+            <span class="hidden sm:inline">·</span>
+            <a
+              href="https://nexus-v2-six.vercel.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-accent hover:underline"
+              >Open in new tab ↗</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- Feature grid -->
+      <section id="features" class="border-t border-subtle">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="max-w-2xl">
+            <p class="pillar mb-3"><span class="pillar-dot"></span> Features</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Everything you need. Nothing you don't.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              The full feature set, drawn from the architecture doc. Each one is shipping in the
+              private beta today.
+            </p>
+          </div>
+
+          <div class="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></div>
+              <h3 class="font-semibold text-primary">Local-first vault</h3>
+              <p class="mt-2 text-sm text-secondary">SQLCipher + Maildir .eml. Encrypted, browsable, portable.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg></div>
+              <h3 class="font-semibold text-primary">Custom fields</h3>
+              <p class="mt-2 text-sm text-secondary">Text, number, date, select, person, URL — on every message.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="6" rx="1"/></svg></div>
+              <h3 class="font-semibold text-primary">Kanban + table views</h3>
+              <p class="mt-2 text-sm text-secondary">Toggle between list, table, and kanban grouped by any axis.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></div>
+              <h3 class="font-semibold text-primary">FTS5 search</h3>
+              <p class="mt-2 text-sm text-secondary">Sub-10ms results across 100k+ messages, fully offline.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/></svg></div>
+              <h3 class="font-semibold text-primary">Dockable layouts</h3>
+              <p class="mt-2 text-sm text-secondary">Resize, rearrange, save per workspace. Just like your IDE.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 5-10 9L2 5"/><path d="M2 19h20"/></svg></div>
+              <h3 class="font-semibold text-primary">Gmail sync</h3>
+              <p class="mt-2 text-sm text-secondary">OAuth + History API. Your annotations never touch Google.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+              <h3 class="font-semibold text-primary">E2EE relay</h3>
+              <p class="mt-2 text-sm text-secondary">XChaCha20-Poly1305. Self-host it, or use ours.</p>
+            </div>
+            <div class="card" style="padding: 24px;">
+              <div class="feature-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h3l6-6"/><path d="m22 5-3-3-7 7 3 3z"/></svg></div>
+              <h3 class="font-semibold text-primary">Command palette</h3>
+              <p class="mt-2 text-sm text-secondary">⌘K to find any action, view, or message. Always.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Personas / power-user workflows -->
+      <section id="personas" class="border-t border-subtle" style="background: var(--color-surface-2);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="max-w-2xl">
+            <p class="pillar mb-3"><span class="pillar-dot"></span> Built for the power user</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Three workflows your current email client can't do.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              Concrete patterns from real beta users. Each one is hours saved every week.
+            </p>
+          </div>
+
+          <div class="mt-12 grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="card">
+              <div class="text-xs font-semibold uppercase tracking-wider text-accent">The personal CRM</div>
+              <h3 class="mt-2 text-xl font-semibold text-primary">Your inbox is already a CRM. Make it act like one.</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Add <code class="mono text-sm">Company</code>, <code class="mono text-sm">Deal Stage</code>,
+                and <code class="mono text-sm">Next Touch</code> custom fields. Kanban your pipeline by
+                Deal Stage. Filter <code class="mono text-sm">Company=Acme AND Status≠Closed</code>
+                and you have an instant account view across years of email.
+              </p>
+              <div class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary">
+                Replaces: Streak, Salesmate, a manual spreadsheet.
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="text-xs font-semibold uppercase tracking-wider text-accent">The researcher's vault</div>
+              <h3 class="mt-2 text-xl font-semibold text-primary">Every newsletter, every paper, every link — searchable.</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Tag papers and threads by topic. Add a <code class="mono text-sm">Read</code> boolean and a
+                <code class="mono text-sm">Notes</code> markdown field. FTS5 searches subject + notes in
+                one query. Beats Notion-clipping every link by a mile.
+              </p>
+              <div class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary">
+                Replaces: Readwise + Notion + browser bookmarks.
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="text-xs font-semibold uppercase tracking-wider text-accent">The founder's triage</div>
+              <h3 class="mt-2 text-xl font-semibold text-primary">Inbox-zero as a saved view, not a daily ritual.</h3>
+              <p class="mt-3 text-secondary leading-relaxed">
+                Multi-style stars (founder / investor / customer). Filter
+                <code class="mono text-sm">Priority ≤ 2 AND Status=Open</code>. Kanban by
+                <code class="mono text-sm">Status</code> to drag through your day. The 200 other
+                messages stay hidden until you ask.
+              </p>
+              <div class="mt-4 pt-4 border-t border-subtle text-sm text-tertiary">
+                Replaces: Superhuman, the inbox-zero discipline you keep losing.
+              </div>
+            </div>
+          </div>
+
+          <p class="mt-12 text-center text-secondary text-lg max-w-2xl mx-auto">
+            If you've ever wished your inbox had a schema, this is for you.
+          </p>
+        </div>
+      </section>
+
+      <!-- Philosophy -->
+      <section class="border-t border-subtle">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 text-center">
+          <p class="pillar mb-3 justify-center"><span class="pillar-dot"></span> Philosophy</p>
+          <blockquote
+            class="text-2xl sm:text-3xl lg:text-4xl font-semibold text-primary leading-tight"
+          >
+            "Your mail stays on your machine.<br />
+            Organize it the way <em>you</em> think — not the way your email provider thinks."
+          </blockquote>
+          <div class="mt-10 flex flex-wrap items-center justify-center gap-6">
+            <span class="pillar"><span class="pillar-dot"></span> Local-first</span>
+            <span class="pillar"><span class="pillar-dot"></span> Zero-knowledge sync</span>
+            <span class="pillar"><span class="pillar-dot"></span> No lock-in</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Comparison -->
+      <section id="compare" class="border-t border-subtle" style="background: var(--color-surface-2);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="max-w-2xl">
+            <p class="pillar mb-3"><span class="pillar-dot"></span> Why now</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Head-to-head against every client we know of.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              Distilled from an independent strategic analysis. Nexus is the only client that
+              ships all of these at once.
+            </p>
+          </div>
+
+          <div class="mt-10 compare-scroll">
+            <table class="compare">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th class="nexus-col">Nexus</th>
+                  <th>Gmail web</th>
+                  <th>Superhuman</th>
+                  <th>Hey</th>
+                  <th>Mimestream</th>
+                  <th>Pebble</th>
+                  <th>Velo</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>Local-first storage</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-yes">✓</td>
+                  <td class="mark-yes">✓</td>
+                </tr>
+                <tr>
+                  <th>End-to-end encrypted multi-device sync</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-no">✗</td>
+                </tr>
+                <tr>
+                  <th>Custom fields / arbitrary metadata</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                </tr>
+                <tr>
+                  <th>Kanban + table + list views built-in</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                </tr>
+                <tr>
+                  <th>Sub-10ms FTS on 100k+ messages</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-yes">✓</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-yes">✓</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-mid">~</td>
+                </tr>
+                <tr>
+                  <th>No vendor lock-in (Maildir on disk)</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-yes">✓</td>
+                  <td class="mark-yes">✓</td>
+                </tr>
+                <tr>
+                  <th>Self-host friendly (JMAP roadmap)</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-mid">~</td>
+                  <td class="mark-mid">~</td>
+                </tr>
+                <tr>
+                  <th>Open source</th>
+                  <td class="nexus-col mark-yes">✓</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                  <td class="mark-no">✗</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p class="mt-8 text-sm text-tertiary text-center max-w-2xl mx-auto">
+            Strategic verdict from independent analysis: <span class="text-primary font-semibold">strong go</span>.
+            <a
+              href="https://github.com/wdsmcguigan/nexus-v2/blob/main/docs/Comparison%20and%20Viability%20Analysis%20by%20Gemini"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-accent hover:underline"
+              >Read the full analysis →</a
+            >
+          </p>
+        </div>
+      </section>
+
+      <!-- Roadmap -->
+      <section id="roadmap" class="border-t border-subtle">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="max-w-2xl">
+            <p class="pillar mb-3"><span class="pillar-dot"></span> Roadmap</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">
+              Six epics shipped. Big ones still ahead.
+            </h2>
+            <p class="mt-4 text-secondary text-lg">
+              Where contributors can have outsized impact today.
+            </p>
+          </div>
+
+          <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="card">
+              <h3 class="font-semibold text-primary">Shipped</h3>
+              <ul class="mt-4 space-y-3 text-sm text-secondary">
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded bg-accent-ghost text-accent shrink-0">EP-0</span> Data model + multi-axis filtering</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded bg-accent-ghost text-accent shrink-0">EP-1</span> Workspace layouts + kanban</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded bg-accent-ghost text-accent shrink-0">EP-3</span> FTS5 search + contacts</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded bg-accent-ghost text-accent shrink-0">EP-4</span> Tauri native shell + Gmail sync</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded bg-accent-ghost text-accent shrink-0">EP-5</span> E2EE relay (XChaCha20-Poly1305)</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3 class="font-semibold text-primary">Next</h3>
+              <ul class="mt-4 space-y-3 text-sm text-secondary">
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded shrink-0" style="background: var(--color-warning); color: white;">JMAP</span> Provider-agnostic sync — escape the Gmail-only trap</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded shrink-0" style="background: var(--color-warning); color: white;">Mobile</span> iOS companion app with same vault model</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded shrink-0" style="background: var(--color-warning); color: white;">Conflict UI</span> Visual merge for divergent device states</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded shrink-0" style="background: var(--color-warning); color: white;">Templates</span> Shareable schema packs (CRM, research, support)</li>
+                <li class="flex gap-3"><span class="mono text-xs px-2 py-0.5 rounded shrink-0" style="background: var(--color-warning); color: white;">Calendar</span> Local-first calendar with the same metadata layer</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tech stack -->
+      <section class="border-t border-subtle" style="background: var(--color-surface-2);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
+          <p class="mono text-sm text-tertiary uppercase tracking-widest">Built on</p>
+          <div class="mt-4 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-secondary">
+            <span class="font-semibold">Tauri 2</span>
+            <span>·</span>
+            <span class="font-semibold">Rust</span>
+            <span>·</span>
+            <span class="font-semibold">React 18</span>
+            <span>·</span>
+            <span class="font-semibold">TypeScript</span>
+            <span>·</span>
+            <span class="font-semibold">SQLCipher</span>
+            <span>·</span>
+            <span class="font-semibold">Tailwind</span>
+            <span>·</span>
+            <span class="font-semibold">Radix</span>
+          </div>
+          <p class="mt-4 text-sm text-tertiary">
+            ~10MB native binary. Memory-safe core. No Electron.
+          </p>
+        </div>
+      </section>
+
+      <!-- Waitlist / signup -->
+      <section id="waitlist" class="border-t border-subtle">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+          <div class="text-center mb-10">
+            <p class="pillar mb-3 justify-center"><span class="pillar-dot"></span> Waitlist</p>
+            <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-primary">Be early.</h2>
+            <p class="mt-4 text-secondary text-lg">
+              Get the TestFlight invite when we open it, and tell us how you'd use Nexus —
+              power-user workflows shape what we ship next.
+            </p>
+          </div>
+
+          <div
+            class="card"
+            style="padding: 24px; background: var(--color-surface-1);"
+          >
+            <!--
+              TALLY SETUP
+              1. Create a form at https://tally.so
+              2. In Tally → Share → Embed → Copy the form ID (e.g. "mO5VlA")
+              3. Replace TALLY_FORM_ID below with your real ID
+              Recommended fields: email (required), name, role (user/contributor/both),
+              primary use case (CRM/research/triage/dev/other), what you'd want from Nexus,
+              GitHub handle (optional)
+            -->
+            <iframe
+              data-tally-src="https://tally.so/embed/TALLY_FORM_ID?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
+              loading="lazy"
+              width="100%"
+              height="400"
+              frameborder="0"
+              marginheight="0"
+              marginwidth="0"
+              title="Nexus waitlist signup"
+            ></iframe>
+
+            <!-- Fallback shown when the Tally form hasn't been configured yet -->
+            <div id="tally-fallback" class="hidden">
+              <p class="text-secondary text-center">
+                The signup form isn't configured yet. In the meantime, email
+                <a href="mailto:hello@nexusmail.dev" class="text-accent hover:underline">hello@nexusmail.dev</a>
+                or
+                <a
+                  href="https://github.com/wdsmcguigan/nexus-v2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-accent hover:underline"
+                  >open an issue on GitHub</a
+                >.
+              </p>
+            </div>
+          </div>
+
+          <p class="mt-6 text-sm text-tertiary text-center">
+            We'll never sell your email. We can't read your mail. That's kind of the whole point.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-subtle" style="background: var(--color-surface-1);">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div class="flex items-center gap-2 text-sm text-tertiary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="4" fill="var(--color-accent)" />
+            <path d="M8 16V8L16 16V8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>Nexus — local-first email, by design.</span>
+        </div>
+        <nav class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-tertiary">
+          <a href="https://github.com/wdsmcguigan/nexus-v2" target="_blank" rel="noopener noreferrer" class="hover:text-primary">GitHub</a>
+          <a href="https://github.com/wdsmcguigan/nexus-v2/tree/main/docs" target="_blank" rel="noopener noreferrer" class="hover:text-primary">Docs</a>
+          <a href="https://github.com/wdsmcguigan/nexus-v2/blob/main/docs/architecture.md" target="_blank" rel="noopener noreferrer" class="hover:text-primary">Architecture</a>
+          <a href="#waitlist" class="hover:text-primary">Waitlist</a>
+        </nav>
+      </div>
+    </footer>
+
+    <!-- Tally embed loader -->
+    <script>
+      // Reset button for the demo iframe
+      (function () {
+        var btn = document.getElementById('reset-demo');
+        var iframe = document.getElementById('demo-iframe');
+        if (btn && iframe) {
+          btn.addEventListener('click', function () {
+            iframe.src = iframe.src;
+          });
+        }
+      })();
+
+      // Tally embed init — only loads if a real form ID has been pasted in
+      (function () {
+        var tallyIframe = document.querySelector('iframe[data-tally-src]');
+        if (!tallyIframe) return;
+        var src = tallyIframe.getAttribute('data-tally-src') || '';
+        if (src.indexOf('TALLY_FORM_ID') !== -1) {
+          // Placeholder still in place — show fallback instead.
+          tallyIframe.style.display = 'none';
+          var fallback = document.getElementById('tally-fallback');
+          if (fallback) fallback.classList.remove('hidden');
+          return;
+        }
+        // Real form configured — load Tally's embed script.
+        var d = document;
+        var w = 'https://tally.so/widgets/embed.js';
+        var v = function () {
+          if (typeof Tally !== 'undefined') {
+            Tally.loadEmbeds();
+          } else {
+            d.querySelectorAll('iframe[data-tally-src]:not([src])').forEach(function (e) {
+              e.src = e.dataset.tallySrc;
+            });
+          }
+        };
+        if (typeof Tally !== 'undefined') {
+          v();
+        } else if (d.querySelector('script[src="' + w + '"]') == null) {
+          var s = d.createElement('script');
+          s.src = w;
+          s.onload = v;
+          s.onerror = v;
+          d.body.appendChild(s);
+        }
+      })();
+    </script>
+  </body>
+</html>
