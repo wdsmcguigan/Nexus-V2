@@ -60,7 +60,7 @@ const IFRAME_CSS =
   `body{margin:0;padding:0;background:#fff;color:#1a1a1a;font-size:14px;line-height:1.6;overflow-x:hidden;word-break:break-word}` +
   `img{max-width:100%!important;height:auto!important}` +
   `table{max-width:100%!important;word-break:break-word}` +
-  `td,th{word-break:break-word;overflow-wrap:anywhere}` +
+  `td,th{max-width:0;word-break:break-word}` +
   `a{color:#2563eb}`;
 
 // Applied AFTER DOMPurify so attribute structure is already clean.
