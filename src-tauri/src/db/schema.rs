@@ -237,12 +237,16 @@ CREATE TABLE IF NOT EXISTS saved_views (
 CREATE INDEX IF NOT EXISTS idx_saved_views_vault ON saved_views(vault_id);
 "#;
 
-/// Idempotent migration DDL run after SCHEMA_SQL on every startup.
-/// Each statement is executed individually; "duplicate column name" errors are ignored.
-pub const MIGRATION_SQL: &str = r#"
-ALTER TABLE accounts ADD COLUMN sync_cursor TEXT;
-ALTER TABLE accounts ADD COLUMN settings_json TEXT;
-ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT;
+/// EP6 ALTER TABLE statements run individually so "duplicate column name" errors can be ignored.
+pub const EP6_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE accounts ADD COLUMN sync_cursor TEXT",
+    "ALTER TABLE accounts ADD COLUMN settings_json TEXT",
+    "ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT",
+];
+
+/// Idempotent EP6 DDL executed as a single batch on every startup.
+/// Must NOT be split by ';' — trigger bodies contain semicolons inside BEGIN...END.
+pub const EP6_IDEMPOTENT_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS rules (
     id TEXT PRIMARY KEY,
     vault_id TEXT NOT NULL,
@@ -277,6 +281,4 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN
   INSERT INTO messages_fts(rowid, message_id, subject, notes)
     VALUES (new.rowid, new.id, new.subject, COALESCE(new.notes, ''));
 END;
-INSERT OR IGNORE INTO messages_fts(rowid, message_id, subject, notes)
-  SELECT rowid, id, subject, COALESCE(notes,'') FROM messages;
 "#;

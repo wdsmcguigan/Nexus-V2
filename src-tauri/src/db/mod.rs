@@ -70,18 +70,21 @@ impl VaultDb {
 
     /// Apply EP6 migrations (sync_cursor, settings_json columns on accounts).
     fn run_ep6_migrations(&self) -> Result<()> {
-        for stmt in schema::MIGRATION_SQL
-            .split(';')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            if let Err(e) = self.conn.execute_batch(stmt) {
-                let msg = e.to_string();
-                if !msg.contains("duplicate column name") {
+        for &sql in schema::EP6_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
                     return Err(e.into());
                 }
             }
         }
+        self.conn
+            .execute_batch(schema::EP6_IDEMPOTENT_SQL)
+            .context("EP6 idempotent DDL")?;
+        // Backfill FTS index from pre-existing messages. FTS5 content tables do not support
+        // INSERT OR IGNORE, so we use the built-in 'rebuild' command instead. Non-fatal.
+        let _ = self.conn.execute_batch(
+            "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');",
+        );
         Ok(())
     }
 }
