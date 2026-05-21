@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive, PlusCircle } from "lucide-react";
-import { setVaultPath, loadVaultData, isTauri, setClientMode as setClientModeIpc } from "@/storage/tauri";
+import { setVaultPath, loadVaultData, isTauri, setClientModeIpc } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { ftsIndex } from "@/storage/fts";
 import { bodyStore } from "@/storage/bodyStore";

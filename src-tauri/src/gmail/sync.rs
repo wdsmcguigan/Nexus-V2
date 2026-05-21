@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use base64::Engine;
-use chrono::TimeZone as _;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -30,8 +29,8 @@ pub struct GmailSyncer {
     pub vault_id: String,
     access_token: Arc<tokio::sync::RwLock<String>>,
     mail_dir: PathBuf,
-    app: tauri::AppHandle,
     client_mode: String,
+    app: tauri::AppHandle,
 }
 
 impl GmailSyncer {
@@ -40,8 +39,8 @@ impl GmailSyncer {
         vault_id: String,
         access_token: String,
         vault_path: &std::path::Path,
-        app: tauri::AppHandle,
         client_mode: String,
+        app: tauri::AppHandle,
     ) -> Self {
         let mail_dir = vault_path.join("mail");
         Self {
@@ -49,8 +48,8 @@ impl GmailSyncer {
             vault_id,
             access_token: Arc::new(tokio::sync::RwLock::new(access_token)),
             mail_dir,
-            app,
             client_mode,
+            app,
         }
     }
 
@@ -182,8 +181,47 @@ impl GmailSyncer {
 
     // ─── Phase 2: DB writes (synchronous, called from blocking context) ───────
 
+    /// Write a minimal .eml file for a newly synced message (local-first mode only).
+    fn write_eml_file(&self, db: &VaultDb, msg: &ParsedMessage) -> Result<()> {
+        let folder_disk_path = db.folder_disk_path(&msg.folder_id);
+        let target_dir = if folder_disk_path.is_empty() {
+            self.mail_dir.join("inbox")
+        } else {
+            self.mail_dir.join(&folder_disk_path)
+        };
+        std::fs::create_dir_all(&target_dir)?;
+
+        let from_email = msg.from_addr["email"].as_str().unwrap_or_default();
+        let from_name = msg.from_addr["name"].as_str().unwrap_or_default();
+        let to_list: String = msg.to_addrs.iter().map(|t| {
+            let name = t["name"].as_str().unwrap_or_default();
+            let email = t["email"].as_str().unwrap_or_default();
+            if name.is_empty() { email.to_string() } else { format!("{name} <{email}>") }
+        }).collect::<Vec<_>>().join(", ");
+        let date = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(msg.received_at)
+            .unwrap_or_default()
+            .format("%a, %d %b %Y %H:%M:%S +0000")
+            .to_string();
+
+        let html_body = msg.body_html.as_deref().unwrap_or_default();
+        let eml_content = format!(
+            "MIME-Version: 1.0\r\nDate: {date}\r\nFrom: {from_name} <{from_email}>\r\nTo: {to_list}\r\nSubject: {subject}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n{html_body}",
+            subject = msg.subject,
+        );
+
+        let eml_path = target_dir.join(format!("{}.eml", msg.id));
+        std::fs::write(&eml_path, eml_content.as_bytes())?;
+
+        // Record the on-disk path so MOVE_TO_FOLDER can relocate the file later.
+        let _ = db.conn.execute(
+            "UPDATE messages SET eml_path = ?1 WHERE id = ?2",
+            rusqlite::params![eml_path.to_str().unwrap_or_default(), msg.id],
+        );
+        Ok(())
+    }
+
     /// Write the results of `fetch_initial` to the database atomically.
-    pub fn commit_initial(&self, db: &VaultDb, result: &FetchResult) -> Result<SyncStats> {
+    pub fn commit_initial(&self, db: &VaultDb, result: FetchResult) -> Result<SyncStats> {
         db.conn.execute_batch("BEGIN IMMEDIATE")?;
         let outcome = (|| {
             db.ensure_gmail_labels(&self.vault_id, &result.label_infos)?;
@@ -192,6 +230,11 @@ impl GmailSyncer {
             for msg in &result.messages {
                 if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
                     inserted += 1;
+                    if self.client_mode == "local-first" {
+                        if let Err(e) = self.write_eml_file(db, msg) {
+                            log::warn!("local-first: failed to write .eml for {}: {e}", msg.id);
+                        }
+                    }
                 }
             }
             if let Some(hid) = &result.history_id {
@@ -206,7 +249,7 @@ impl GmailSyncer {
     }
 
     /// Write incremental results to the database atomically.
-    pub fn commit_incremental(&self, db: &VaultDb, result: &IncrementalResult) -> Result<SyncStats> {
+    pub fn commit_incremental(&self, db: &VaultDb, result: IncrementalResult) -> Result<SyncStats> {
         db.conn.execute_batch("BEGIN IMMEDIATE")?;
         let outcome = (|| {
             let fetched = result.new_messages.len() as u32;
@@ -216,6 +259,11 @@ impl GmailSyncer {
             for msg in &result.new_messages {
                 if db.upsert_message_from_gmail(&self.vault_id, msg).unwrap_or(false) {
                     inserted += 1;
+                    if self.client_mode == "local-first" {
+                        if let Err(e) = self.write_eml_file(db, msg) {
+                            log::warn!("local-first: failed to write .eml for {}: {e}", msg.id);
+                        }
+                    }
                 }
             }
             for (provider_id, labels) in &result.label_additions {
@@ -247,11 +295,7 @@ impl GmailSyncer {
     pub async fn initial_sync_with_db(&self, db_path: &str) -> Result<SyncStats> {
         let fetch = self.fetch_initial().await?;
         let db = VaultDb::open(db_path, "nexus")?;
-        let stats = self.commit_initial(&db, &fetch)?;
-        if self.client_mode == "local-first" {
-            self.write_eml_files(&fetch.messages).await;
-        }
-        Ok(stats)
+        self.commit_initial(&db, fetch)
     }
 
     /// High-level incremental sync. Falls back to initial if history expired.
@@ -273,67 +317,11 @@ impl GmailSyncer {
                     }
                     Some(result) => {
                         let db = VaultDb::open(db_path, "nexus")?;
-                        let stats = self.commit_incremental(&db, &result)?;
-                        if self.client_mode == "local-first" && !result.new_messages.is_empty() {
-                            self.write_eml_files(&result.new_messages).await;
-                        }
-                        Ok(stats)
+                        self.commit_incremental(&db, result)
                     }
                 }
             }
         }
-    }
-
-    // ─── Local-First EML writing ──────────────────────────────────────────────
-
-    /// Write all messages as .eml files under mail_dir. Errors are logged, never propagated.
-    async fn write_eml_files(&self, messages: &[ParsedMessage]) {
-        if let Err(e) = tokio::fs::create_dir_all(&self.mail_dir).await {
-            log::warn!("EML: failed to create mail dir: {e}");
-            return;
-        }
-        for msg in messages {
-            let path = self.mail_dir.join(format!("{}.eml", msg.provider_id));
-            if let Err(e) = self.write_eml(msg, &path).await {
-                log::warn!("EML: failed to write {}: {e}", path.display());
-            }
-        }
-    }
-
-    async fn write_eml(&self, msg: &ParsedMessage, path: &std::path::Path) -> Result<()> {
-        let from = msg.from_addr
-            .get("address").and_then(|v| v.as_str()).unwrap_or("")
-            .to_string();
-        let to = msg.to_addrs.iter()
-            .filter_map(|v| v.get("address").and_then(|a| a.as_str()))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let date = chrono::Utc.timestamp_opt(msg.received_at / 1000, 0)
-            .single()
-            .unwrap_or_else(chrono::Utc::now)
-            .format("%a, %d %b %Y %H:%M:%S +0000")
-            .to_string();
-
-        let body = msg.body_html.as_deref().unwrap_or(&msg.snippet);
-        let content_type = if msg.body_html.is_some() {
-            "text/html; charset=utf-8"
-        } else {
-            "text/plain; charset=utf-8"
-        };
-
-        let eml = format!(
-            "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nDate: {date}\r\nMessage-ID: <{id}@gmail.com>\r\nMIME-Version: 1.0\r\nContent-Type: {content_type}\r\n\r\n{body}",
-            from = from,
-            to = to,
-            subject = msg.subject,
-            date = date,
-            id = msg.provider_id,
-            content_type = content_type,
-            body = body,
-        );
-
-        tokio::fs::write(path, eml.as_bytes()).await.context("write eml")?;
-        Ok(())
     }
 
     /// Re-fetch and store HTML bodies for any messages missing from message_bodies.
@@ -763,20 +751,20 @@ fn collect_body_from_payload(
     if mime == "text/plain" && text.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
             if let Some(bytes) = decode_b64url(data) {
-                if let Ok(s) = String::from_utf8(bytes) {
-                    if !s.trim().is_empty() {
-                        *text = Some(s);
-                    }
+                let s = String::from_utf8(bytes.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
+                if !s.trim().is_empty() {
+                    *text = Some(s);
                 }
             }
         }
     } else if mime == "text/html" && html.is_none() {
         if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
             if let Some(bytes) = decode_b64url(data) {
-                if let Ok(s) = String::from_utf8(bytes) {
-                    if !s.trim().is_empty() {
-                        *html = Some(s);
-                    }
+                let s = String::from_utf8(bytes.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
+                if !s.trim().is_empty() {
+                    *html = Some(s);
                 }
             }
         }

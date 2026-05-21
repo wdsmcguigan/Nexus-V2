@@ -14,10 +14,10 @@ use tokio::sync::Mutex as AsyncMutex;
 pub struct AppState {
     pub db: Mutex<Option<db::VaultDb>>,
     pub vault_path: Mutex<Option<String>>,
+    /// "traditional" | "local-first" — persisted to {vault_path}/.nexus-mode
+    pub client_mode: Mutex<String>,
     pub relay: Arc<Mutex<relay::RelayState>>,
     pub token_refresh_lock: AsyncMutex<()>,
-    /// "traditional" | "local-first" — persisted to {vault_path}/.nexus-mode
-    pub client_mode: Arc<Mutex<String>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,9 +30,9 @@ pub fn run() {
         .manage(AppState {
             db: Mutex::new(None),
             vault_path: Mutex::new(None),
+            client_mode: Mutex::new("traditional".to_string()),
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
             token_refresh_lock: AsyncMutex::new(()),
-            client_mode: Arc::new(Mutex::new("traditional".to_string())),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
