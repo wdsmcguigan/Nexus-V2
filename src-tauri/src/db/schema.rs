@@ -244,6 +244,12 @@ pub const EP6_ALTER_SQL: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT",
 ];
 
+/// EP7 (Stage 2) ALTER TABLE statements for per-account user preferences and rich-text signatures.
+pub const EP7_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE accounts ADD COLUMN signature_html TEXT",
+    "ALTER TABLE accounts ADD COLUMN preferences_json TEXT",
+];
+
 /// Idempotent EP6 DDL executed as a single batch on every startup.
 /// Must NOT be split by ';' — trigger bodies contain semicolons inside BEGIN...END.
 pub const EP6_IDEMPOTENT_SQL: &str = r#"

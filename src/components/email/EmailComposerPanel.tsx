@@ -34,7 +34,7 @@ import { useWorkspace } from "@/state/workspace";
 import { cn, formatBytes } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
 import DOMPurify from "dompurify";
-import { isTauri, sendMessage, type AttachmentPayload } from "@/storage/tauri";
+import { isTauri, sendMessage, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
@@ -321,13 +321,20 @@ export function EmailComposerPanel() {
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
 
+  const _fromAccount = React.useMemo(
+    () => Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const _sigHtml = React.useMemo(() => {
-    const acct = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
-    const sig = acct ? loadSignature(acct.id) : "";
+    if (!_fromAccount) return "";
+    const sig = loadSignature(_fromAccount.id);
     const sigHtml = sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     return sigHtml ? `<div class="nexus-signature"><br/>-- <br/>${sigHtml}</div>` : "";
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const initialContent = _draft?.bodyHtml ?? (
     replyMsg
       ? buildQuotedHtml(replyMsg) + _sigHtml
@@ -353,6 +360,18 @@ export function EmailComposerPanel() {
       },
     },
   });
+
+  // Load DB signature on mount (Tauri only) — replaces the localStorage fallback in the initial content
+  React.useEffect(() => {
+    if (!editor || !_fromAccount || !isTauri() || _draft) return;
+    getSignatureHtml(_fromAccount.id).then((dbHtml) => {
+      if (!dbHtml) return;
+      const sig = `<div class="nexus-signature"><br/>-- <br/>${dbHtml}</div>`;
+      const body = replyMsg ? buildQuotedHtml(replyMsg) + sig : `<p></p>${sig}`;
+      editor.commands.setContent(body);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // ── Send machinery ────────────────────────────────────────────────────────
 

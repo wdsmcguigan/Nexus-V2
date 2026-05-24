@@ -1651,6 +1651,40 @@ impl VaultDb {
         Ok(())
     }
 
+    /// Get user preferences JSON for an account (defaultReplyAll, externalImages, etc.).
+    pub fn get_account_preferences(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT preferences_json FROM accounts WHERE id = ?1",
+        )?;
+        Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
+    }
+
+    /// Save user preferences JSON for an account.
+    pub fn save_account_preferences(&self, account_id: &str, preferences_json: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET preferences_json = ?1 WHERE id = ?2",
+            params![preferences_json, account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get signature HTML for an account.
+    pub fn get_signature_html(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT signature_html FROM accounts WHERE id = ?1",
+        )?;
+        Ok(stmt.query_row(params![account_id], |r| r.get(0)).optional()?)
+    }
+
+    /// Save signature HTML for an account.
+    pub fn save_signature_html(&self, account_id: &str, html: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET signature_html = ?1 WHERE id = ?2",
+            params![html, account_id],
+        )?;
+        Ok(())
+    }
+
     /// Save encrypted credential (IMAP password stored in access_token column).
     pub fn save_credential(&self, account_id: &str, encrypted_credential: &str) -> Result<()> {
         self.conn.execute(

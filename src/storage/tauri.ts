@@ -70,6 +70,36 @@ export async function setNotificationPref(enabled: boolean): Promise<void> {
   return invoke<void>("set_notification_pref", { enabled });
 }
 
+// ─── EP7 Account preferences + signature ─────────────────────────────────────
+
+export interface AccountPreferences {
+  defaultReplyAll: boolean;
+  externalImages: "always" | "ask";
+}
+
+export async function getAccountPreferences(accountId: string): Promise<AccountPreferences> {
+  return invoke<AccountPreferences>("get_account_preferences", { accountId });
+}
+
+export async function saveAccountPreferences(
+  accountId: string,
+  prefs: AccountPreferences,
+): Promise<void> {
+  return invoke<void>("save_account_preferences", {
+    accountId,
+    defaultReplyAll: prefs.defaultReplyAll,
+    externalImages: prefs.externalImages,
+  });
+}
+
+export async function getSignatureHtml(accountId: string): Promise<string | null> {
+  return invoke<string | null>("get_signature_html", { accountId });
+}
+
+export async function saveSignatureHtml(accountId: string, html: string): Promise<void> {
+  return invoke<void>("save_signature_html", { accountId, html });
+}
+
 export async function listAccounts(): Promise<unknown[]> {
   return invoke<unknown[]>("list_accounts");
 }

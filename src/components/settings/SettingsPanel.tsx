@@ -28,6 +28,10 @@ import {
   AlertTriangle,
   Zap,
   FileText,
+  Bold,
+  Italic,
+  Underline,
+  ChevronDown,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -57,6 +61,16 @@ import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
 import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
+import {
+  getAccountPreferences,
+  saveAccountPreferences,
+  getSignatureHtml,
+  saveSignatureHtml,
+  type AccountPreferences,
+} from "@/storage/tauri";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import UnderlineExt from "@tiptap/extension-underline";
 
 // ─── Section header ───────────────────────────────────────────────────────────
 
@@ -618,33 +632,205 @@ function RelaySection() {
   );
 }
 
-// ─── Signature editor ─────────────────────────────────────────────────────────
+// ─── Rich-text signature editor ───────────────────────────────────────────────
 
 function SignatureEditor({ accountId, email }: { accountId: string; email: string }) {
-  const [value, setValue] = React.useState(() => loadSignature(accountId));
+  const [loaded, setLoaded] = React.useState(false);
 
-  function handleBlur() {
-    saveSignature(accountId, value.trim());
-  }
+  const editor = useEditor({
+    extensions: [StarterKit, UnderlineExt],
+    editorProps: {
+      attributes: {
+        class: "prose prose-sm prose-invert max-w-none min-h-[80px] p-2 focus:outline-none",
+      },
+    },
+    onBlur: ({ editor: e }) => {
+      const html = e.getHTML();
+      const isEmpty = html === "<p></p>" || html === "";
+      if (isTauri()) {
+        saveSignatureHtml(accountId, isEmpty ? "" : html).catch(console.warn);
+      } else {
+        saveSignature(accountId, isEmpty ? "" : html);
+      }
+    },
+  });
+
+  // Load signature from DB (Tauri) or localStorage on mount
+  React.useEffect(() => {
+    if (loaded || !editor) return;
+    setLoaded(true);
+    if (isTauri()) {
+      getSignatureHtml(accountId).then((html) => {
+        if (html) {
+          editor.commands.setContent(html);
+        } else {
+          // Migration: check localStorage fallback
+          const legacy = loadSignature(accountId);
+          if (legacy) {
+            const escaped = legacy
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/\n/g, "<br/>");
+            editor.commands.setContent(`<p>${escaped}</p>`);
+            // Migrate to DB
+            saveSignatureHtml(accountId, `<p>${escaped}</p>`).catch(console.warn);
+          }
+        }
+      }).catch(console.warn);
+    } else {
+      const legacy = loadSignature(accountId);
+      if (legacy) {
+        const escaped = legacy
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br/>");
+        editor.commands.setContent(`<p>${escaped}</p>`);
+      }
+    }
+  }, [accountId, editor, loaded]);
 
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-small text-text-secondary">{email}</label>
-      <textarea
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={handleBlur}
-        rows={4}
-        placeholder="Type your signature here…"
-        className={cn(
-          "w-full resize-y rounded-sm border border-border-default bg-surface-1 px-3 py-2",
-          "font-mono text-mono-sm text-text-primary outline-none placeholder:text-text-muted",
-          "focus:border-accent",
-        )}
-      />
+      {/* Minimal format toolbar */}
+      <div className="flex gap-1 border-b border-border-subtle pb-1.5">
+        {[
+          { icon: Bold, label: "Bold", action: () => editor?.chain().focus().toggleBold().run(), active: () => !!editor?.isActive("bold") },
+          { icon: Italic, label: "Italic", action: () => editor?.chain().focus().toggleItalic().run(), active: () => !!editor?.isActive("italic") },
+          { icon: Underline, label: "Underline", action: () => editor?.chain().focus().toggleUnderline().run(), active: () => !!editor?.isActive("underline") },
+        ].map((btn) => {
+          const Icon = btn.icon;
+          return (
+            <button
+              key={btn.label}
+              type="button"
+              title={btn.label}
+              onMouseDown={(e) => { e.preventDefault(); btn.action(); }}
+              className={cn(
+                "flex size-6 items-center justify-center rounded-xs text-xs transition-colors duration-fast",
+                btn.active()
+                  ? "bg-accent-soft text-accent"
+                  : "text-text-tertiary hover:bg-surface-3 hover:text-text-primary",
+              )}
+            >
+              <Icon size={12} />
+            </button>
+          );
+        })}
+      </div>
+      <div className={cn(
+        "min-h-[80px] rounded-sm border border-border-default bg-surface-1",
+        "focus-within:border-accent",
+      )}>
+        <EditorContent editor={editor} />
+      </div>
       <p className="text-caption text-text-muted">
-        Plain text. Appended to new messages and replies automatically.
+        Appended to new messages and replies automatically.
       </p>
+    </div>
+  );
+}
+
+// ─── Per-account preferences section ─────────────────────────────────────────
+
+function AccountPrefsSection({ accountId }: { accountId: string }) {
+  const [prefs, setPrefs] = React.useState<AccountPreferences | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!expanded || prefs !== null) return;
+    if (!isTauri()) {
+      setPrefs({ defaultReplyAll: false, externalImages: "ask" });
+      return;
+    }
+    getAccountPreferences(accountId).then(setPrefs).catch(console.warn);
+  }, [expanded, prefs, accountId]);
+
+  function updatePref<K extends keyof AccountPreferences>(key: K, value: AccountPreferences[K]) {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: value };
+    setPrefs(next);
+    if (isTauri()) saveAccountPreferences(accountId, next).catch(console.warn);
+  }
+
+  return (
+    <div className="border-t border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-small text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        <ChevronDown size={12} className={cn("transition-transform duration-fast", expanded && "rotate-180")} />
+        Account settings
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4">
+          {prefs === null ? (
+            <div className="flex items-center gap-2 text-small text-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <>
+              {/* Default reply behavior */}
+              <div>
+                <p className="mb-1.5 text-small text-text-secondary">Default reply</p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: false, label: "Reply" },
+                      { value: true, label: "Reply all" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      type="button"
+                      onClick={() => updatePref("defaultReplyAll", opt.value)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center rounded-sm border py-1.5 text-small transition-colors",
+                        prefs.defaultReplyAll === opt.value
+                          ? "border-accent bg-accent-soft text-text-primary"
+                          : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* External image loading */}
+              <div>
+                <p className="mb-1.5 text-small text-text-secondary">External images</p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "always" as const, label: "Always show" },
+                      { value: "ask" as const, label: "Ask each time" },
+                    ]
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updatePref("externalImages", opt.value)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center rounded-sm border py-1.5 text-small transition-colors",
+                        prefs.externalImages === opt.value
+                          ? "border-accent bg-accent-soft text-text-primary"
+                          : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -767,7 +953,10 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               ) : (
                 <div className="divide-y divide-border-subtle">
                   {accounts.map((acc) => (
-                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} />
+                    <div key={acc.id}>
+                      <AccountRow accountId={acc.id} email={acc.email} />
+                      <AccountPrefsSection accountId={acc.id} />
+                    </div>
                   ))}
                 </div>
               )}

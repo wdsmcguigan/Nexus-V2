@@ -1696,6 +1696,62 @@ fn fire_notification(app: &tauri::AppHandle, count: u32) {
     let _ = app.notification().builder().title("Nexus").body(&body).show();
 }
 
+// ─── EP7 Account preferences + signature ──────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_account_preferences(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<serde_json::Value, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    let raw = db.get_account_preferences(&account_id).map_err(|e| e.to_string())?;
+    if let Some(json_str) = raw {
+        serde_json::from_str(&json_str).map_err(|e| e.to_string())
+    } else {
+        Ok(serde_json::json!({ "defaultReplyAll": false, "externalImages": "ask" }))
+    }
+}
+
+#[tauri::command]
+pub async fn save_account_preferences(
+    state: State<'_, AppState>,
+    account_id: String,
+    default_reply_all: bool,
+    external_images: String,
+) -> std::result::Result<(), String> {
+    let prefs = serde_json::json!({
+        "defaultReplyAll": default_reply_all,
+        "externalImages": external_images,
+    });
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_account_preferences(&account_id, &prefs.to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_signature_html(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<String>, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.get_signature_html(&account_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_signature_html(
+    state: State<'_, AppState>,
+    account_id: String,
+    html: String,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_signature_html(&account_id, &html)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn set_notification_pref(
     state: tauri::State<'_, crate::AppState>,

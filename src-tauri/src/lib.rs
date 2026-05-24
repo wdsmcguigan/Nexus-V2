@@ -78,6 +78,11 @@ pub fn run() {
             commands::get_client_mode,
             commands::set_client_mode,
             commands::set_notification_pref,
+            // EP7 account preferences + signature
+            commands::get_account_preferences,
+            commands::save_account_preferences,
+            commands::get_signature_html,
+            commands::save_signature_html,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously
