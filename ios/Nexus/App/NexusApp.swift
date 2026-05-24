@@ -15,8 +15,10 @@ struct NexusApp: App {
             ZStack {
                 Group {
                     if appState.isOnboarded {
-                        ContentView()
+                        MainTabView()
                             .environmentObject(appState)
+                            .onAppear { appState.syncEngine?.startForegroundSync() }
+                            .onDisappear { appState.syncEngine?.stopForegroundSync() }
                     } else {
                         VaultSetupView()
                             .environmentObject(appState)
@@ -43,24 +45,3 @@ struct NexusApp: App {
     }
 }
 
-/// Root navigation container (iOS 15 compatible).
-struct ContentView: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        NavigationView {
-            InboxView()
-        }
-        .navigationViewStyle(.stack)
-        .sheet(isPresented: $appState.showCompose) {
-            ComposeView()
-                .environmentObject(appState)
-        }
-        .onAppear {
-            appState.syncEngine?.startForegroundSync()
-        }
-        .onDisappear {
-            appState.syncEngine?.stopForegroundSync()
-        }
-    }
-}
