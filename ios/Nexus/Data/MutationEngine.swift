@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Applies mutations to the local VaultDB and records them in the mutations table
 /// for relay sync. Mirrors src-tauri/src/db/queries.rs apply_mutation().
