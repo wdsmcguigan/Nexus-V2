@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Syncs Gmail messages using the Gmail API History endpoint.
 /// Mirrors the logic in src-tauri/src/gmail/sync.rs.
@@ -43,7 +44,7 @@ final class GmailSync {
 
         // Store historyId for incremental sync
         if let historyId = try await fetchHistoryId(accessToken: accessToken) {
-            try db.dbQueue.write { db in
+            try await db.dbQueue.write { db in
                 try db.execute(
                     sql: "UPDATE accounts SET history_id = ? WHERE id = ?",
                     arguments: [historyId, account.id]
@@ -78,7 +79,7 @@ final class GmailSync {
             }
             for deleted in item.messagesDeleted ?? [] {
                 // Look up by providerId and delete
-                try db.dbQueue.write { [weak self] db in
+                try await db.dbQueue.write { [weak self] db in
                     guard let self else { return }
                     try db.execute(
                         sql: "DELETE FROM messages WHERE provider_account_id = ? AND provider_id = ?",
@@ -97,7 +98,7 @@ final class GmailSync {
         }
 
         if !newHistoryId.isEmpty {
-            try db.dbQueue.write { db in
+            try await db.dbQueue.write { db in
                 try db.execute(
                     sql: "UPDATE accounts SET history_id = ? WHERE id = ?",
                     arguments: [newHistoryId, account.id]
@@ -124,7 +125,7 @@ final class GmailSync {
         let (newToken, expiresAt) = try await auth.refreshAccessToken(refreshToken: refreshToken)
         try KeychainStore.save(key: KeychainStore.accessTokenKey(accountId: account.id), value: newToken)
         let expiresAtMs = Int64(expiresAt.timeIntervalSince1970 * 1000)
-        try db.dbQueue.write { db in
+        try await db.dbQueue.write { db in
             try db.execute(
                 sql: "UPDATE accounts SET token_expires_at = ? WHERE id = ?",
                 arguments: [expiresAtMs, account.id]
@@ -261,7 +262,7 @@ final class GmailSync {
     private func syncLabels(accessToken: String, providerId: String, accountId: String, labelIds: [String]) async throws {
         // Simplified: just mark read if UNREAD removed
         if !labelIds.contains("UNREAD") {
-            try db.dbQueue.write { db in
+            try await db.dbQueue.write { db in
                 try db.execute(
                     sql: "UPDATE messages SET flags_read = 1 WHERE provider_account_id = ? AND provider_id = ?",
                     arguments: [accountId, providerId]
