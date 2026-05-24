@@ -2,9 +2,15 @@ import SwiftUI
 
 struct InboxView: View {
     @EnvironmentObject var appState: AppState
+    @Binding var showFolderSidebar: Bool
+    @Binding var showKanban: Bool
+
+    @State private var editMode: EditMode = .inactive
+    @State private var selectedMessageIds: Set<String> = []
+    @State private var showBulkActions = false
 
     var body: some View {
-        List {
+        List(selection: $selectedMessageIds) {
             ForEach(appState.messages, id: \.id) { message in
                 NavigationLink(destination: MessageDetailView(message: message)) {
                     MessageRowView(message: message)
@@ -13,61 +19,149 @@ struct InboxView: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                     Button {
                         appState.apply(kind: .ARCHIVE, payload: ["messageId": message.id])
-                    } label: {
-                        Label("Archive", systemImage: "archivebox")
-                    }
+                    } label: { Label("Archive", systemImage: "archivebox") }
                     .tint(.orange)
+
+                    Button(role: .destructive) {
+                        appState.apply(kind: .TRASH, payload: ["messageId": message.id])
+                    } label: { Label("Trash", systemImage: "trash") }
                 }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    if message.flagsRead {
-                        Button {
-                            appState.apply(kind: .MARK_UNREAD, payload: ["messageId": message.id])
-                        } label: {
-                            Label("Unread", systemImage: "envelope.badge")
-                        }
-                        .tint(.blue)
-                    } else {
-                        Button {
-                            appState.apply(kind: .MARK_READ, payload: ["messageId": message.id])
-                        } label: {
-                            Label("Read", systemImage: "envelope.open")
-                        }
-                        .tint(.blue)
+                    Button {
+                        appState.apply(
+                            kind: message.flagsRead ? .MARK_UNREAD : .MARK_READ,
+                            payload: ["messageId": message.id]
+                        )
+                    } label: {
+                        Label(
+                            message.flagsRead ? "Unread" : "Read",
+                            systemImage: message.flagsRead ? "envelope.badge" : "envelope.open"
+                        )
                     }
+                    .tint(.blue)
+
+                    Button {
+                        appState.apply(
+                            kind: message.star == nil ? .STAR : .UNSTAR,
+                            payload: ["messageId": message.id]
+                        )
+                    } label: {
+                        Label(message.star == nil ? "Star" : "Unstar",
+                              systemImage: message.star == nil ? "star" : "star.slash")
+                    }
+                    .tint(.yellow)
                 }
-                .contextMenu {
-                    contextMenuItems(for: message)
-                }
+                .contextMenu { contextMenuItems(for: message) }
             }
         }
         .listStyle(.plain)
-        .navigationTitle(navigationTitle)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    appState.showCompose = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-            }
-            ToolbarItem(placement: .navigationBarLeading) {
-                if appState.syncEngine?.isSyncing == true {
-                    ProgressView().scaleEffect(0.8)
-                }
-            }
-        }
+        .environment(\.editMode, $editMode)
+        .navigationTitle(folderTitle)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar { toolbarContent }
         .refreshable {
             await appState.syncEngine?.syncAll()
             try? appState.loadData()
         }
         .overlay {
-            if appState.messages.isEmpty {
-                emptyState
+            if appState.messages.isEmpty { emptyState }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if editMode == .active && !selectedMessageIds.isEmpty {
+                bulkActionsBar
+            }
+        }
+        .onChange(of: editMode) { mode in
+            if mode == .inactive { selectedMessageIds.removeAll() }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Button { showFolderSidebar = true } label: {
+                Image(systemName: "sidebar.left")
+            }
+        }
+        ToolbarItemGroup(placement: .navigationBarTrailing) {
+            if appState.syncEngine?.isSyncing == true {
+                ProgressView().scaleEffect(0.8)
+            }
+            Button {
+                withAnimation { editMode = editMode == .active ? .inactive : .active }
+            } label: {
+                Image(systemName: editMode == .active ? "checkmark.circle" : "checkmark.circle")
+                    .symbolVariant(editMode == .active ? .fill : .none)
+            }
+            Button { showKanban = true } label: {
+                Image(systemName: "square.3.layers.3d")
+            }
+            Button {
+                appState.composeReplyTo = nil
+                appState.showCompose = true
+            } label: {
+                Image(systemName: "square.and.pencil")
             }
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Bulk actions bar
+
+    private var bulkActionsBar: some View {
+        HStack(spacing: 0) {
+            bulkButton("Read", systemImage: "envelope.open") {
+                selectedMessageIds.forEach { id in
+                    appState.apply(kind: .MARK_READ, payload: ["messageId": id])
+                }
+                endEdit()
+            }
+            Divider().frame(height: 24)
+            bulkButton("Unread", systemImage: "envelope.badge") {
+                selectedMessageIds.forEach { id in
+                    appState.apply(kind: .MARK_UNREAD, payload: ["messageId": id])
+                }
+                endEdit()
+            }
+            Divider().frame(height: 24)
+            bulkButton("Archive", systemImage: "archivebox") {
+                selectedMessageIds.forEach { id in
+                    appState.apply(kind: .ARCHIVE, payload: ["messageId": id])
+                }
+                endEdit()
+            }
+            Divider().frame(height: 24)
+            bulkButton("Trash", systemImage: "trash", role: .destructive) {
+                selectedMessageIds.forEach { id in
+                    appState.apply(kind: .TRASH, payload: ["messageId": id])
+                }
+                endEdit()
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(.thinMaterial)
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private func bulkButton(_ title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage).font(.system(size: 18))
+                Text(title).font(.caption2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .foregroundColor(role == .destructive ? .red : .primary)
+        }
+    }
+
+    private func endEdit() {
+        withAnimation { editMode = .inactive }
+        selectedMessageIds.removeAll()
+    }
+
+    // MARK: - Empty state
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -84,33 +178,44 @@ struct InboxView: View {
         .padding()
     }
 
+    // MARK: - Context menu
+
     @ViewBuilder
     private func contextMenuItems(for message: NexusMessage) -> some View {
-        if message.flagsRead {
-            Button {
-                appState.apply(kind: .MARK_UNREAD, payload: ["messageId": message.id])
-            } label: {
-                Label("Mark Unread", systemImage: "envelope.badge")
-            }
-        } else {
-            Button {
-                appState.apply(kind: .MARK_READ, payload: ["messageId": message.id])
-            } label: {
-                Label("Mark Read", systemImage: "envelope.open")
-            }
-        }
-
         Button {
-            let isStar = message.star == nil
             appState.apply(
-                kind: isStar ? .STAR : .UNSTAR,
+                kind: message.flagsRead ? .MARK_UNREAD : .MARK_READ,
                 payload: ["messageId": message.id]
             )
         } label: {
-            Label(
-                message.star == nil ? "Star" : "Unstar",
-                systemImage: message.star == nil ? "star" : "star.slash"
+            Label(message.flagsRead ? "Mark Unread" : "Mark Read",
+                  systemImage: message.flagsRead ? "envelope.badge" : "envelope.open")
+        }
+
+        Button {
+            appState.apply(
+                kind: message.star == nil ? .STAR : .UNSTAR,
+                payload: ["messageId": message.id]
             )
+        } label: {
+            Label(message.star == nil ? "Star" : "Unstar",
+                  systemImage: message.star == nil ? "star" : "star.slash")
+        }
+
+        Button {
+            appState.apply(
+                kind: message.pinned ? .UNPIN : .PIN,
+                payload: ["messageId": message.id]
+            )
+        } label: {
+            Label(message.pinned ? "Unpin" : "Pin",
+                  systemImage: message.pinned ? "pin.slash" : "pin")
+        }
+
+        Button {
+            appState.apply(kind: .ARCHIVE, payload: ["messageId": message.id])
+        } label: {
+            Label("Archive", systemImage: "archivebox")
         }
 
         Button(role: .destructive) {
@@ -120,7 +225,9 @@ struct InboxView: View {
         }
     }
 
-    private var navigationTitle: String {
+    // MARK: - Helpers
+
+    private var folderTitle: String {
         if let folderId = appState.selectedFolderId,
            let folder = appState.folders.first(where: { $0.id == folderId }) {
             return folder.name
@@ -132,15 +239,22 @@ struct InboxView: View {
 // MARK: - Message Row
 
 struct MessageRowView: View {
+    @EnvironmentObject var appState: AppState
     let message: NexusMessage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 6) {
+                if message.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+                }
                 Text(senderName)
                     .font(.subheadline.weight(message.flagsRead ? .regular : .semibold))
                     .lineLimit(1)
                 Spacer()
+                priorityIndicator
                 Text(formattedDate)
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -162,8 +276,53 @@ struct MessageRowView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
+
+            labelsRow
+            statusRow
         }
         .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var priorityIndicator: some View {
+        if let priority = message.priority {
+            let (icon, color): (String, Color) = priority >= 2
+                ? ("exclamationmark.2", .red)
+                : ("exclamationmark", .orange)
+            Image(systemName: icon)
+                .font(.caption2.bold())
+                .foregroundColor(color)
+        }
+    }
+
+    @ViewBuilder
+    private var labelsRow: some View {
+        let labelIds = appState.messageLabelIds[message.id] ?? []
+        let msgLabels = appState.labels.filter { labelIds.contains($0.id) }
+        if !msgLabels.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(msgLabels, id: \.id) { label in
+                        LabelChip(label: label)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusRow: some View {
+        if let statusId = message.statusId,
+           let status = appState.statuses.first(where: { $0.id == statusId }) {
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(NexusColorPalette.color(status.color))
+                    .frame(width: 6, height: 6)
+                Text(status.name)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
     }
 
     private var senderName: String {
@@ -186,5 +345,34 @@ struct MessageRowView: View {
             fmt.dateStyle = .short
             return fmt.string(from: date)
         }
+    }
+}
+
+// MARK: - Label chip
+
+struct LabelChip: View {
+    let label: NexusLabel
+
+    var body: some View {
+        Text(label.name)
+            .font(.caption2.weight(.medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(NexusColorPalette.color(label.color).opacity(0.2))
+            .foregroundColor(NexusColorPalette.color(label.color))
+            .cornerRadius(4)
+    }
+}
+
+// MARK: - Color palette
+
+enum NexusColorPalette {
+    static let palette: [Color] = [
+        .gray, .blue, .red, .green, .orange, .purple, .pink, .yellow, .teal, .indigo, .cyan, .brown
+    ]
+
+    static func color(_ index: Int) -> Color {
+        guard index > 0 else { return .gray }
+        return palette[(index - 1) % (palette.count - 1) + 1]
     }
 }

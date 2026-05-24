@@ -106,10 +106,11 @@ final class SyncEngine: ObservableObject {
                     let engine = try MutationEngine(db: db, vaultId: vaultId)
                     for remoteMut in remote {
                         guard let kind = MutationKind(rawValue: remoteMut.kind) else { continue }
-                        let payload = (try? JSONSerialization.jsonObject(with: remoteMut.payloadJson.data(using: .utf8) ?? Data())) as? [String: Any] ?? [:]
+                        let payloadData = remoteMut.payloadJson.data(using: String.Encoding.utf8) ?? Data()
+                        let payload = (try? JSONSerialization.jsonObject(with: payloadData)) as? [String: Any] ?? [:]
                         try engine.apply(kind: kind, payload: payload)
                     }
-                    let maxSeq = remote.map(\.seq).max() ?? lastSeq
+                    let maxSeq = remote.map { $0.seq }.max() ?? lastSeq
                     try db.updateRelayState(relayUrl: relay.baseURL.absoluteString, lastSeq: maxSeq)
                 }
             }

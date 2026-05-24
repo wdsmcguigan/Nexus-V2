@@ -56,7 +56,7 @@ struct NexusAccount: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Folder
 
-struct NexusFolder: Codable, FetchableRecord, PersistableRecord {
+struct NexusFolder: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "folders"
     var id: String
     var vaultId: String
@@ -82,7 +82,7 @@ struct NexusFolder: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Label
 
-struct NexusLabel: Codable, FetchableRecord, PersistableRecord {
+struct NexusLabel: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "labels"
     var id: String
     var vaultId: String
@@ -107,7 +107,7 @@ struct NexusLabel: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Status
 
-struct NexusStatus: Codable, FetchableRecord, PersistableRecord {
+struct NexusStatus: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "statuses"
     var id: String
     var vaultId: String
@@ -128,7 +128,7 @@ struct NexusStatus: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Message
 
-struct NexusMessage: Codable, FetchableRecord, PersistableRecord {
+struct NexusMessage: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "messages"
     var id: String
     var vaultId: String
@@ -253,7 +253,7 @@ struct NexusMutation: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Rule
 
-struct NexusRule: Codable, FetchableRecord, PersistableRecord {
+struct NexusRule: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "rules"
     var id: String
     var vaultId: String
@@ -277,7 +277,7 @@ struct NexusRule: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Template
 
-struct NexusTemplate: Codable, FetchableRecord, PersistableRecord {
+struct NexusTemplate: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "templates"
     var id: String
     var vaultId: String
@@ -297,7 +297,7 @@ struct NexusTemplate: Codable, FetchableRecord, PersistableRecord {
 
 // MARK: - Contact
 
-struct NexusContact: Codable, FetchableRecord, PersistableRecord {
+struct NexusContact: Codable, FetchableRecord, PersistableRecord, Identifiable {
     static let databaseTableName = "contacts"
     var id: String
     var vaultId: String
@@ -318,6 +318,20 @@ struct NexusContact: Codable, FetchableRecord, PersistableRecord {
         case tagsJson = "tags_json"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+}
+
+// MARK: - ContactEmail
+
+struct NexusContactEmail: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "contact_emails"
+    var contactId: String
+    var email: String
+    var position: Int
+
+    enum CodingKeys: String, CodingKey {
+        case contactId = "contact_id"
+        case email, position
     }
 }
 

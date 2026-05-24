@@ -9,9 +9,6 @@ packages:
   GRDB.swift:
     url: https://github.com/groue/GRDB.swift.git
     from: "6.0.0"
-  swift-crypto:
-    url: https://github.com/apple/swift-crypto.git
-    from: "3.0.0"
 
 targets:
   Nexus:
@@ -41,11 +38,7 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
     dependencies:
       - package: GRDB.swift
-        product: GRDBSQLCipher
-      - package: swift-crypto
-        product: Crypto
-      - package: swift-crypto
-        product: _CryptoExtras
+        product: GRDB
 
   NexusTests:
     type: bundle.unit-test
@@ -60,11 +53,7 @@ targets:
     dependencies:
       - target: Nexus
       - package: GRDB.swift
-        product: GRDBSQLCipher
-      - package: swift-crypto
-        product: Crypto
-      - package: swift-crypto
-        product: _CryptoExtras
+        product: GRDB
 
 schemes:
   Nexus:

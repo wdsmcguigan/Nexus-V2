@@ -6,21 +6,15 @@ import GRDB
 final class VaultDB {
     let dbQueue: DatabaseQueue
 
-    init(path: String, key: String = "nexus") throws {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.usePassphrase(key)
-        }
-        dbQueue = try DatabaseQueue(path: path, configuration: config)
+    init(path: String) throws {
+        dbQueue = try DatabaseQueue(path: path)
         try runMigrations()
     }
 
     private func runMigrations() throws {
-        // Load SQL from bundle resource
         guard let schemaURL = Bundle.main.url(forResource: "Schema", withExtension: "sql"),
               let schemaSql = try? String(contentsOf: schemaURL, encoding: .utf8)
         else {
-            // Fall back to inline schema creation if not bundled
             try dbQueue.write { db in
                 try db.execute(sql: VaultDB.inlineSchemaSql)
             }
@@ -28,18 +22,10 @@ final class VaultDB {
         }
 
         try dbQueue.write { db in
-            // Split on semicolons, execute each statement individually
-            // so that "already exists" errors on indexes/triggers can be ignored
-            let statements = schemaSql
-                .components(separatedBy: ";")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-            for stmt in statements {
+            for stmt in VaultDB.splitSQL(schemaSql) {
                 do {
                     try db.execute(sql: stmt)
                 } catch let error as DatabaseError {
-                    // Ignore "already exists" and FTS5 content table errors for idempotency
                     let msg = error.message ?? ""
                     if msg.contains("already exists") || msg.contains("duplicate column") {
                         continue
@@ -48,6 +34,43 @@ final class VaultDB {
                 }
             }
         }
+    }
+
+    // Splits a SQL script into individual statements, correctly handling
+    // trigger bodies that contain semicolons inside BEGIN...END blocks.
+    private static func splitSQL(_ sql: String) -> [String] {
+        var results: [String] = []
+        var buf = ""
+        var inBeginEnd = false
+
+        for line in sql.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("--") { continue }
+
+            buf += line + "\n"
+
+            let upper = trimmed.uppercased()
+            if upper.hasSuffix("BEGIN") || upper.contains(" BEGIN\n") { inBeginEnd = true }
+
+            if trimmed.hasSuffix(";") {
+                if inBeginEnd {
+                    if upper == "END;" {
+                        inBeginEnd = false
+                        let stmt = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !stmt.isEmpty { results.append(stmt) }
+                        buf = ""
+                    }
+                } else {
+                    let stmt = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !stmt.isEmpty { results.append(stmt) }
+                    buf = ""
+                }
+            }
+        }
+
+        let remaining = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty { results.append(remaining) }
+        return results
     }
 
     // MARK: - Vault
@@ -217,6 +240,118 @@ final class VaultDB {
         }
     }
 
+    // MARK: - Statuses
+
+    func fetchStatuses(vaultId: String) throws -> [NexusStatus] {
+        try dbQueue.read { db in
+            try NexusStatus
+                .filter(Column("vault_id") == vaultId)
+                .order(Column("position"))
+                .fetchAll(db)
+        }
+    }
+
+    func upsertStatus(_ status: NexusStatus) throws {
+        try dbQueue.write { db in try status.save(db) }
+    }
+
+    func deleteStatus(id: String) throws {
+        try dbQueue.write { db in _ = try NexusStatus.deleteOne(db, key: id) }
+    }
+
+    // MARK: - Contacts
+
+    func fetchContacts(vaultId: String) throws -> [NexusContact] {
+        try dbQueue.read { db in
+            try NexusContact
+                .filter(Column("vault_id") == vaultId)
+                .order(Column("name"))
+                .fetchAll(db)
+        }
+    }
+
+    func upsertContact(_ contact: NexusContact) throws {
+        try dbQueue.write { db in try contact.save(db) }
+    }
+
+    func deleteContact(id: String) throws {
+        try dbQueue.write { db in _ = try NexusContact.deleteOne(db, key: id) }
+    }
+
+    func fetchContactEmails(contactId: String) throws -> [NexusContactEmail] {
+        try dbQueue.read { db in
+            try NexusContactEmail
+                .filter(Column("contact_id") == contactId)
+                .order(Column("position"))
+                .fetchAll(db)
+        }
+    }
+
+    func upsertContactEmail(_ ce: NexusContactEmail) throws {
+        try dbQueue.write { db in try ce.save(db) }
+    }
+
+    func deleteContactEmail(contactId: String, email: String) throws {
+        try dbQueue.write { db in
+            _ = try NexusContactEmail.deleteOne(db, key: ["contact_id": contactId, "email": email])
+        }
+    }
+
+    func fetchMessagesFromEmail(_ email: String, vaultId: String, limit: Int = 50) throws -> [NexusMessage] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT * FROM messages
+                    WHERE vault_id = ? AND from_addr_json LIKE ?
+                    ORDER BY received_at DESC LIMIT ?
+                    """,
+                arguments: [vaultId, "%\(email)%", limit]
+            )
+            return try rows.map { try NexusMessage(row: $0) }
+        }
+    }
+
+    // MARK: - Messages by label / thread
+
+    func fetchLabelsForMessage(messageId: String, vaultId: String) throws -> [NexusLabel] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT l.* FROM labels l
+                    JOIN message_labels ml ON ml.label_id = l.id
+                    WHERE ml.message_id = ? AND l.vault_id = ?
+                    ORDER BY l.position
+                    """,
+                arguments: [messageId, vaultId]
+            )
+            return try rows.map { try NexusLabel(row: $0) }
+        }
+    }
+
+    func fetchMessagesByLabel(labelId: String, vaultId: String, limit: Int = 100) throws -> [NexusMessage] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(db,
+                sql: """
+                    SELECT m.* FROM messages m
+                    JOIN message_labels ml ON ml.message_id = m.id
+                    WHERE ml.label_id = ? AND m.vault_id = ?
+                    ORDER BY m.received_at DESC LIMIT ?
+                    """,
+                arguments: [labelId, vaultId, limit]
+            )
+            return try rows.map { try NexusMessage(row: $0) }
+        }
+    }
+
+    func fetchMessagesByThread(threadId: String, vaultId: String) throws -> [NexusMessage] {
+        try dbQueue.read { db in
+            try NexusMessage
+                .filter(Column("vault_id") == vaultId && Column("thread_id") == threadId)
+                .order(Column("received_at").asc)
+                .fetchAll(db)
+        }
+    }
+
     // MARK: - Mutations
 
     func insertMutation(_ mutation: NexusMutation) throws {
@@ -377,9 +512,11 @@ private extension VaultDB {
         CREATE INDEX IF NOT EXISTS idx_folders_vault ON folders(vault_id);
         CREATE TABLE IF NOT EXISTS labels (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, name TEXT NOT NULL, color INTEGER NOT NULL DEFAULT 1, kind TEXT NOT NULL DEFAULT 'user', system_kind TEXT, parent_id TEXT, position INTEGER NOT NULL DEFAULT 0, provider_id TEXT);
         CREATE INDEX IF NOT EXISTS idx_labels_vault ON labels(vault_id);
+        CREATE TABLE IF NOT EXISTS statuses (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, name TEXT NOT NULL, color INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0, is_default INTEGER NOT NULL DEFAULT 0, is_terminal INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, folder_id TEXT NOT NULL, thread_id TEXT NOT NULL, subject TEXT NOT NULL DEFAULT '', snippet TEXT NOT NULL DEFAULT '', body_ref TEXT NOT NULL, received_at INTEGER NOT NULL, status_id TEXT, priority INTEGER, star TEXT, pinned INTEGER NOT NULL DEFAULT 0, muted INTEGER NOT NULL DEFAULT 0, notes TEXT, flag_json TEXT, from_addr_json TEXT NOT NULL, to_addrs_json TEXT NOT NULL DEFAULT '[]', cc_addrs_json TEXT NOT NULL DEFAULT '[]', bcc_addrs_json TEXT NOT NULL DEFAULT '[]', attachment_refs_json TEXT NOT NULL DEFAULT '[]', custom_fields_json TEXT NOT NULL DEFAULT '{}', flags_read INTEGER NOT NULL DEFAULT 0, flags_answered INTEGER NOT NULL DEFAULT 0, flags_draft INTEGER NOT NULL DEFAULT 0, flags_flagged INTEGER NOT NULL DEFAULT 0, provider_id TEXT, provider_account_id TEXT, eml_path TEXT, list_unsubscribe_json TEXT);
         CREATE INDEX IF NOT EXISTS idx_messages_vault_folder_time ON messages(vault_id, folder_id, received_at DESC);
         CREATE TABLE IF NOT EXISTS message_labels (message_id TEXT NOT NULL, label_id TEXT NOT NULL, PRIMARY KEY (message_id, label_id));
+        CREATE INDEX IF NOT EXISTS idx_ml_label ON message_labels(label_id);
         CREATE TABLE IF NOT EXISTS message_bodies (body_ref TEXT PRIMARY KEY, html TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS mutations (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, ts INTEGER NOT NULL, synced_at INTEGER, device_id TEXT NOT NULL DEFAULT '', lamport INTEGER NOT NULL DEFAULT 0, relay_seq INTEGER);
         CREATE INDEX IF NOT EXISTS idx_mutations_relay ON mutations(relay_seq) WHERE relay_seq IS NULL;
@@ -387,6 +524,9 @@ private extension VaultDB {
         CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, nickname TEXT NOT NULL, enrolled_at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS relay_state (relay_url TEXT PRIMARY KEY, last_seq INTEGER NOT NULL DEFAULT 0, last_sync_at INTEGER, hosting_port INTEGER);
         CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, subject, notes, content='messages', content_rowid='rowid');
+        CREATE TABLE IF NOT EXISTS contacts (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, name TEXT NOT NULL, company TEXT, title TEXT, website TEXT, location TEXT, notes TEXT, tags_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_contacts_vault ON contacts(vault_id);
+        CREATE TABLE IF NOT EXISTS contact_emails (contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE, email TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (contact_id, email));
         CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, name TEXT NOT NULL, conditions_json TEXT NOT NULL, condition_logic TEXT NOT NULL DEFAULT 'AND', actions_json TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, position INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS templates (id TEXT PRIMARY KEY, vault_id TEXT NOT NULL, name TEXT NOT NULL, subject TEXT NOT NULL DEFAULT '', body_html TEXT NOT NULL, created_at INTEGER NOT NULL);
         """

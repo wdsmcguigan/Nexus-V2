@@ -11,9 +11,17 @@ final class AppState: ObservableObject {
     @Published var folders: [NexusFolder] = []
     @Published var labels: [NexusLabel] = []
     @Published var accounts: [NexusAccount] = []
+    @Published var statuses: [NexusStatus] = []
+    @Published var contacts: [NexusContact] = []
+    @Published var rules: [NexusRule] = []
+    @Published var templates: [NexusTemplate] = []
+    @Published var searchResults: [NexusMessage] = []
+    @Published var messageLabelIds: [String: [String]] = [:]  // messageId -> [labelId]
     @Published var selectedFolderId: String? = nil
+    @Published var selectedTab: Int = 0
     @Published var clientMode: ClientMode = .traditional
     @Published var showCompose: Bool = false
+    @Published var composeReplyTo: NexusMessage? = nil
     @Published var oauthCallbackURL: URL? = nil
 
     private(set) var db: VaultDB?
@@ -35,6 +43,11 @@ final class AppState: ObservableObject {
         let dbPath = "\(expandedPath)/vault.db"
 
         let newDb = try VaultDB(path: dbPath)
+        // Protect the database file so it is inaccessible while the device is locked.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: dbPath
+        )
         self.db = newDb
 
         // Load or create vault record
@@ -62,6 +75,10 @@ final class AppState: ObservableObject {
         accounts = try db.fetchAccounts(vaultId: vaultId)
         folders = try db.fetchFolders(vaultId: vaultId)
         labels = try db.fetchLabels(vaultId: vaultId)
+        statuses = try db.fetchStatuses(vaultId: vaultId)
+        contacts = try db.fetchContacts(vaultId: vaultId)
+        rules = try db.fetchRules(vaultId: vaultId)
+        templates = try db.fetchTemplates(vaultId: vaultId)
 
         let folderId = selectedFolderId ?? folders.first(where: { $0.systemKind == "inbox" })?.id
         if let folderId {
@@ -70,6 +87,39 @@ final class AppState: ObservableObject {
         } else {
             messages = try db.fetchMessages(vaultId: vaultId)
         }
+
+        // Build message-labels cache for fast row display
+        var cache: [String: [String]] = [:]
+        for msg in messages {
+            let labelIds = try db.fetchLabels(messageId: msg.id)
+            if !labelIds.isEmpty { cache[msg.id] = labelIds }
+        }
+        messageLabelIds = cache
+    }
+
+    func search(query: String) {
+        guard let db, !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            searchResults = []
+            return
+        }
+        do {
+            let ids = try db.searchMessages(query: query + "*", vaultId: vaultId)
+            searchResults = try ids.compactMap { try db.fetchMessage(id: $0) }
+        } catch {
+            searchResults = []
+        }
+    }
+
+    func loadMessagesForFolder(_ folderId: String) {
+        guard let db else { return }
+        selectedFolderId = folderId
+        messages = (try? db.fetchMessages(vaultId: vaultId, folderId: folderId)) ?? []
+        var cache: [String: [String]] = [:]
+        for msg in messages {
+            let labelIds = (try? db.fetchLabels(messageId: msg.id)) ?? []
+            if !labelIds.isEmpty { cache[msg.id] = labelIds }
+        }
+        messageLabelIds = cache
     }
 
     // MARK: - OAuth callback

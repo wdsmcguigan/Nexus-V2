@@ -1,9 +1,10 @@
 import Foundation
+import CryptoKit
 
 /// HTTP client for the Nexus E2EE relay server.
 /// Wraps the 4 endpoints defined in relay-server/src/routes.rs.
 final class RelayClient {
-    private let baseURL: URL
+    let baseURL: URL
     private let vaultKey: SymmetricKey
     private let vaultId: String
 

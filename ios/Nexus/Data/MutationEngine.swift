@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 /// Applies mutations to the local VaultDB and records them in the mutations table
 /// for relay sync. Mirrors src-tauri/src/db/queries.rs apply_mutation().
@@ -234,6 +235,42 @@ final class MutationEngine {
             try db.dbQueue.write { db in
                 try db.execute(sql: "UPDATE labels SET color = ? WHERE id = ?", arguments: [color, id])
             }
+
+        // Statuses
+        case .CREATE_STATUS, .UPDATE_STATUS:
+            guard let id = payload["id"] as? String,
+                  let name = payload["name"] as? String else { return }
+            let status = NexusStatus(
+                id: id, vaultId: vaultId, name: name,
+                color: payload["color"] as? Int ?? 1,
+                position: payload["position"] as? Int ?? 0,
+                isDefault: payload["isDefault"] as? Bool ?? false,
+                isTerminal: payload["isTerminal"] as? Bool ?? false
+            )
+            try db.upsertStatus(status)
+        case .DELETE_STATUS:
+            guard let id = payload["id"] as? String else { return }
+            try db.deleteStatus(id: id)
+
+        // Contacts
+        case .CREATE_CONTACT, .UPDATE_CONTACT:
+            guard let id = payload["id"] as? String,
+                  let name = payload["name"] as? String else { return }
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            let contact = NexusContact(
+                id: id, vaultId: vaultId, name: name,
+                company: payload["company"] as? String,
+                title: payload["title"] as? String,
+                website: payload["website"] as? String,
+                location: payload["location"] as? String,
+                notes: payload["notes"] as? String,
+                tagsJson: "[]",
+                createdAt: now, updatedAt: now
+            )
+            try db.upsertContact(contact)
+        case .DELETE_CONTACT:
+            guard let id = payload["id"] as? String else { return }
+            try db.deleteContact(id: id)
 
         // Rules
         case .CREATE_RULE, .UPDATE_RULE:

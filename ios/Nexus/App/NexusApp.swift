@@ -4,6 +4,7 @@ import BackgroundTasks
 @main
 struct NexusApp: App {
     @StateObject private var appState = AppState()
+    @State private var showSplash = true
 
     init() {
         SyncEngine.registerBackgroundTask()
@@ -11,43 +12,36 @@ struct NexusApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if appState.isOnboarded {
-                    ContentView()
-                        .environmentObject(appState)
-                } else {
-                    VaultSetupView()
-                        .environmentObject(appState)
+            ZStack {
+                Group {
+                    if appState.isOnboarded {
+                        MainTabView()
+                            .environmentObject(appState)
+                            .onAppear { appState.syncEngine?.startForegroundSync() }
+                            .onDisappear { appState.syncEngine?.stopForegroundSync() }
+                    } else {
+                        VaultSetupView()
+                            .environmentObject(appState)
+                    }
+                }
+                .onOpenURL { url in
+                    Task { @MainActor in
+                        appState.handleOAuthCallback(url: url)
+                    }
+                }
+
+                if showSplash {
+                    SplashView()
+                        .transition(.opacity)
+                        .zIndex(1)
                 }
             }
-            .onOpenURL { url in
-                // Handle nexus://oauth callback
-                Task { @MainActor in
-                    appState.handleOAuthCallback(url: url)
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    withAnimation(.easeOut(duration: 0.4)) { showSplash = false }
                 }
             }
         }
     }
 }
 
-/// Root navigation container (iOS 15 compatible).
-struct ContentView: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        NavigationView {
-            InboxView()
-        }
-        .navigationViewStyle(.stack)
-        .sheet(isPresented: $appState.showCompose) {
-            ComposeView()
-                .environmentObject(appState)
-        }
-        .onAppear {
-            appState.syncEngine?.startForegroundSync()
-        }
-        .onDisappear {
-            appState.syncEngine?.stopForegroundSync()
-        }
-    }
-}
