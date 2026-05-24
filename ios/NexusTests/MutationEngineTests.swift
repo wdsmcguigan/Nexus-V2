@@ -10,7 +10,7 @@ final class MutationEngineTests: XCTestCase {
         // Use in-memory database for tests
         let tmpPath = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString + ".db").path
-        db = try VaultDB(path: tmpPath, key: "nexus")
+        db = try VaultDB(path: tmpPath)
 
         // Seed vault and inbox folder
         try db.upsertVault(NexusVault(id: vaultId, path: tmpPath, createdAt: 0))

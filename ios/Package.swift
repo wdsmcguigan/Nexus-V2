@@ -11,7 +11,7 @@ let package = Package(
     ],
     dependencies: [
         // SQLite ORM with SQLCipher support — same encrypted format as desktop (key="nexus")
-        .package(url: "https://github.com/groue/GRDBSQLCipher.git", from: "6.0.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.0.0"),
         // XChaCha20-Poly1305 via _CryptoExtras (24-byte nonce, matches Rust chacha20poly1305 crate)
         .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0"),
     ],
@@ -19,7 +19,7 @@ let package = Package(
         .target(
             name: "Nexus",
             dependencies: [
-                .product(name: "GRDBSQLCipher", package: "GRDBSQLCipher"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "_CryptoExtras", package: "swift-crypto"),
             ],

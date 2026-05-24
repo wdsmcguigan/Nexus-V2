@@ -6,12 +6,8 @@ import GRDB
 final class VaultDB {
     let dbQueue: DatabaseQueue
 
-    init(path: String, key: String = "nexus") throws {
-        var config = Configuration()
-        config.prepareDatabase { db in
-            try db.usePassphrase(key)
-        }
-        dbQueue = try DatabaseQueue(path: path, configuration: config)
+    init(path: String) throws {
+        dbQueue = try DatabaseQueue(path: path)
         try runMigrations()
     }
 

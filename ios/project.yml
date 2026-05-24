@@ -6,8 +6,8 @@ options:
   xcodeVersion: "15"
 
 packages:
-  GRDBSQLCipher:
-    url: https://github.com/groue/GRDBSQLCipher.git
+  GRDB.swift:
+    url: https://github.com/groue/GRDB.swift.git
     from: "6.0.0"
   swift-crypto:
     url: https://github.com/apple/swift-crypto.git
@@ -40,8 +40,8 @@ targets:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
     dependencies:
-      - package: GRDBSQLCipher
-        product: GRDBSQLCipher
+      - package: GRDB.swift
+        product: GRDB
       - package: swift-crypto
         product: Crypto
       - package: swift-crypto
@@ -59,8 +59,8 @@ targets:
         SWIFT_VERSION: "5.9"
     dependencies:
       - target: Nexus
-      - package: GRDBSQLCipher
-        product: GRDBSQLCipher
+      - package: GRDB.swift
+        product: GRDB
       - package: swift-crypto
         product: Crypto
       - package: swift-crypto
