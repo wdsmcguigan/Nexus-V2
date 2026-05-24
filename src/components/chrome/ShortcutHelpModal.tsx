@@ -6,66 +6,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
-
-// ─── Shortcut data ────────────────────────────────────────────────────────────
-
-interface ShortcutEntry {
-  keys: string[];
-  label: string;
-}
-
-const SECTIONS: { title: string; items: ShortcutEntry[] }[] = [
-  {
-    title: "Navigation",
-    items: [
-      { keys: ["J", "↓"], label: "Next message" },
-      { keys: ["K", "↑"], label: "Previous message" },
-      { keys: ["⌘K"], label: "Open command palette / global search" },
-      { keys: ["/"], label: "Focus list search" },
-      { keys: ["Esc"], label: "Clear selection" },
-    ],
-  },
-  {
-    title: "Message actions",
-    items: [
-      { keys: ["R"], label: "Reply" },
-      { keys: ["F"], label: "Forward" },
-      { keys: ["E"], label: "Archive" },
-      { keys: ["#"], label: "Delete" },
-      { keys: ["U"], label: "Toggle read / unread" },
-      { keys: ["S"], label: "Toggle star" },
-      { keys: ["H"], label: "Snooze to tomorrow 8am" },
-      { keys: ["V"], label: "Move to folder" },
-      { keys: ["C"], label: "Compose new email" },
-    ],
-  },
-  {
-    title: "Composer",
-    items: [
-      { keys: ["⌘↵"], label: "Send" },
-      { keys: ["⌘B"], label: "Bold" },
-      { keys: ["⌘I"], label: "Italic" },
-      { keys: ["⌘U"], label: "Underline" },
-      { keys: ["⌘K"], label: "Insert link" },
-      { keys: ["Esc"], label: "Discard (with confirmation)" },
-    ],
-  },
-  {
-    title: "Selection (multi-select)",
-    items: [
-      { keys: ["⌘ click"], label: "Toggle individual message" },
-      { keys: ["⇧ click"], label: "Select range" },
-      { keys: ["Esc"], label: "Clear selection" },
-    ],
-  },
-  {
-    title: "App",
-    items: [
-      { keys: ["⌘,"], label: "Open Settings" },
-      { keys: ["?"], label: "Show this help" },
-    ],
-  },
-];
+import { useWorkspace } from "@/state/workspace";
+import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -75,6 +17,63 @@ interface Props {
 }
 
 export function ShortcutHelpModal({ open, onClose }: Props) {
+  const keyBindings = useWorkspace((s) => s.keyBindings);
+
+  // Build dynamic message-action entries from the shortcut registry
+  const rebindableKeys: Record<string, string> = {};
+  for (const def of DEFAULT_SHORTCUTS) {
+    rebindableKeys[def.label] = effectiveKey(def.action, keyBindings).toUpperCase();
+  }
+
+  const SECTIONS: { title: string; items: { keys: string[]; label: string }[] }[] = [
+    {
+      title: "Navigation",
+      items: [
+        { keys: ["J", "↓"], label: "Next message" },
+        { keys: ["K", "↑"], label: "Previous message" },
+        { keys: ["⌘K"], label: "Open command palette / global search" },
+        { keys: ["/"], label: "Focus list search" },
+        { keys: ["Esc"], label: "Clear selection" },
+      ],
+    },
+    {
+      title: "Message actions",
+      items: DEFAULT_SHORTCUTS.map((def) => ({
+        keys: [effectiveKey(def.action, keyBindings) === "#" ? "#" : effectiveKey(def.action, keyBindings).toUpperCase()],
+        label: def.label,
+      })),
+    },
+    {
+      title: "Composer",
+      items: [
+        { keys: ["⌘↵"], label: "Send" },
+        { keys: ["⌘B"], label: "Bold" },
+        { keys: ["⌘I"], label: "Italic" },
+        { keys: ["⌘U"], label: "Underline" },
+        { keys: ["⌘K"], label: "Insert link" },
+        { keys: ["Esc"], label: "Discard (with confirmation)" },
+      ],
+    },
+    {
+      title: "Selection (multi-select)",
+      items: [
+        { keys: ["⌘ click"], label: "Toggle individual message" },
+        { keys: ["⇧ click"], label: "Select range" },
+        { keys: ["Esc"], label: "Clear selection" },
+      ],
+    },
+    {
+      title: "App",
+      items: [
+        { keys: ["⌘,"], label: "Open Settings" },
+        { keys: ["?"], label: "Show this help" },
+      ],
+    },
+  ];
+
+  // suppress unused warning from dead code path above
+  void rebindableKeys;
+
   return (
     <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <Dialog.Portal>

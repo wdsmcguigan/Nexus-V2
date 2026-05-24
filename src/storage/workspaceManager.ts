@@ -4,6 +4,7 @@
  */
 
 import type { MetadataFilter, StarStyle } from "@/data/types";
+import type { ShortcutAction } from "@/lib/shortcuts";
 
 export interface ListPanelSnapshotState {
   filter: MetadataFilter;
@@ -40,6 +41,8 @@ export interface WorkspaceSnapshot {
   showSnippets: boolean;
   /** Ordered list of star styles that cycle when clicking the star icon. Empty = all 12. */
   activeStars: StarStyle[];
+  /** Custom key bindings: action → key string. Absent key = use default. */
+  keyBindings: Partial<Record<ShortcutAction, string>>;
 }
 
 export interface WorkspacesData {
@@ -89,5 +92,6 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     threadedView: true,
     showSnippets: true,
     activeStars: [],
+    keyBindings: {},
   };
 }

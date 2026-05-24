@@ -23,6 +23,7 @@ import {
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
 import { loadClientMode, saveClientMode } from "@/lib/clientMode";
 import type { ClientMode } from "@/lib/clientMode";
+import type { ShortcutAction } from "@/lib/shortcuts";
 import type {
   CustomFieldValue,
   FlagState,
@@ -295,6 +296,12 @@ interface WorkspaceState {
   setActiveStars: (stars: StarStyle[]) => void;
   cycleStar: (messageId: string) => void;
 
+  // Custom key bindings (workspace-scoped)
+  keyBindings: Partial<Record<ShortcutAction, string>>;
+  setKeyBinding: (action: ShortcutAction, key: string) => void;
+  clearKeyBinding: (action: ShortcutAction) => void;
+  resetAllKeyBindings: () => void;
+
   // Client mode (installation-level, not per-workspace)
   clientMode: ClientMode;
   setClientMode: (mode: ClientMode) => void;
@@ -339,6 +346,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       threadedView: s.threadedView,
       showSnippets: s.showSnippets,
       activeStars: s.activeStars,
+      keyBindings: s.keyBindings,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -378,6 +386,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       threadedView: mode === "clone" ? s.threadedView : true,
       showSnippets: mode === "clone" ? s.showSnippets : true,
       activeStars: mode === "clone" ? [...s.activeStars] : [],
+      keyBindings: mode === "clone" ? { ...s.keyBindings } : {},
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -418,6 +427,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       threadedView: ws.threadedView ?? true,
       showSnippets: ws.showSnippets ?? true,
       activeStars: ws.activeStars ?? [],
+      keyBindings: ws.keyBindings ?? {},
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -604,6 +614,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       }
     }
   },
+
+  // ── Custom key bindings ────────────────────────────────────────────────────
+
+  keyBindings: _activeWs.keyBindings ?? {},
+  setKeyBinding: (action, key) => set((s) => ({ keyBindings: { ...s.keyBindings, [action]: key } })),
+  clearKeyBinding: (action) => set((s) => {
+    const next = { ...s.keyBindings };
+    delete next[action];
+    return { keyBindings: next };
+  }),
+  resetAllKeyBindings: () => set({ keyBindings: {} }),
 
   // ── Client mode (installation-level, not in WorkspaceSnapshot) ────────────
 

@@ -32,6 +32,9 @@ import {
   Italic,
   Underline,
   ChevronDown,
+  Keyboard,
+  RotateCcw,
+  X as XIcon,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -63,6 +66,8 @@ import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
 import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
 import type { StarStyle } from "@/data/types";
+import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
+import type { ShortcutAction } from "@/lib/shortcuts";
 import {
   getAccountPreferences,
   saveAccountPreferences,
@@ -1059,6 +1064,10 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const setShowSnippets = useWorkspace((s) => s.setShowSnippets);
   const activeStars = useWorkspace((s) => s.activeStars);
   const setActiveStars = useWorkspace((s) => s.setActiveStars);
+  const keyBindings = useWorkspace((s) => s.keyBindings);
+  const setKeyBinding = useWorkspace((s) => s.setKeyBinding);
+  const clearKeyBinding = useWorkspace((s) => s.clearKeyBinding);
+  const resetAllKeyBindings = useWorkspace((s) => s.resetAllKeyBindings);
 
   // App-global preferences (not workspace-scoped)
   const [notificationsEnabled, setNotificationsEnabledState] = React.useState(
@@ -1091,7 +1100,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     updatePref("markReadAfterMs", ms);
   }
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "shortcuts">("accounts");
+  const [rebindingAction, setRebindingAction] = React.useState<ShortcutAction | null>(null);
 
   React.useEffect(() => {
     if (clientMode !== "local-first" && activeSection === "relay") {
@@ -1105,6 +1115,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
     { id: "rules" as const, label: "Rules", icon: <Zap size={14} /> },
     { id: "templates" as const, label: "Templates", icon: <FileText size={14} /> },
+    { id: "shortcuts" as const, label: "Shortcuts", icon: <Keyboard size={14} /> },
     ...(clientMode === "local-first"
       ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
       : []),
@@ -1583,6 +1594,83 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
           {activeSection === "rules" && <RulesSettings />}
 
           {activeSection === "templates" && <TemplatesSettings />}
+
+          {activeSection === "shortcuts" && (
+            <div>
+              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                <p className="text-small text-text-tertiary">
+                  Click a key badge to rebind. Press Escape to cancel.
+                </p>
+                <Button variant="ghost" size="sm" onClick={resetAllKeyBindings}>
+                  <RotateCcw size={12} />
+                  Reset all
+                </Button>
+              </div>
+              <div className="divide-y divide-border-subtle">
+                {DEFAULT_SHORTCUTS.map((def) => {
+                  const isRebinding = rebindingAction === def.action;
+                  const customKey = keyBindings[def.action];
+                  const currentKey = effectiveKey(def.action, keyBindings);
+                  return (
+                    <div key={def.action} className="flex items-center gap-4 px-4 py-2.5">
+                      <div className="flex-1">
+                        <span className="text-body text-text-secondary">{def.label}</span>
+                        {customKey && (
+                          <span className="ml-2 text-caption text-text-muted">(custom)</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {isRebinding ? (
+                          <div
+                            className="flex items-center gap-1.5 rounded-sm border border-accent bg-accent-soft px-2 py-1 text-small text-accent"
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === "Escape") {
+                                setRebindingAction(null);
+                              } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                                setKeyBinding(def.action, e.key);
+                                setRebindingAction(null);
+                              }
+                            }}
+                            tabIndex={0}
+                            autoFocus
+                            onBlur={() => setRebindingAction(null)}
+                          >
+                            Press a key…
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            title="Click to rebind"
+                            onClick={() => setRebindingAction(def.action)}
+                            className={cn(
+                              "min-w-[28px] rounded-sm border px-2 py-0.5 font-mono text-mono-xs text-center",
+                              "transition-colors hover:border-accent hover:text-accent",
+                              customKey
+                                ? "border-accent bg-accent-soft text-accent"
+                                : "border-border-default bg-surface-2 text-text-secondary",
+                            )}
+                          >
+                            {currentKey === "#" ? "#" : currentKey.toUpperCase()}
+                          </button>
+                        )}
+                        {customKey && !isRebinding && (
+                          <button
+                            type="button"
+                            title="Reset to default"
+                            onClick={() => clearKeyBinding(def.action)}
+                            className="text-text-muted hover:text-text-secondary"
+                          >
+                            <XIcon size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {activeSection === "relay" && <RelaySection />}
         </div>
