@@ -12,11 +12,9 @@ final class VaultDB {
     }
 
     private func runMigrations() throws {
-        // Load SQL from bundle resource
         guard let schemaURL = Bundle.main.url(forResource: "Schema", withExtension: "sql"),
               let schemaSql = try? String(contentsOf: schemaURL, encoding: .utf8)
         else {
-            // Fall back to inline schema creation if not bundled
             try dbQueue.write { db in
                 try db.execute(sql: VaultDB.inlineSchemaSql)
             }
@@ -24,18 +22,10 @@ final class VaultDB {
         }
 
         try dbQueue.write { db in
-            // Split on semicolons, execute each statement individually
-            // so that "already exists" errors on indexes/triggers can be ignored
-            let statements = schemaSql
-                .components(separatedBy: ";")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-
-            for stmt in statements {
+            for stmt in VaultDB.splitSQL(schemaSql) {
                 do {
                     try db.execute(sql: stmt)
                 } catch let error as DatabaseError {
-                    // Ignore "already exists" and FTS5 content table errors for idempotency
                     let msg = error.message ?? ""
                     if msg.contains("already exists") || msg.contains("duplicate column") {
                         continue
@@ -44,6 +34,43 @@ final class VaultDB {
                 }
             }
         }
+    }
+
+    // Splits a SQL script into individual statements, correctly handling
+    // trigger bodies that contain semicolons inside BEGIN...END blocks.
+    private static func splitSQL(_ sql: String) -> [String] {
+        var results: [String] = []
+        var buf = ""
+        var inBeginEnd = false
+
+        for line in sql.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("--") { continue }
+
+            buf += line + "\n"
+
+            let upper = trimmed.uppercased()
+            if upper.hasSuffix("BEGIN") || upper.contains(" BEGIN\n") { inBeginEnd = true }
+
+            if trimmed.hasSuffix(";") {
+                if inBeginEnd {
+                    if upper == "END;" {
+                        inBeginEnd = false
+                        let stmt = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !stmt.isEmpty { results.append(stmt) }
+                        buf = ""
+                    }
+                } else {
+                    let stmt = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !stmt.isEmpty { results.append(stmt) }
+                    buf = ""
+                }
+            }
+        }
+
+        let remaining = buf.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty { results.append(remaining) }
+        return results
     }
 
     // MARK: - Vault

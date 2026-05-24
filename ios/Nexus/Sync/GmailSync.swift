@@ -79,8 +79,7 @@ final class GmailSync {
             }
             for deleted in item.messagesDeleted ?? [] {
                 // Look up by providerId and delete
-                try await db.dbQueue.write { [weak self] db in
-                    guard let self else { return }
+                try await db.dbQueue.write { db in
                     try db.execute(
                         sql: "DELETE FROM messages WHERE provider_account_id = ? AND provider_id = ?",
                         arguments: [account.id, deleted.message.id]
