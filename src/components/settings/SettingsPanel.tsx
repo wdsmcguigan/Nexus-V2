@@ -28,6 +28,13 @@ import {
   AlertTriangle,
   Zap,
   FileText,
+  Bold,
+  Italic,
+  Underline,
+  ChevronDown,
+  Keyboard,
+  RotateCcw,
+  X as XIcon,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -46,6 +53,7 @@ import {
   startEnrollmentSession,
   startRelayHosting,
   resetVault,
+  setNotificationPref,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -54,6 +62,26 @@ import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
+import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
+import type { AppPreferences } from "@/lib/appPreferences";
+import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
+import type { StarStyle } from "@/data/types";
+import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
+import type { ShortcutAction } from "@/lib/shortcuts";
+import {
+  getAccountPreferences,
+  saveAccountPreferences,
+  getSignatureHtml,
+  saveSignatureHtml,
+  getVacationResponder,
+  saveVacationResponder,
+  deleteVacationResponder,
+  type AccountPreferences,
+  type VacationResponder,
+} from "@/storage/tauri";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import UnderlineExt from "@tiptap/extension-underline";
 
 // ─── Section header ───────────────────────────────────────────────────────────
 
@@ -615,33 +643,406 @@ function RelaySection() {
   );
 }
 
-// ─── Signature editor ─────────────────────────────────────────────────────────
+// ─── Rich-text signature editor ───────────────────────────────────────────────
 
 function SignatureEditor({ accountId, email }: { accountId: string; email: string }) {
-  const [value, setValue] = React.useState(() => loadSignature(accountId));
+  const [loaded, setLoaded] = React.useState(false);
 
-  function handleBlur() {
-    saveSignature(accountId, value.trim());
-  }
+  const editor = useEditor({
+    extensions: [StarterKit, UnderlineExt],
+    editorProps: {
+      attributes: {
+        class: "prose prose-sm prose-invert max-w-none min-h-[80px] p-2 focus:outline-none",
+      },
+    },
+    onBlur: ({ editor: e }) => {
+      const html = e.getHTML();
+      const isEmpty = html === "<p></p>" || html === "";
+      if (isTauri()) {
+        saveSignatureHtml(accountId, isEmpty ? "" : html).catch(console.warn);
+      } else {
+        saveSignature(accountId, isEmpty ? "" : html);
+      }
+    },
+  });
+
+  // Load signature from DB (Tauri) or localStorage on mount
+  React.useEffect(() => {
+    if (loaded || !editor) return;
+    setLoaded(true);
+    if (isTauri()) {
+      getSignatureHtml(accountId).then((html) => {
+        if (html) {
+          editor.commands.setContent(html);
+        } else {
+          // Migration: check localStorage fallback
+          const legacy = loadSignature(accountId);
+          if (legacy) {
+            const escaped = legacy
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/\n/g, "<br/>");
+            editor.commands.setContent(`<p>${escaped}</p>`);
+            // Migrate to DB
+            saveSignatureHtml(accountId, `<p>${escaped}</p>`).catch(console.warn);
+          }
+        }
+      }).catch(console.warn);
+    } else {
+      const legacy = loadSignature(accountId);
+      if (legacy) {
+        const escaped = legacy
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br/>");
+        editor.commands.setContent(`<p>${escaped}</p>`);
+      }
+    }
+  }, [accountId, editor, loaded]);
 
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-small text-text-secondary">{email}</label>
-      <textarea
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={handleBlur}
-        rows={4}
-        placeholder="Type your signature here…"
-        className={cn(
-          "w-full resize-y rounded-sm border border-border-default bg-surface-1 px-3 py-2",
-          "font-mono text-mono-sm text-text-primary outline-none placeholder:text-text-muted",
-          "focus:border-accent",
-        )}
-      />
+      {/* Minimal format toolbar */}
+      <div className="flex gap-1 border-b border-border-subtle pb-1.5">
+        {[
+          { icon: Bold, label: "Bold", action: () => editor?.chain().focus().toggleBold().run(), active: () => !!editor?.isActive("bold") },
+          { icon: Italic, label: "Italic", action: () => editor?.chain().focus().toggleItalic().run(), active: () => !!editor?.isActive("italic") },
+          { icon: Underline, label: "Underline", action: () => editor?.chain().focus().toggleUnderline().run(), active: () => !!editor?.isActive("underline") },
+        ].map((btn) => {
+          const Icon = btn.icon;
+          return (
+            <button
+              key={btn.label}
+              type="button"
+              title={btn.label}
+              onMouseDown={(e) => { e.preventDefault(); btn.action(); }}
+              className={cn(
+                "flex size-6 items-center justify-center rounded-xs text-xs transition-colors duration-fast",
+                btn.active()
+                  ? "bg-accent-soft text-accent"
+                  : "text-text-tertiary hover:bg-surface-3 hover:text-text-primary",
+              )}
+            >
+              <Icon size={12} />
+            </button>
+          );
+        })}
+      </div>
+      <div className={cn(
+        "min-h-[80px] rounded-sm border border-border-default bg-surface-1",
+        "focus-within:border-accent",
+      )}>
+        <EditorContent editor={editor} />
+      </div>
       <p className="text-caption text-text-muted">
-        Plain text. Appended to new messages and replies automatically.
+        Appended to new messages and replies automatically.
       </p>
+    </div>
+  );
+}
+
+// ─── Per-account preferences section ─────────────────────────────────────────
+
+function AccountPrefsSection({ accountId }: { accountId: string }) {
+  const [prefs, setPrefs] = React.useState<AccountPreferences | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!expanded || prefs !== null) return;
+    if (!isTauri()) {
+      setPrefs({ defaultReplyAll: false, externalImages: "ask" });
+      return;
+    }
+    getAccountPreferences(accountId).then(setPrefs).catch(console.warn);
+  }, [expanded, prefs, accountId]);
+
+  function updatePref<K extends keyof AccountPreferences>(key: K, value: AccountPreferences[K]) {
+    if (!prefs) return;
+    const next = { ...prefs, [key]: value };
+    setPrefs(next);
+    if (isTauri()) saveAccountPreferences(accountId, next).catch(console.warn);
+  }
+
+  return (
+    <div className="border-t border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-small text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        <ChevronDown size={12} className={cn("transition-transform duration-fast", expanded && "rotate-180")} />
+        Account settings
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-4">
+          {prefs === null ? (
+            <div className="flex items-center gap-2 text-small text-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <>
+              {/* Default reply behavior */}
+              <div>
+                <p className="mb-1.5 text-small text-text-secondary">Default reply</p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: false, label: "Reply" },
+                      { value: true, label: "Reply all" },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={String(opt.value)}
+                      type="button"
+                      onClick={() => updatePref("defaultReplyAll", opt.value)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center rounded-sm border py-1.5 text-small transition-colors",
+                        prefs.defaultReplyAll === opt.value
+                          ? "border-accent bg-accent-soft text-text-primary"
+                          : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* External image loading */}
+              <div>
+                <p className="mb-1.5 text-small text-text-secondary">External images</p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "always" as const, label: "Always show" },
+                      { value: "ask" as const, label: "Ask each time" },
+                    ]
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updatePref("externalImages", opt.value)}
+                      className={cn(
+                        "flex flex-1 items-center justify-center rounded-sm border py-1.5 text-small transition-colors",
+                        prefs.externalImages === opt.value
+                          ? "border-accent bg-accent-soft text-text-primary"
+                          : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Vacation responder section ───────────────────────────────────────────────
+
+function VacationResponderSection({ accountId }: { accountId: string }) {
+  const [responder, setResponder] = React.useState<VacationResponder | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  const editor = useEditor({
+    extensions: [StarterKit, UnderlineExt],
+    editorProps: {
+      attributes: {
+        class: "prose prose-sm prose-invert max-w-none min-h-[80px] p-2 focus:outline-none",
+      },
+    },
+    onBlur: ({ editor: e }) => {
+      setResponder((prev) => prev ? { ...prev, bodyHtml: e.getHTML() } : prev);
+    },
+  });
+
+  React.useEffect(() => {
+    if (!expanded || responder !== null) return;
+    if (!isTauri()) {
+      const now = Date.now();
+      setResponder({
+        id: `vr-${accountId}`,
+        accountId,
+        enabled: false,
+        subject: "I am on vacation",
+        bodyHtml: "<p>I am currently out of office and will reply when I return.</p>",
+        startDate: null,
+        endDate: null,
+        contactsOnly: false,
+        sentTo: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      return;
+    }
+    getVacationResponder(accountId).then((r) => {
+      if (r) {
+        setResponder(r);
+        editor?.commands.setContent(r.bodyHtml || "");
+      } else {
+        const now = Date.now();
+        setResponder({
+          id: `vr-${accountId}`,
+          accountId,
+          enabled: false,
+          subject: "I am on vacation",
+          bodyHtml: "<p>I am currently out of office and will reply when I return.</p>",
+          startDate: null,
+          endDate: null,
+          contactsOnly: false,
+          sentTo: [],
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }).catch(console.warn);
+  }, [expanded, responder, accountId, editor]);
+
+  async function handleSave() {
+    if (!responder) return;
+    const latest = { ...responder, bodyHtml: editor?.getHTML() ?? responder.bodyHtml };
+    setSaving(true);
+    try {
+      if (isTauri()) {
+        await saveVacationResponder(latest);
+      }
+      setResponder(latest);
+    } catch (e) {
+      console.warn("save vacation responder:", e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!responder) return;
+    if (!window.confirm("Clear vacation responder?")) return;
+    if (isTauri()) {
+      await deleteVacationResponder(accountId).catch(console.warn);
+    }
+    setResponder(null);
+    setExpanded(false);
+  }
+
+  return (
+    <div className="border-t border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-small text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        <ChevronDown size={12} className={cn("transition-transform duration-fast", expanded && "rotate-180")} />
+        Vacation responder
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {responder === null ? (
+            <div className="flex items-center gap-2 text-small text-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <>
+              {/* Enabled toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-small text-text-secondary">Enable vacation responder</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={responder.enabled}
+                  onClick={() => setResponder((r) => r ? { ...r, enabled: !r.enabled } : r)}
+                  className={cn(
+                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent",
+                    "transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    responder.enabled ? "bg-accent" : "bg-surface-3",
+                  )}
+                >
+                  <span className={cn(
+                    "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm",
+                    "transition-transform duration-200",
+                    responder.enabled ? "translate-x-4" : "translate-x-0",
+                  )} />
+                </button>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="mb-1 block text-small text-text-secondary">Subject</label>
+                <input
+                  type="text"
+                  value={responder.subject}
+                  onChange={(e) => setResponder((r) => r ? { ...r, subject: e.target.value } : r)}
+                  className="w-full rounded-sm border border-border-subtle bg-surface-2 px-3 py-1.5 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="mb-1 block text-small text-text-secondary">Message</label>
+                <div className={cn(
+                  "rounded-sm border border-border-default bg-surface-1",
+                  "focus-within:border-accent",
+                )}>
+                  <EditorContent editor={editor} />
+                </div>
+              </div>
+
+              {/* Date range */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">First day (optional)</label>
+                  <input
+                    type="date"
+                    value={responder.startDate ? new Date(responder.startDate).toISOString().slice(0, 10) : ""}
+                    onChange={(e) => setResponder((r) => r ? { ...r, startDate: e.target.value ? new Date(e.target.value).getTime() : null } : r)}
+                    className="w-full rounded-sm border border-border-subtle bg-surface-2 px-2 py-1.5 text-small text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">Last day (optional)</label>
+                  <input
+                    type="date"
+                    value={responder.endDate ? new Date(responder.endDate).toISOString().slice(0, 10) : ""}
+                    onChange={(e) => setResponder((r) => r ? { ...r, endDate: e.target.value ? new Date(e.target.value).getTime() : null } : r)}
+                    className="w-full rounded-sm border border-border-subtle bg-surface-2 px-2 py-1.5 text-small text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Contacts only */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={responder.contactsOnly}
+                  onChange={(e) => setResponder((r) => r ? { ...r, contactsOnly: e.target.checked } : r)}
+                  className="rounded border-border-default"
+                />
+                <span className="text-small text-text-secondary">Only send to people in my Contacts</span>
+              </label>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleDelete}>
+                  Clear
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -657,8 +1058,50 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
   const clientMode = useWorkspace((s) => s.clientMode);
+  const threadedView = useWorkspace((s) => s.threadedView);
+  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
+  const showSnippets = useWorkspace((s) => s.showSnippets);
+  const setShowSnippets = useWorkspace((s) => s.setShowSnippets);
+  const activeStars = useWorkspace((s) => s.activeStars);
+  const setActiveStars = useWorkspace((s) => s.setActiveStars);
+  const keyBindings = useWorkspace((s) => s.keyBindings);
+  const setKeyBinding = useWorkspace((s) => s.setKeyBinding);
+  const clearKeyBinding = useWorkspace((s) => s.clearKeyBinding);
+  const resetAllKeyBindings = useWorkspace((s) => s.resetAllKeyBindings);
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates">("accounts");
+  // App-global preferences (not workspace-scoped)
+  const [notificationsEnabled, setNotificationsEnabledState] = React.useState(
+    () => getAppPreferences().notificationsEnabled,
+  );
+  const [undoSendSeconds, setUndoSendSecondsState] = React.useState(
+    () => getAppPreferences().undoSendSeconds,
+  );
+  const [markReadAfterMs, setMarkReadAfterMsState] = React.useState(
+    () => getAppPreferences().markReadAfterMs,
+  );
+
+  function updatePref<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]) {
+    saveAppPreferences({ [key]: value });
+  }
+
+  function handleNotificationsToggle(enabled: boolean) {
+    setNotificationsEnabledState(enabled);
+    updatePref("notificationsEnabled", enabled);
+    if (isTauri()) setNotificationPref(enabled).catch(console.warn);
+  }
+
+  function handleUndoSendChange(s: AppPreferences["undoSendSeconds"]) {
+    setUndoSendSecondsState(s);
+    updatePref("undoSendSeconds", s);
+  }
+
+  function handleMarkReadChange(ms: AppPreferences["markReadAfterMs"]) {
+    setMarkReadAfterMsState(ms);
+    updatePref("markReadAfterMs", ms);
+  }
+
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "shortcuts">("accounts");
+  const [rebindingAction, setRebindingAction] = React.useState<ShortcutAction | null>(null);
 
   React.useEffect(() => {
     if (clientMode !== "local-first" && activeSection === "relay") {
@@ -672,6 +1115,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
     { id: "rules" as const, label: "Rules", icon: <Zap size={14} /> },
     { id: "templates" as const, label: "Templates", icon: <FileText size={14} /> },
+    { id: "shortcuts" as const, label: "Shortcuts", icon: <Keyboard size={14} /> },
     ...(clientMode === "local-first"
       ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
       : []),
@@ -729,7 +1173,11 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               ) : (
                 <div className="divide-y divide-border-subtle">
                   {accounts.map((acc) => (
-                    <AccountRow key={acc.id} accountId={acc.id} email={acc.email} />
+                    <div key={acc.id}>
+                      <AccountRow accountId={acc.id} email={acc.email} />
+                      <AccountPrefsSection accountId={acc.id} />
+                      <VacationResponderSection accountId={acc.id} />
+                    </div>
                   ))}
                 </div>
               )}
@@ -900,6 +1348,240 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               <p className="px-4 pb-4 font-mono text-mono-xs text-text-muted">
                 ⌘/Ctrl+click always does the opposite of this setting.
               </p>
+
+              {/* Conversation view */}
+              <SectionHeader>Conversation view</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "Threaded" },
+                    { value: false, label: "Flat" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => { if (threadedView !== opt.value) toggleThreadedView(); }}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      threadedView === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Show snippets */}
+              <SectionHeader>Message snippets</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "Show" },
+                    { value: false, label: "Hide" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => setShowSnippets(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      showSnippets === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Stars */}
+              <SectionHeader>Stars</SectionHeader>
+              <div className="px-4 pb-4">
+                <p className="mb-3 text-small text-text-tertiary">
+                  Click a star to move it in or out of the rotation. Stars in use cycle when you click successively.
+                </p>
+                {(() => {
+                  const inUse = activeStars.length > 0
+                    ? STAR_ENTRIES.filter((e) => activeStars.includes(e.style))
+                    : STAR_ENTRIES;
+                  const notInUse = activeStars.length > 0
+                    ? STAR_ENTRIES.filter((e) => !activeStars.includes(e.style))
+                    : [];
+
+                  function toggleStar(style: StarStyle) {
+                    const current = activeStars.length > 0 ? activeStars : STAR_ENTRIES.map((e) => e.style);
+                    if (current.includes(style)) {
+                      const next = current.filter((s) => s !== style);
+                      // Keep at least 1 star in use
+                      if (next.length === 0) return;
+                      setActiveStars(next);
+                    } else {
+                      // Preserve canonical order from STAR_ENTRIES
+                      const next = STAR_ENTRIES.map((e) => e.style).filter(
+                        (s) => current.includes(s) || s === style,
+                      );
+                      setActiveStars(next);
+                    }
+                  }
+
+                  function StarBadge({ entry, dim }: { entry: typeof STAR_ENTRIES[0]; dim?: boolean }) {
+                    const Icon = entry.icon;
+                    return (
+                      <button
+                        type="button"
+                        title={entry.label}
+                        onClick={() => toggleStar(entry.style)}
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-sm border transition-colors",
+                          dim
+                            ? "border-border-subtle bg-surface-1 opacity-40 hover:opacity-70"
+                            : "border-border-default bg-surface-2 hover:border-accent hover:bg-accent-soft",
+                        )}
+                      >
+                        <Icon size={14} fill={dim ? "none" : entry.color} style={{ color: entry.color }} />
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="mb-1.5 text-small text-text-secondary">In use</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {inUse.map((e) => <StarBadge key={e.style} entry={e} />)}
+                        </div>
+                      </div>
+                      {notInUse.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-small text-text-tertiary">Not in use</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {notInUse.map((e) => <StarBadge key={e.style} entry={e} dim />)}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars(["yellow"])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          1 star
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars(["yellow", "red", "orange", "green"])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          4 stars
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars([])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          All
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Undo send */}
+              <SectionHeader>Undo send</SectionHeader>
+              <div className="flex gap-1.5 px-4 pb-4">
+                {(
+                  [
+                    { value: 0 as const, label: "Off" },
+                    { value: 5 as const, label: "5s" },
+                    { value: 10 as const, label: "10s" },
+                    { value: 20 as const, label: "20s" },
+                    { value: 30 as const, label: "30s" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleUndoSendChange(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      undoSendSeconds === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Mark as read timing */}
+              <SectionHeader>Mark as read</SectionHeader>
+              <div className="flex flex-col gap-1 px-4 pb-4">
+                {(
+                  [
+                    { value: 0 as const, label: "Immediately" },
+                    { value: 1000 as const, label: "After 1 second" },
+                    { value: 3000 as const, label: "After 3 seconds" },
+                    { value: 10000 as const, label: "After 10 seconds" },
+                    { value: -1 as const, label: "Never" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleMarkReadChange(opt.value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-sm border px-3 py-2 text-left transition-colors",
+                      markReadAfterMs === opt.value
+                        ? "border-accent bg-accent-soft"
+                        : "border-border-subtle bg-surface-2 hover:border-border-default",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "text-body",
+                        markReadAfterMs === opt.value ? "text-text-primary" : "text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </div>
+                    {markReadAfterMs === opt.value && (
+                      <CheckCircle2 size={14} className="ml-auto shrink-0 text-accent" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Desktop notifications */}
+              <SectionHeader>Desktop notifications</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "On" },
+                    { value: false, label: "Off" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => handleNotificationsToggle(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      notificationsEnabled === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -912,6 +1594,83 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
           {activeSection === "rules" && <RulesSettings />}
 
           {activeSection === "templates" && <TemplatesSettings />}
+
+          {activeSection === "shortcuts" && (
+            <div>
+              <div className="flex items-center justify-between px-4 pt-4 pb-2">
+                <p className="text-small text-text-tertiary">
+                  Click a key badge to rebind. Press Escape to cancel.
+                </p>
+                <Button variant="ghost" size="sm" onClick={resetAllKeyBindings}>
+                  <RotateCcw size={12} />
+                  Reset all
+                </Button>
+              </div>
+              <div className="divide-y divide-border-subtle">
+                {DEFAULT_SHORTCUTS.map((def) => {
+                  const isRebinding = rebindingAction === def.action;
+                  const customKey = keyBindings[def.action];
+                  const currentKey = effectiveKey(def.action, keyBindings);
+                  return (
+                    <div key={def.action} className="flex items-center gap-4 px-4 py-2.5">
+                      <div className="flex-1">
+                        <span className="text-body text-text-secondary">{def.label}</span>
+                        {customKey && (
+                          <span className="ml-2 text-caption text-text-muted">(custom)</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {isRebinding ? (
+                          <div
+                            className="flex items-center gap-1.5 rounded-sm border border-accent bg-accent-soft px-2 py-1 text-small text-accent"
+                            onKeyDown={(e) => {
+                              e.stopPropagation();
+                              if (e.key === "Escape") {
+                                setRebindingAction(null);
+                              } else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                                setKeyBinding(def.action, e.key);
+                                setRebindingAction(null);
+                              }
+                            }}
+                            tabIndex={0}
+                            autoFocus
+                            onBlur={() => setRebindingAction(null)}
+                          >
+                            Press a key…
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            title="Click to rebind"
+                            onClick={() => setRebindingAction(def.action)}
+                            className={cn(
+                              "min-w-[28px] rounded-sm border px-2 py-0.5 font-mono text-mono-xs text-center",
+                              "transition-colors hover:border-accent hover:text-accent",
+                              customKey
+                                ? "border-accent bg-accent-soft text-accent"
+                                : "border-border-default bg-surface-2 text-text-secondary",
+                            )}
+                          >
+                            {currentKey === "#" ? "#" : currentKey.toUpperCase()}
+                          </button>
+                        )}
+                        {customKey && !isRebinding && (
+                          <button
+                            type="button"
+                            title="Reset to default"
+                            onClick={() => clearKeyBinding(def.action)}
+                            className="text-text-muted hover:text-text-secondary"
+                          >
+                            <XIcon size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {activeSection === "relay" && <RelaySection />}
         </div>

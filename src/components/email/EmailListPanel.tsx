@@ -45,6 +45,7 @@ import { bodyStore } from "@/storage/bodyStore";
 import { isTauri, getMessageBody } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
+import { actionForKey } from "@/lib/shortcuts";
 import type { Density } from "@/design-system/tokens";
 import type { Message, MetadataFilter, Status, Label } from "@/data/types";
 
@@ -74,6 +75,7 @@ type VItem =
 export function EmailListPanel({ panelId }: { panelId: string }) {
   const density = useWorkspace((s) => s.density);
   const cycleDensity = useWorkspace((s) => s.cycleDensity);
+  const showSnippets = useWorkspace((s) => s.showSnippets);
   const selectedEmailIds = useWorkspace((s) => s.selectedEmailIds);
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const focusedRowId = useWorkspace((s) => s.focusedRowId);
@@ -84,7 +86,8 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const setSelectionRange = useWorkspace((s) => s.setSelectionRange);
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
   const selectionAnchorId = useWorkspace((s) => s.selectionAnchorId);
-  const setStarred = useWorkspace((s) => s.setStarred);
+  const cycleStar = useWorkspace((s) => s.cycleStar);
+  const keyBindings = useWorkspace((s) => s.keyBindings);
   const viewMode = useWorkspace((s) => s.viewMode);
   const setViewMode = useWorkspace((s) => s.setViewMode);
   const globalSetFilterAxis = useWorkspace((s) => s.setFilterAxis);
@@ -317,60 +320,75 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       } else if (e.key === "Enter" || e.key === " ") {
         if (activeId) { e.preventDefault(); openEmail(activeId); }
 
-      // ── Action shortcuts ─────────────────────────────────────────
-      } else if (e.key === "e" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        Mut.archiveMessage(localStore, activeMsg.id);
-        advanceAfterAction();
-      } else if (e.key === "#" || (e.key === "Delete" && !e.metaKey)) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        Mut.deleteMessage(localStore, activeMsg.id);
-        advanceAfterAction();
-      } else if (e.key === "u" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        if (activeMsg.flags.read) Mut.unreadMessage(localStore, activeMsg.id);
-        else Mut.readMessage(localStore, activeMsg.id);
-      } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        if (activeMsg.star) Mut.clearStar(localStore, activeMsg.id);
-        else Mut.setStar(localStore, activeMsg.id, "yellow");
-      } else if ((e.key === "l" || e.key === "L") && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (activeId) setLabelPickerMsgId(activeId);
-      } else if ((e.key === "v" || e.key === "V") && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (activeId) setFolderPickerMsgId(activeId);
-        return;
-      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        openComposer({ mode: "reply", replyToMessage: activeMsg });
-      } else if (e.key === "f" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        openComposer({ mode: "forward", replyToMessage: activeMsg });
-      } else if (e.key === "h" && !e.metaKey && !e.ctrlKey) {
-        if (!activeMsg) return;
-        e.preventDefault();
-        // Snooze: tomorrow 08:00 — quick one-key default
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(8, 0, 0, 0);
-        Mut.snoozeMessage(localStore, activeMsg.id, tomorrow.getTime());
-        advanceAfterAction();
-      } else if (e.key === "c" && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        openComposer();
+      // ── Action shortcuts (rebindable via keyBindings) ────────────
+      } else if (!e.metaKey && !e.ctrlKey) {
+        const action = e.key === "#" || e.key === "Delete"
+          ? "delete"
+          : actionForKey(e.key, keyBindings);
+        if (!action) return;
+        switch (action) {
+          case "archive":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.archiveMessage(localStore, activeMsg.id);
+            advanceAfterAction();
+            break;
+          case "delete":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.deleteMessage(localStore, activeMsg.id);
+            advanceAfterAction();
+            break;
+          case "markRead":
+            if (!activeMsg) return;
+            e.preventDefault();
+            if (activeMsg.flags.read) Mut.unreadMessage(localStore, activeMsg.id);
+            else Mut.readMessage(localStore, activeMsg.id);
+            break;
+          case "star":
+            if (!activeMsg) return;
+            e.preventDefault();
+            cycleStar(activeMsg.id);
+            break;
+          case "labelPicker":
+            e.preventDefault();
+            if (activeId) setLabelPickerMsgId(activeId);
+            break;
+          case "moveToFolder":
+            e.preventDefault();
+            if (activeId) setFolderPickerMsgId(activeId);
+            break;
+          case "reply":
+            if (!activeMsg) return;
+            e.preventDefault();
+            openComposer({ mode: "reply", replyToMessage: activeMsg });
+            break;
+          case "forward":
+            if (!activeMsg) return;
+            e.preventDefault();
+            openComposer({ mode: "forward", replyToMessage: activeMsg });
+            break;
+          case "snooze": {
+            if (!activeMsg) return;
+            e.preventDefault();
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(8, 0, 0, 0);
+            Mut.snoozeMessage(localStore, activeMsg.id, tomorrow.getTime());
+            advanceAfterAction();
+            break;
+          }
+          case "compose":
+            e.preventDefault();
+            openComposer();
+            break;
+        }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPanelFocused, viewMode, msgList, vItems, focusedRowId, selectedEmailId, setFocusedRow, openEmail, openComposer]);
+  }, [isPanelFocused, viewMode, msgList, vItems, focusedRowId, selectedEmailId, setFocusedRow, openEmail, openComposer, keyBindings]);
 
   function handleRowClick(emailId: string, e: React.MouseEvent) {
     if (e.shiftKey && selectionAnchorId) {
@@ -794,6 +812,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                     <EmailRow
                       message={msg}
                       density={density}
+                      showSnippets={showSnippets}
                       selected={isSelected || isSinglySelected}
                       focused={isFocused}
                       ghosted={!isPanelFocused}
@@ -803,7 +822,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                       threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
                       onFocus={() => setFocusedRow(msg.id)}
                       onSelect={(e) => handleRowClick(msg.id, e)}
-                      onToggleStar={() => setStarred(msg.id, !msg.star)}
+                      onToggleStar={() => cycleStar(msg.id)}
                       onToggleCheck={(c) => {
                         if (c && !isSelected) toggleEmailSelection(msg.id);
                         if (!c && isSelected) toggleEmailSelection(msg.id);

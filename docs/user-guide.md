@@ -11,11 +11,12 @@ Welcome to Nexus, a local-first email client for macOS. This guide walks you thr
 3. [Navigating the Interface](#3-navigating-the-interface)
 4. [Reading and Writing Email](#4-reading-and-writing-email)
 5. [Organizing Your Email](#5-organizing-your-email)
-6. [Custom Fields](#6-custom-fields)
-7. [Search and Filtering](#7-search-and-filtering)
-8. [Syncing Across Devices](#8-syncing-across-devices)
-9. [Keyboard Shortcuts](#9-keyboard-shortcuts)
-10. [Privacy and Security](#10-privacy-and-security)
+6. [Settings](#6-settings)
+7. [Custom Fields](#7-custom-fields)
+8. [Search and Filtering](#8-search-and-filtering)
+9. [Syncing Across Devices](#9-syncing-across-devices)
+10. [Keyboard Shortcuts](#10-keyboard-shortcuts)
+11. [Privacy and Security](#11-privacy-and-security)
 
 ---
 
@@ -118,7 +119,7 @@ Drag panel dividers to resize. Drag panel tab headers to rearrange. Use the View
 
 Click a message in the list to open it in the viewer panel. The viewer shows the full HTML body of the message. Attachments are listed at the bottom of the message.
 
-Messages are automatically marked as read when you open them. To mark as unread, use the right-click context menu or the inspector panel.
+Messages are marked as read when you open them. The timing is configurable in **Settings → Preferences → Mark as read**: immediately, after 1 second, after 3 seconds, after 10 seconds, or never (manual only). To mark as unread at any time, use the right-click context menu or the inspector panel.
 
 ### Composing a new message
 
@@ -161,7 +162,7 @@ Four levels: Urgent (1), High (2), Normal (3), Low (4). Use the priority picker 
 
 ### Star
 
-Twelve visual star styles (star, heart, bookmark, pin, and more in different colors). Purely visual — use the one that means something to you. Set it in the Inspector.
+Nexus has 12 star styles — star, heart, bookmark, pin, and more in multiple colors. Clicking the star icon in the message list cycles through your selected styles in order; one more click after the last style clears the star entirely. You choose which styles are active and in what order in **Settings → Preferences → Stars**. The star can also be set directly from the Inspector panel.
 
 ### Flag / Snooze
 
@@ -209,7 +210,47 @@ When a message has a machine-readable unsubscribe link, Nexus shows an **Unsubsc
 
 ---
 
-## 6. Custom Fields
+## 6. Settings
+
+Open **Settings** with `⌘,` or the gear icon. Settings are organized into tabs.
+
+### Preferences tab
+
+Global settings that apply across all accounts and workspaces:
+
+| Setting | Options |
+|---------|---------|
+| Conversation view | Threaded (grouped by thread) or Flat (chronological) |
+| Message snippets | Show or hide the preview line in the message list |
+| Undo send | Off, 5 s, 10 s, 20 s, or 30 s — cancellation window after hitting Send |
+| Mark as read | Immediately, after 1 s / 3 s / 10 s, or Never |
+| Desktop notifications | On or Off |
+| Stars | Click star badges to toggle them active/inactive; drag to reorder; use presets (1 star, 4 stars, All) |
+
+### Account settings (per account, Accounts tab)
+
+Expand the **Account settings** section under any connected account to configure:
+
+- **Default reply:** Reply or Reply All — controls which button is shown first in the viewer
+- **External images:** Always show, or Ask each time (a "Load images" button appears in the viewer when set to Ask)
+- **Signature:** A rich-text editor (Bold, Italic, Underline) for a per-account signature appended automatically to new messages and replies. Stored in your local vault.
+
+### Vacation responder (per account, Accounts tab)
+
+Expand the **Vacation responder** section under any account to configure an auto-reply:
+
+- Enable or disable the responder with a toggle
+- Set the reply **subject** and **body** (rich-text editor)
+- Optionally set a **start and end date** — the responder activates and deactivates automatically
+- **Only send to people I know** — limits auto-replies to contacts already in your address book
+
+### Shortcuts tab
+
+All rebindable message-action shortcuts are listed here. Click any key badge to enter a new binding, then press the key you want to use. Press **Escape** to cancel without changing anything. Click the × next to a key to clear a custom binding and revert to the default. **Reset all** restores every shortcut to its default at once.
+
+---
+
+## 7. Custom Fields
 
 Custom fields let you add your own data axes to any message — like Airtable for email.
 
@@ -231,7 +272,7 @@ In the filter bar above the mail list, click **"+ Add filter"** and choose your 
 
 ---
 
-## 7. Search and Filtering
+## 8. Search and Filtering
 
 ### Full-text search
 
@@ -261,7 +302,7 @@ Click the kanban icon in the mail list toolbar to switch from list view to a kan
 
 ---
 
-## 8. Syncing Across Devices
+## 9. Syncing Across Devices
 
 By default, all your data is local. If you want to keep a second Mac (or future mobile device) in sync, set up the optional E2EE relay.
 
@@ -280,7 +321,7 @@ See [Relay Setup Guide](relay.md) for detailed instructions.
 
 ---
 
-## 9. Keyboard Shortcuts
+## 10. Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
@@ -295,7 +336,10 @@ See [Relay Setup Guide](relay.md) for detailed instructions.
 | `E` | Archive selected message |
 | `#` | Move to trash |
 | `U` | Toggle read/unread |
-| `S` | Toggle star |
+| `S` | Cycle star style |
+| `D` | Snooze message |
+| `L` | Open label picker |
+| `V` | Move to folder |
 | `⌘⇧I` | Mark as important |
 | `J` / `↓` | Next message |
 | `K` / `↑` | Previous message |
@@ -303,9 +347,11 @@ See [Relay Setup Guide](relay.md) for detailed instructions.
 | `Escape` | Close composer / popover |
 | `?` | Show keyboard shortcut help |
 
+Message action shortcuts (Reply, Forward, Archive, Star, Snooze, etc.) can be customized in **Settings → Shortcuts**.
+
 ---
 
-## 10. Privacy and Security
+## 11. Privacy and Security
 
 ### What stays on your machine
 

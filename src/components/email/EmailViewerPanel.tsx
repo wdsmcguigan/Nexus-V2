@@ -47,6 +47,8 @@ import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
 import { pickPanelLink } from "@/design-system/tokens";
+import { getAppPreferences } from "@/lib/appPreferences";
+import { getAccountPreferences, type AccountPreferences } from "@/storage/tauri";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
 
@@ -212,13 +214,16 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const senderContact = useContactByEmail(msg?.fromAddr.email ?? "");
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
+  const [accountPrefs, setAccountPrefs] = React.useState<AccountPreferences | null>(null);
 
-  // Auto-mark as read after 500ms — gives time to skip past without marking
+  // Auto-mark as read based on user preference (markReadAfterMs; -1 = never)
   React.useEffect(() => {
     if (!effectiveEmailId) return;
     const current = localStore.messages.get(effectiveEmailId);
     if (!current || current.flags.read) return;
-    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), 500);
+    const { markReadAfterMs } = getAppPreferences();
+    if (markReadAfterMs === -1) return;
+    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), markReadAfterMs);
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
 
@@ -243,10 +248,29 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
     return () => { cancelled = true; };
   }, [msg?.bodyRef]);
 
-  // Auto-show images if sender is trusted
+  // Resolve which account this message belongs to (match toAddrs against known accounts)
+  const receivingAccountId = React.useMemo(() => {
+    if (!msg) return null;
+    const accts = Array.from(localStore.accounts.values());
+    if (accts.length === 1) return accts[0]?.id ?? null;
+    return (
+      accts.find((a) =>
+        msg.toAddrs.some((t) => t.email.toLowerCase() === a.email.toLowerCase()),
+      )?.id ?? accts[0]?.id ?? null
+    );
+  }, [msg]);
+
+  // Load per-account preferences when the resolved account changes
   React.useEffect(() => {
-    setImagesShown(senderContact?.alwaysShowImages === true);
-  }, [effectiveEmailId, senderContact?.alwaysShowImages]);
+    if (!receivingAccountId || !isTauri()) return;
+    getAccountPreferences(receivingAccountId).then(setAccountPrefs).catch(() => {});
+  }, [receivingAccountId]);
+
+  // Auto-show images based on: account pref "always" OR trusted sender contact
+  React.useEffect(() => {
+    const alwaysByPref = accountPrefs?.externalImages === "always";
+    setImagesShown(alwaysByPref || senderContact?.alwaysShowImages === true);
+  }, [effectiveEmailId, senderContact?.alwaysShowImages, accountPrefs?.externalImages]);
 
   // Inspector toggle — opens/closes an inspector panel associated with this viewer.
   const ownedInspectorId = useWorkspace((s) => s.viewerInspectorMap[panelId] ?? null);
@@ -673,7 +697,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Footer chrome (reply bar) */}
         <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border-subtle bg-surface-1 px-4">
-          <Button variant="primary" size="md" onClick={() => openComposer({ mode: "reply", replyToMessage: msg })}>
+          <Button variant="primary" size="md" onClick={() => openComposer({ mode: accountPrefs?.defaultReplyAll ? "reply-all" : "reply", replyToMessage: msg })}>
             <Reply />
             Reply
           </Button>

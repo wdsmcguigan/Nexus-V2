@@ -244,6 +244,30 @@ pub const EP6_ALTER_SQL: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN list_unsubscribe_json TEXT",
 ];
 
+/// EP7 (Stage 2) ALTER TABLE statements for per-account user preferences and rich-text signatures.
+pub const EP7_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE accounts ADD COLUMN signature_html TEXT",
+    "ALTER TABLE accounts ADD COLUMN preferences_json TEXT",
+];
+
+/// EP7 (Stage 4) idempotent DDL — vacation responder table.
+pub const EP7_STAGE4_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS vacation_responders (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    subject TEXT NOT NULL DEFAULT '',
+    body_html TEXT NOT NULL DEFAULT '',
+    start_date INTEGER,
+    end_date INTEGER,
+    contacts_only INTEGER NOT NULL DEFAULT 0,
+    sent_to_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vacation_responders_account ON vacation_responders(account_id);
+"#;
+
 /// Idempotent EP6 DDL executed as a single batch on every startup.
 /// Must NOT be split by ';' — trigger bodies contain semicolons inside BEGIN...END.
 pub const EP6_IDEMPOTENT_SQL: &str = r#"

@@ -1683,10 +1683,113 @@ fn validate_unsubscribe_url(raw: &str) -> std::result::Result<reqwest::Url, Stri
 
 fn fire_notification(app: &tauri::AppHandle, count: u32) {
     use tauri_plugin_notification::NotificationExt;
+    let state = app.state::<crate::AppState>();
+    let enabled = state.notifications_enabled.lock().map(|g| *g).unwrap_or(true);
+    if !enabled {
+        return;
+    }
     let body = if count == 1 {
         "1 new message".to_string()
     } else {
         format!("{count} new messages")
     };
     let _ = app.notification().builder().title("Nexus").body(&body).show();
+}
+
+// ─── EP7 Account preferences + signature ──────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_account_preferences(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<serde_json::Value, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    let raw = db.get_account_preferences(&account_id).map_err(|e| e.to_string())?;
+    if let Some(json_str) = raw {
+        serde_json::from_str(&json_str).map_err(|e| e.to_string())
+    } else {
+        Ok(serde_json::json!({ "defaultReplyAll": false, "externalImages": "ask" }))
+    }
+}
+
+#[tauri::command]
+pub async fn save_account_preferences(
+    state: State<'_, AppState>,
+    account_id: String,
+    default_reply_all: bool,
+    external_images: String,
+) -> std::result::Result<(), String> {
+    let prefs = serde_json::json!({
+        "defaultReplyAll": default_reply_all,
+        "externalImages": external_images,
+    });
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_account_preferences(&account_id, &prefs.to_string())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_signature_html(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<String>, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.get_signature_html(&account_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_signature_html(
+    state: State<'_, AppState>,
+    account_id: String,
+    html: String,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_signature_html(&account_id, &html)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_notification_pref(
+    state: tauri::State<'_, crate::AppState>,
+    enabled: bool,
+) -> std::result::Result<(), String> {
+    let mut guard = state.notifications_enabled.lock().map_err(|e| e.to_string())?;
+    *guard = enabled;
+    Ok(())
+}
+
+// ─── EP7 Stage 4: Vacation Responder ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_vacation_responder(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.get_vacation_responder(&account_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_vacation_responder(
+    state: State<'_, AppState>,
+    responder: serde_json::Value,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_vacation_responder(&responder).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_vacation_responder(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.delete_vacation_responder(&account_id).map_err(|e| e.to_string())
 }

@@ -3,7 +3,8 @@
  * Synchronous so layout is available before first React render.
  */
 
-import type { MetadataFilter } from "@/data/types";
+import type { MetadataFilter, StarStyle } from "@/data/types";
+import type { ShortcutAction } from "@/lib/shortcuts";
 
 export interface ListPanelSnapshotState {
   filter: MetadataFilter;
@@ -36,6 +37,12 @@ export interface WorkspaceSnapshot {
   filteredViewBehavior: "replace" | "new-panel";
   /** When true, the list collapses messages into one row per threadId (default: true). */
   threadedView: boolean;
+  /** When false, message rows never show the body snippet preview (default: true). */
+  showSnippets: boolean;
+  /** Ordered list of star styles that cycle when clicking the star icon. Empty = all 12. */
+  activeStars: StarStyle[];
+  /** Custom key bindings: action → key string. Absent key = use default. */
+  keyBindings: Partial<Record<ShortcutAction, string>>;
 }
 
 export interface WorkspacesData {
@@ -83,5 +90,8 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     tableColumnWidths: {},
     filteredViewBehavior: "replace",
     threadedView: true,
+    showSnippets: true,
+    activeStars: [],
+    keyBindings: {},
   };
 }

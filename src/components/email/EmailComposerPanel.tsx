@@ -34,14 +34,14 @@ import { useWorkspace } from "@/state/workspace";
 import { cn, formatBytes } from "@/lib/utils";
 import { pickPanelLink } from "@/design-system/tokens";
 import DOMPurify from "dompurify";
-import { isTauri, sendMessage, type AttachmentPayload } from "@/storage/tauri";
+import { isTauri, sendMessage, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
 import { loadSignature } from "@/lib/signature";
+import { getAppPreferences } from "@/lib/appPreferences";
 
 const PANEL_ID = "composer";
-const COUNTDOWN_SECONDS = 5;
 const DRAFT_KEY_PREFIX = "nexus-draft-";
 
 interface DraftData {
@@ -321,13 +321,20 @@ export function EmailComposerPanel() {
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
 
+  const _fromAccount = React.useMemo(
+    () => Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const _sigHtml = React.useMemo(() => {
-    const acct = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
-    const sig = acct ? loadSignature(acct.id) : "";
+    if (!_fromAccount) return "";
+    const sig = loadSignature(_fromAccount.id);
     const sigHtml = sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
     return sigHtml ? `<div class="nexus-signature"><br/>-- <br/>${sigHtml}</div>` : "";
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const initialContent = _draft?.bodyHtml ?? (
     replyMsg
       ? buildQuotedHtml(replyMsg) + _sigHtml
@@ -354,6 +361,18 @@ export function EmailComposerPanel() {
     },
   });
 
+  // Load DB signature on mount (Tauri only) — replaces the localStorage fallback in the initial content
+  React.useEffect(() => {
+    if (!editor || !_fromAccount || !isTauri() || _draft) return;
+    getSignatureHtml(_fromAccount.id).then((dbHtml) => {
+      if (!dbHtml) return;
+      const sig = `<div class="nexus-signature"><br/>-- <br/>${dbHtml}</div>`;
+      const body = replyMsg ? buildQuotedHtml(replyMsg) + sig : `<p></p>${sig}`;
+      editor.commands.setContent(body);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
+
   // ── Send machinery ────────────────────────────────────────────────────────
 
   const [discardOpen, setDiscardOpen] = React.useState(false);
@@ -361,6 +380,7 @@ export function EmailComposerPanel() {
   const [showTemplates, setShowTemplates] = React.useState(false);
   const templates = Array.from(localStore.templates?.values() ?? []);
   const [countdown, setCountdown] = React.useState(0);
+  const sendDurationRef = React.useRef<number>(5);
   const sendTimeoutRef = React.useRef<number | null>(null);
   const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
   const [schedulePickerOpen, setSchedulePickerOpen] = React.useState(false);
@@ -404,8 +424,14 @@ export function EmailComposerPanel() {
   }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive]);
 
   const startSend = React.useCallback(() => {
+    const seconds = getAppPreferences().undoSendSeconds;
+    sendDurationRef.current = seconds;
     setSending(true);
-    setCountdown(COUNTDOWN_SECONDS);
+    if (seconds === 0) {
+      doActualSend();
+      return;
+    }
+    setCountdown(seconds);
     const tick = (remaining: number) => {
       if (remaining <= 0) { doActualSend(); return; }
       sendTimeoutRef.current = window.setTimeout(() => {
@@ -413,10 +439,10 @@ export function EmailComposerPanel() {
         tick(remaining - 1);
       }, 1000);
     };
-    tick(COUNTDOWN_SECONDS);
+    tick(seconds);
     toast("Sending…", {
       action: { label: "Undo", onClick: () => undoSend() },
-      duration: COUNTDOWN_SECONDS * 1000,
+      duration: seconds * 1000,
     });
   }, [doActualSend]);
 
@@ -781,7 +807,7 @@ export function EmailComposerPanel() {
               className="relative flex h-ctrl-md items-center gap-2 rounded-sm border border-accent bg-accent-soft px-3 text-text-primary transition-colors duration-fast hover:bg-accent-ghost"
             >
               <span className="font-sans text-body-strong">Sending… {countdown}</span>
-              <CountdownRing total={COUNTDOWN_SECONDS} remaining={countdown} />
+              <CountdownRing total={sendDurationRef.current} remaining={countdown} />
               <span className="ml-1 font-mono text-mono-xs text-text-tertiary">Click to undo</span>
             </button>
           )}

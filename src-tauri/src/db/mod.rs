@@ -42,6 +42,8 @@ impl VaultDb {
             .context("running column migrations")?;
         self.run_ep6_migrations()
             .context("running EP6 column migrations")?;
+        self.run_ep7_migrations()
+            .context("running EP7 column migrations")?;
         Ok(())
     }
 
@@ -85,6 +87,22 @@ impl VaultDb {
         let _ = self.conn.execute_batch(
             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild');",
         );
+        Ok(())
+    }
+
+    /// Apply EP7 migrations (signature_html, preferences_json columns on accounts;
+    /// vacation_responders table).
+    fn run_ep7_migrations(&self) -> Result<()> {
+        for &sql in schema::EP7_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP7_STAGE4_SQL)
+            .context("EP7 stage-4 DDL")?;
         Ok(())
     }
 }
