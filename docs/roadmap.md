@@ -1,6 +1,6 @@
 # Nexus Roadmap
 
-Last updated: 2026-05-19
+Last updated: 2026-05-24
 
 Single reference for shipped work, confirmed deferred items, and upcoming epics. For design rationale see `docs/architecture.md`; for terminology see `docs/glossary.md`.
 
@@ -102,6 +102,17 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 | From selector | Multi-account From dropdown in composer (previously hardcoded to first Gmail account) |
 | IPC | `search_messages`, `get_rules`, `save_rule`, `delete_rule`, `get_templates`, `save_template`, `delete_template`, `send_unsubscribe` |
 | Security | SSRF guard on unsubscribe URLs; vault-scoped rule actions; DOMPurify sanitization on template HTML and markdown preview |
+
+### EP-7 extension — Settings Parity
+
+| Area | What shipped |
+|------|-------------|
+| App preferences | `src/lib/appPreferences.ts`; undo-send duration (Off/5s/10s/20s/30s), mark-as-read timing (immediately/1s/3s/10s/never), desktop notifications toggle, conversation view (threaded/flat), message snippets toggle; `set_notification_pref` IPC + `notifications_enabled` in AppState |
+| Account settings | Per-account default reply (Reply / Reply All), external image loading (always show / ask); stored in `preferences_json TEXT` column on `accounts` table; `get_account_preferences` / `save_account_preferences` IPC commands |
+| Rich-text signature | Tiptap editor (Bold/Italic/Underline) per account; stored in `signature_html TEXT` column on `accounts` table (localStorage migration on first save); `get_signature_html` / `save_signature_html` IPC commands |
+| Stars management | `activeStars: StarStyle[]` in WorkspaceSnapshot; Settings → Preferences → Stars badge grid with click-to-toggle, drag-to-reorder, preset buttons (1 star, 4 stars, All); list star button cycles through active set in order and clears at end |
+| Vacation responder | New `vacation_responders` DB table (enable toggle, subject, Tiptap body, optional date range, contacts-only); `get_vacation_responder` / `save_vacation_responder` / `delete_vacation_responder` IPC commands; UI in Accounts tab |
+| Keyboard shortcuts | `src/lib/shortcuts.ts`; 10 rebindable `ShortcutAction` values; `keyBindings: Partial<Record<ShortcutAction, string>>` in WorkspaceSnapshot; Settings → Shortcuts tab with click-to-rebind, per-key clear, Reset all; list key handler routes through `actionForKey()`; ShortcutHelpModal shows effective bindings |
 
 ---
 

@@ -275,7 +275,7 @@ The vault database lives at `{vault_path}/.nexus/db.sqlite` and is encrypted wit
 | Table | Purpose |
 |-------|---------|
 | `vaults` | Vault ID, path, creation timestamp |
-| `accounts` | Provider auth (tokens stored in Keychain), sync cursor |
+| `accounts` | Provider auth (tokens stored in Keychain), sync cursor; `signature_html TEXT` and `preferences_json TEXT` columns hold per-account signature and reply/image preferences |
 | `folders` | Tree structure, disk slugs, system folder kinds |
 | `labels` | Many-to-many labels (system + user-defined) |
 | `statuses` | Workflow status definitions (ordered, isDefault/isTerminal) |
@@ -294,6 +294,7 @@ The vault database lives at `{vault_path}/.nexus/db.sqlite` and is encrypted wit
 | `devices` | Enrolled devices (device_id, nickname, enrolled_at) |
 | `relay_state` | Relay URL, last pulled sequence number |
 | `enroll_sessions` | Active enrollment sessions (code hash, encrypted vault key) |
+| `vacation_responders` | Per-account auto-reply config: subject, body_html, date range, contacts_only, sent_to dedup list |
 
 ### Column migrations
 
@@ -305,6 +306,55 @@ When adding a new column to an existing table:
    ```rust
    "ALTER TABLE my_table ADD COLUMN my_col TEXT NOT NULL DEFAULT ''",
    ```
+
+For **new tables** (rather than new columns), add them to a separate EP constant (e.g., `EP7_STAGE4_SQL`) using `CREATE TABLE IF NOT EXISTS`, then call it from the appropriate migration runner (e.g., `run_ep7_migrations()`). This pattern is idempotent and safe to call on every open.
+
+### WorkspaceSnapshot (localStorage: `nexus_workspaces_v3`)
+
+The `WorkspaceSnapshot` interface in `src/storage/workspaceManager.ts` persists per-workspace UI state. Fields added across epics:
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `density` | `"compact" \| "comfortable" \| "cozy"` | `"comfortable"` | Row height / spacing |
+| `viewMode` | `"list" \| "kanban" \| "table"` | `"list"` | Active view |
+| `theme` | `"dark" \| "light"` | `"dark"` | Color theme |
+| `threadedView` | `boolean` | `true` | Group messages by thread |
+| `showSnippets` | `boolean` | `true` | Show body preview in list rows |
+| `activeStars` | `StarStyle[]` | `[]` | Active star styles (empty = all 12 cycle) |
+| `keyBindings` | `Partial<Record<ShortcutAction, string>>` | `{}` | Custom key overrides (empty = use defaults) |
+| `filteredViewBehavior` | `"replace" \| "new-panel"` | `"replace"` | Jump-to-filtered opening mode |
+| `tableColumnOrder` | `string[]` | `[]` | Table column order (empty = default) |
+| `tableColumnWidths` | `Record<string, number>` | `{}` | Per-column width overrides |
+| `activeFilter` | `MetadataFilter` | `{}` | Current filter state |
+| `selectedFolderId` | `string` | `"inbox"` | Active folder |
+
+### App-Global Preferences (localStorage: `nexus_app_prefs_v1`)
+
+Settings that should not differ per workspace are stored in `src/lib/appPreferences.ts`:
+
+```ts
+export interface AppPreferences {
+  notificationsEnabled: boolean;            // default: true
+  undoSendSeconds: 0 | 5 | 10 | 20 | 30;  // default: 5
+  markReadAfterMs: -1 | 0 | 1000 | 3000 | 10000; // -1 = never; default: 3000
+  buttonLabels: "icons" | "text";           // default: "icons"
+}
+```
+
+Use `getAppPreferences()` to read and `saveAppPreferences(partial)` to write. No Zustand — these are read synchronously at component render time.
+
+### Keyboard Shortcut Registry (`src/lib/shortcuts.ts`)
+
+All rebindable shortcuts are defined here:
+
+```ts
+export type ShortcutAction = "reply" | "forward" | "archive" | "delete" | ...;
+export const DEFAULT_SHORTCUTS: ShortcutDef[];
+export function effectiveKey(action: ShortcutAction, keyBindings: Partial<Record<ShortcutAction, string>>): string;
+export function actionForKey(key: string, keyBindings: ...): ShortcutAction | null;
+```
+
+`actionForKey` checks custom bindings first, then falls back to defaults. The keyboard handler in `EmailListPanel.tsx` calls this on every `keydown` event.
 
 ### FTS5 search
 

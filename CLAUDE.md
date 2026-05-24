@@ -50,7 +50,7 @@ Nexus-V2/
 │   └── components/             # UI components (see docs/developer-guide.md)
 ├── src-tauri/src/              # Rust backend
 │   ├── lib.rs                  # AppState, plugin init, invoke_handler! registration
-│   ├── commands.rs             # 25+ IPC command implementations
+│   ├── commands.rs             # 44+ IPC command implementations
 │   ├── crypto.rs               # XChaCha20-Poly1305 + BLAKE3 + enrollment code gen
 │   ├── db/
 │   │   ├── schema.rs           # SQLite DDL (tables + indexes)
@@ -96,7 +96,7 @@ UI event
 
 ### IPC commands
 
-All 17 commands are registered in `src-tauri/src/lib.rs:invoke_handler!` and implemented in `src-tauri/src/commands.rs`. Every command needs a typed wrapper in `src/storage/tauri.ts`.
+All 44+ commands are registered in `src-tauri/src/lib.rs:invoke_handler!` and implemented in `src-tauri/src/commands.rs`. Every command needs a typed wrapper in `src/storage/tauri.ts`.
 
 ### Non-Send VaultDb across async
 
@@ -151,10 +151,13 @@ Gmail OAuth requires a Google Cloud project with the Gmail API enabled and `http
 | IPC command registration | `src-tauri/src/lib.rs` → `invoke_handler!` |
 | Typed frontend IPC wrappers | `src/storage/tauri.ts` |
 | Zustand UI state | `src/state/workspace.ts` |
+| App-global preferences (notifications, undo-send, etc.) | `src/lib/appPreferences.ts` |
+| Keyboard shortcut registry + rebinding helpers | `src/lib/shortcuts.ts` |
+| Per-workspace snapshot persistence | `src/storage/workspaceManager.ts` |
 | Design tokens (colors, spacing, typography) | `docs/UI-DESIGN-SYSTEM-SPEC.md` |
 | Terminology / stable IDs (LBL, MSG, etc.) | `docs/glossary.md` |
 | Architecture rationale and commitments | `docs/architecture.md` |
-| Epic feature checklists | `docs/epic-{0,1,2,3}-checklist.md` |
+| Epic feature checklists | `docs/epic-{0,1,2,3,7}-checklist.md` |
 
 ---
 

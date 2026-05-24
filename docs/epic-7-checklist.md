@@ -78,3 +78,75 @@ Shipped: 2026-05-19
 - [x] Relay server: enrollment `expires_at` computed server-side (10 min fixed TTL)
 - [x] Relay server: `DefaultBodyLimit::max(1 MB)` request cap
 - [x] Relay server: `UNIQUE INDEX` on `relay_mutations(vault_id, device_id, lamport)`
+
+---
+
+## EP-7-E: Settings Parity
+
+Shipped: 2026-05-24
+
+### E1 — Preferences Expansion
+
+- [x] `src/lib/appPreferences.ts` — new app-global prefs module (`nexus_app_prefs_v1` localStorage key)
+- [x] `AppPreferences` interface: `notificationsEnabled`, `undoSendSeconds`, `markReadAfterMs`, `buttonLabels`
+- [x] `getAppPreferences()` / `saveAppPreferences()` helpers (synchronous, no Zustand)
+- [x] `showSnippets: boolean` added to `WorkspaceSnapshot` + `makeDefaultWorkspace()`
+- [x] `showSnippets` / `setShowSnippets` added to `WorkspaceState` (Zustand)
+- [x] `threadedView` toggle, `showSnippets` toggle, button labels radio in Preferences tab
+- [x] Undo-send duration control in Preferences tab (reads `AppPreferences.undoSendSeconds`)
+- [x] Mark-as-read timing control in Preferences tab (wired to `EmailViewerPanel`)
+- [x] Desktop notifications toggle in Preferences tab
+- [x] `EmailComposerPanel.tsx` reads `undoSendSeconds` from `AppPreferences` instead of hardcoded `5`
+- [x] `EmailViewerPanel.tsx` delays `markRead` call by `markReadAfterMs` (or skips if `-1`)
+- [x] `EmailRow.tsx` hides snippet span when `showSnippets` is false
+
+### E2 — Account-Level Settings + Signature Upgrade
+
+- [x] `signature_html TEXT` column added to `accounts` table (ALTER TABLE migration)
+- [x] `preferences_json TEXT` column added to `accounts` table (ALTER TABLE migration)
+- [x] `AccountPreferences` type in `src/data/types.ts`: `defaultReplyAll`, `externalImages`
+- [x] `get_account_preferences` / `save_account_preferences` IPC commands in `commands.rs`
+- [x] `get_account_signature` / `save_account_signature` IPC commands in `commands.rs`
+- [x] All four commands registered in `lib.rs` `invoke_handler!`
+- [x] Typed wrappers in `src/storage/tauri.ts`
+- [x] "Default reply" (Reply / Reply All) control per account in Settings > Accounts
+- [x] "External images" (Always / Ask) control per account in Settings > Accounts
+- [x] Signature editor upgraded from `<textarea>` to Tiptap rich-text editor, persisted via IPC
+- [x] `EmailComposerPanel.tsx` reads `defaultReplyAll` from account preferences at open time
+- [x] `EmailViewerPanel.tsx` blocks external images with "Load images" banner when `externalImages: "ask"`
+
+### E3 — Stars Management UI
+
+- [x] `STAR_ENTRIES` array and `StarEntry` interface exported from `src/components/inspector/StarPalette.tsx`
+- [x] `activeStars: StarStyle[]` added to `WorkspaceSnapshot` + `makeDefaultWorkspace()` (default: `[]` = all 12)
+- [x] `activeStars` / `setActiveStars` / `cycleStar` added to `WorkspaceState` (Zustand)
+- [x] `cycleStar(messageId)` advances through `activeStars` list (or all 12 if empty), clears at end
+- [x] Stars section in Settings > Preferences: click-to-toggle between "In use" and "Not in use"
+- [x] Preset buttons: "1 star" (yellow only), "4 stars", "All"
+- [x] `EmailListPanel.tsx` star keyboard shortcut (`s`) calls `cycleStar` instead of boolean toggle
+- [x] `onToggleStar` callback updated to use `cycleStar`
+
+### E4 — Vacation Responder
+
+- [x] `vacation_responders` table added via `EP7_STAGE4_SQL` in `schema.rs` (`CREATE TABLE IF NOT EXISTS`)
+- [x] `run_ep7_migrations()` in `mod.rs` executes `EP7_STAGE4_SQL`
+- [x] `VacationResponder` interface in `src/storage/tauri.ts`
+- [x] `get_vacation_responder` / `save_vacation_responder` / `delete_vacation_responder` queries in `queries.rs`
+- [x] Three IPC commands implemented in `commands.rs` and registered in `lib.rs`
+- [x] Typed wrappers in `src/storage/tauri.ts`
+- [x] `VacationResponderSection` component in `SettingsPanel.tsx`: enable toggle, subject, Tiptap body, date pickers, contacts-only checkbox
+- [x] Vacation responder section rendered per account in Settings > Accounts tab
+
+### E5 — Keyboard Shortcut Customization
+
+- [x] `src/lib/shortcuts.ts` — new canonical shortcut registry (10 rebindable actions)
+- [x] `ShortcutAction` type, `ShortcutDef` interface, `DEFAULT_SHORTCUTS` array
+- [x] `effectiveKey(action, keyBindings)` — returns custom or default key for an action
+- [x] `actionForKey(key, keyBindings)` — maps a keypress to an action (custom bindings take priority)
+- [x] `keyBindings: Partial<Record<ShortcutAction, string>>` added to `WorkspaceSnapshot` + `makeDefaultWorkspace()`
+- [x] `keyBindings` / `setKeyBinding` / `clearKeyBinding` / `resetAllKeyBindings` added to `WorkspaceState`
+- [x] "Shortcuts" tab added to Settings panel with click-to-rebind UI per action
+- [x] Per-row "×" button to clear custom binding (restores default)
+- [x] "Reset all to defaults" button at top of Shortcuts tab
+- [x] `EmailListPanel.tsx` keyboard handler calls `actionForKey()` to resolve actions from keypresses
+- [x] `ShortcutHelpModal.tsx` reads `keyBindings` from workspace state and shows effective keys
