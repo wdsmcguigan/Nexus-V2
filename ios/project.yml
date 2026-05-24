@@ -21,6 +21,7 @@ targets:
           - "**/*.md"
     resources:
       - path: Nexus/Data/Schema.sql
+      - path: Nexus/App/LaunchScreen.storyboard
     info:
       path: Nexus/App/Info.plist
     settings:
