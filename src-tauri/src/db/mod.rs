@@ -90,7 +90,8 @@ impl VaultDb {
         Ok(())
     }
 
-    /// Apply EP7 migrations (signature_html, preferences_json columns on accounts).
+    /// Apply EP7 migrations (signature_html, preferences_json columns on accounts;
+    /// vacation_responders table).
     fn run_ep7_migrations(&self) -> Result<()> {
         for &sql in schema::EP7_ALTER_SQL {
             if let Err(e) = self.conn.execute_batch(sql) {
@@ -99,6 +100,9 @@ impl VaultDb {
                 }
             }
         }
+        self.conn
+            .execute_batch(schema::EP7_STAGE4_SQL)
+            .context("EP7 stage-4 DDL")?;
         Ok(())
     }
 }

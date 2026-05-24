@@ -1761,3 +1761,35 @@ pub async fn set_notification_pref(
     *guard = enabled;
     Ok(())
 }
+
+// ─── EP7 Stage 4: Vacation Responder ─────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_vacation_responder(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Option<serde_json::Value>, String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.get_vacation_responder(&account_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_vacation_responder(
+    state: State<'_, AppState>,
+    responder: serde_json::Value,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.save_vacation_responder(&responder).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_vacation_responder(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let guard = state.db.lock().map_err(|e| e.to_string())?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.delete_vacation_responder(&account_id).map_err(|e| e.to_string())
+}

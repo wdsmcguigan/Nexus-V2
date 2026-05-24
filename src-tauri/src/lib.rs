@@ -83,6 +83,10 @@ pub fn run() {
             commands::save_account_preferences,
             commands::get_signature_html,
             commands::save_signature_html,
+            // EP7 stage 4 vacation responder
+            commands::get_vacation_responder,
+            commands::save_vacation_responder,
+            commands::delete_vacation_responder,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

@@ -2036,6 +2036,66 @@ impl VaultDb {
         stmt.query_row(params![message_id], |r| r.get(0)).optional()
             .map_err(anyhow::Error::from)
     }
+
+    // ─── EP7 Stage 4: Vacation Responder ─────────────────────────────────────
+
+    pub fn get_vacation_responder(&self, account_id: &str) -> Result<Option<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, account_id, enabled, subject, body_html, start_date, end_date, contacts_only, sent_to_json, created_at, updated_at
+             FROM vacation_responders WHERE account_id = ?1 LIMIT 1",
+        )?;
+        Ok(stmt.query_row(params![account_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "accountId": r.get::<_, String>(1)?,
+                "enabled": r.get::<_, bool>(2)?,
+                "subject": r.get::<_, String>(3)?,
+                "bodyHtml": r.get::<_, String>(4)?,
+                "startDate": r.get::<_, Option<i64>>(5)?,
+                "endDate": r.get::<_, Option<i64>>(6)?,
+                "contactsOnly": r.get::<_, bool>(7)?,
+                "sentTo": serde_json::from_str::<serde_json::Value>(&r.get::<_, String>(8)?).unwrap_or(serde_json::json!([])),
+                "createdAt": r.get::<_, i64>(9)?,
+                "updatedAt": r.get::<_, i64>(10)?,
+            }))
+        }).optional()?)
+    }
+
+    pub fn save_vacation_responder(&self, responder: &JsonValue) -> Result<()> {
+        let id = responder["id"].as_str().unwrap_or("").to_string();
+        let account_id = responder["accountId"].as_str().unwrap_or("").to_string();
+        let enabled = responder["enabled"].as_bool().unwrap_or(false) as i64;
+        let subject = responder["subject"].as_str().unwrap_or("").to_string();
+        let body_html = responder["bodyHtml"].as_str().unwrap_or("").to_string();
+        let start_date: Option<i64> = responder["startDate"].as_i64();
+        let end_date: Option<i64> = responder["endDate"].as_i64();
+        let contacts_only = responder["contactsOnly"].as_bool().unwrap_or(false) as i64;
+        let now = chrono::Utc::now().timestamp_millis();
+        let created_at = responder["createdAt"].as_i64().unwrap_or(now);
+        self.conn.execute(
+            "INSERT INTO vacation_responders
+             (id, account_id, enabled, subject, body_html, start_date, end_date, contacts_only, sent_to_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, '[]', ?9, ?10)
+             ON CONFLICT(id) DO UPDATE SET
+               enabled = excluded.enabled,
+               subject = excluded.subject,
+               body_html = excluded.body_html,
+               start_date = excluded.start_date,
+               end_date = excluded.end_date,
+               contacts_only = excluded.contacts_only,
+               updated_at = excluded.updated_at",
+            params![id, account_id, enabled, subject, body_html, start_date, end_date, contacts_only, created_at, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_vacation_responder(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM vacation_responders WHERE account_id = ?1",
+            params![account_id],
+        )?;
+        Ok(())
+    }
 }
 
 fn apply_str_op(op: &str, haystack: &str, needle: &str) -> bool {

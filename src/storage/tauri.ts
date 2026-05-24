@@ -100,6 +100,34 @@ export async function saveSignatureHtml(accountId: string, html: string): Promis
   return invoke<void>("save_signature_html", { accountId, html });
 }
 
+// ─── EP7 Stage 4: Vacation Responder ─────────────────────────────────────────
+
+export interface VacationResponder {
+  id: string;
+  accountId: string;
+  enabled: boolean;
+  subject: string;
+  bodyHtml: string;
+  startDate: number | null;
+  endDate: number | null;
+  contactsOnly: boolean;
+  sentTo: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export async function getVacationResponder(accountId: string): Promise<VacationResponder | null> {
+  return invoke<VacationResponder | null>("get_vacation_responder", { accountId });
+}
+
+export async function saveVacationResponder(responder: VacationResponder): Promise<void> {
+  return invoke<void>("save_vacation_responder", { responder });
+}
+
+export async function deleteVacationResponder(accountId: string): Promise<void> {
+  return invoke<void>("delete_vacation_responder", { accountId });
+}
+
 export async function listAccounts(): Promise<unknown[]> {
   return invoke<unknown[]>("list_accounts");
 }

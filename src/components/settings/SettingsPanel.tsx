@@ -68,7 +68,11 @@ import {
   saveAccountPreferences,
   getSignatureHtml,
   saveSignatureHtml,
+  getVacationResponder,
+  saveVacationResponder,
+  deleteVacationResponder,
   type AccountPreferences,
+  type VacationResponder,
 } from "@/storage/tauri";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -837,6 +841,207 @@ function AccountPrefsSection({ accountId }: { accountId: string }) {
   );
 }
 
+// ─── Vacation responder section ───────────────────────────────────────────────
+
+function VacationResponderSection({ accountId }: { accountId: string }) {
+  const [responder, setResponder] = React.useState<VacationResponder | null>(null);
+  const [expanded, setExpanded] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
+
+  const editor = useEditor({
+    extensions: [StarterKit, UnderlineExt],
+    editorProps: {
+      attributes: {
+        class: "prose prose-sm prose-invert max-w-none min-h-[80px] p-2 focus:outline-none",
+      },
+    },
+    onBlur: ({ editor: e }) => {
+      setResponder((prev) => prev ? { ...prev, bodyHtml: e.getHTML() } : prev);
+    },
+  });
+
+  React.useEffect(() => {
+    if (!expanded || responder !== null) return;
+    if (!isTauri()) {
+      const now = Date.now();
+      setResponder({
+        id: `vr-${accountId}`,
+        accountId,
+        enabled: false,
+        subject: "I am on vacation",
+        bodyHtml: "<p>I am currently out of office and will reply when I return.</p>",
+        startDate: null,
+        endDate: null,
+        contactsOnly: false,
+        sentTo: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      return;
+    }
+    getVacationResponder(accountId).then((r) => {
+      if (r) {
+        setResponder(r);
+        editor?.commands.setContent(r.bodyHtml || "");
+      } else {
+        const now = Date.now();
+        setResponder({
+          id: `vr-${accountId}`,
+          accountId,
+          enabled: false,
+          subject: "I am on vacation",
+          bodyHtml: "<p>I am currently out of office and will reply when I return.</p>",
+          startDate: null,
+          endDate: null,
+          contactsOnly: false,
+          sentTo: [],
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }).catch(console.warn);
+  }, [expanded, responder, accountId, editor]);
+
+  async function handleSave() {
+    if (!responder) return;
+    const latest = { ...responder, bodyHtml: editor?.getHTML() ?? responder.bodyHtml };
+    setSaving(true);
+    try {
+      if (isTauri()) {
+        await saveVacationResponder(latest);
+      }
+      setResponder(latest);
+    } catch (e) {
+      console.warn("save vacation responder:", e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!responder) return;
+    if (!window.confirm("Clear vacation responder?")) return;
+    if (isTauri()) {
+      await deleteVacationResponder(accountId).catch(console.warn);
+    }
+    setResponder(null);
+    setExpanded(false);
+  }
+
+  return (
+    <div className="border-t border-border-subtle">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-small text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        <ChevronDown size={12} className={cn("transition-transform duration-fast", expanded && "rotate-180")} />
+        Vacation responder
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3">
+          {responder === null ? (
+            <div className="flex items-center gap-2 text-small text-text-muted">
+              <Loader2 size={12} className="animate-spin" />
+              Loading…
+            </div>
+          ) : (
+            <>
+              {/* Enabled toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-small text-text-secondary">Enable vacation responder</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={responder.enabled}
+                  onClick={() => setResponder((r) => r ? { ...r, enabled: !r.enabled } : r)}
+                  className={cn(
+                    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent",
+                    "transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    responder.enabled ? "bg-accent" : "bg-surface-3",
+                  )}
+                >
+                  <span className={cn(
+                    "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm",
+                    "transition-transform duration-200",
+                    responder.enabled ? "translate-x-4" : "translate-x-0",
+                  )} />
+                </button>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="mb-1 block text-small text-text-secondary">Subject</label>
+                <input
+                  type="text"
+                  value={responder.subject}
+                  onChange={(e) => setResponder((r) => r ? { ...r, subject: e.target.value } : r)}
+                  className="w-full rounded-sm border border-border-subtle bg-surface-2 px-3 py-1.5 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+              </div>
+
+              {/* Body */}
+              <div>
+                <label className="mb-1 block text-small text-text-secondary">Message</label>
+                <div className={cn(
+                  "rounded-sm border border-border-default bg-surface-1",
+                  "focus-within:border-accent",
+                )}>
+                  <EditorContent editor={editor} />
+                </div>
+              </div>
+
+              {/* Date range */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">First day (optional)</label>
+                  <input
+                    type="date"
+                    value={responder.startDate ? new Date(responder.startDate).toISOString().slice(0, 10) : ""}
+                    onChange={(e) => setResponder((r) => r ? { ...r, startDate: e.target.value ? new Date(e.target.value).getTime() : null } : r)}
+                    className="w-full rounded-sm border border-border-subtle bg-surface-2 px-2 py-1.5 text-small text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">Last day (optional)</label>
+                  <input
+                    type="date"
+                    value={responder.endDate ? new Date(responder.endDate).toISOString().slice(0, 10) : ""}
+                    onChange={(e) => setResponder((r) => r ? { ...r, endDate: e.target.value ? new Date(e.target.value).getTime() : null } : r)}
+                    className="w-full rounded-sm border border-border-subtle bg-surface-2 px-2 py-1.5 text-small text-text-primary focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Contacts only */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={responder.contactsOnly}
+                  onChange={(e) => setResponder((r) => r ? { ...r, contactsOnly: e.target.checked } : r)}
+                  className="rounded border-border-default"
+                />
+                <span className="text-small text-text-secondary">Only send to people in my Contacts</span>
+              </label>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 size={12} className="animate-spin" /> : null}
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleDelete}>
+                  Clear
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ panelId }: { panelId: string }) {
@@ -960,6 +1165,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     <div key={acc.id}>
                       <AccountRow accountId={acc.id} email={acc.email} />
                       <AccountPrefsSection accountId={acc.id} />
+                      <VacationResponderSection accountId={acc.id} />
                     </div>
                   ))}
                 </div>
