@@ -290,6 +290,11 @@ interface WorkspaceState {
   showSnippets: boolean;
   setShowSnippets: (v: boolean) => void;
 
+  // Active stars — which star styles are in the cycle rotation (empty = all 12)
+  activeStars: StarStyle[];
+  setActiveStars: (stars: StarStyle[]) => void;
+  cycleStar: (messageId: string) => void;
+
   // Client mode (installation-level, not per-workspace)
   clientMode: ClientMode;
   setClientMode: (mode: ClientMode) => void;
@@ -333,6 +338,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       filteredViewBehavior: s.filteredViewBehavior,
       threadedView: s.threadedView,
       showSnippets: s.showSnippets,
+      activeStars: s.activeStars,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -371,6 +377,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       filteredViewBehavior: s.filteredViewBehavior,
       threadedView: mode === "clone" ? s.threadedView : true,
       showSnippets: mode === "clone" ? s.showSnippets : true,
+      activeStars: mode === "clone" ? [...s.activeStars] : [],
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -410,6 +417,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       filteredViewBehavior: ws.filteredViewBehavior ?? "replace",
       threadedView: ws.threadedView ?? true,
       showSnippets: ws.showSnippets ?? true,
+      activeStars: ws.activeStars ?? [],
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -570,6 +578,32 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   showSnippets: _activeWs.showSnippets ?? true,
   setShowSnippets: (v) => set({ showSnippets: v }),
+
+  // ── Active stars (workspace-scoped cycling selection) ─────────────────────
+
+  activeStars: _activeWs.activeStars ?? [],
+  setActiveStars: (stars) => set({ activeStars: stars }),
+  cycleStar: (messageId) => {
+    const s = get();
+    const msg = localStore.messages.get(messageId);
+    if (!msg) return;
+    const ALL_STARS: StarStyle[] = [
+      "yellow", "red", "orange", "green", "blue", "purple",
+      "check-green", "bang-red", "question-purple", "guillemet-orange",
+      "info-blue", "bang-yellow",
+    ];
+    const cycle = s.activeStars.length > 0 ? s.activeStars : ALL_STARS;
+    if (!msg.star) {
+      Mut.setStar(localStore, messageId, cycle[0]!);
+    } else {
+      const idx = cycle.indexOf(msg.star);
+      if (idx === -1 || idx >= cycle.length - 1) {
+        Mut.clearStar(localStore, messageId);
+      } else {
+        Mut.setStar(localStore, messageId, cycle[idx + 1]!);
+      }
+    }
+  },
 
   // ── Client mode (installation-level, not in WorkspaceSnapshot) ────────────
 

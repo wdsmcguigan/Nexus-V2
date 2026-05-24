@@ -85,7 +85,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const setSelectionRange = useWorkspace((s) => s.setSelectionRange);
   const setFocusedRow = useWorkspace((s) => s.setFocusedRow);
   const selectionAnchorId = useWorkspace((s) => s.selectionAnchorId);
-  const setStarred = useWorkspace((s) => s.setStarred);
+  const cycleStar = useWorkspace((s) => s.cycleStar);
   const viewMode = useWorkspace((s) => s.viewMode);
   const setViewMode = useWorkspace((s) => s.setViewMode);
   const globalSetFilterAxis = useWorkspace((s) => s.setFilterAxis);
@@ -337,8 +337,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       } else if (e.key === "s" && !e.metaKey && !e.ctrlKey) {
         if (!activeMsg) return;
         e.preventDefault();
-        if (activeMsg.star) Mut.clearStar(localStore, activeMsg.id);
-        else Mut.setStar(localStore, activeMsg.id, "yellow");
+        cycleStar(activeMsg.id);
       } else if ((e.key === "l" || e.key === "L") && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         if (activeId) setLabelPickerMsgId(activeId);
@@ -805,7 +804,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                       threadCount={localStore.messagesByThread.get(msg.threadId)?.size}
                       onFocus={() => setFocusedRow(msg.id)}
                       onSelect={(e) => handleRowClick(msg.id, e)}
-                      onToggleStar={() => setStarred(msg.id, !msg.star)}
+                      onToggleStar={() => cycleStar(msg.id)}
                       onToggleCheck={(c) => {
                         if (c && !isSelected) toggleEmailSelection(msg.id);
                         if (!c && isSelected) toggleEmailSelection(msg.id);

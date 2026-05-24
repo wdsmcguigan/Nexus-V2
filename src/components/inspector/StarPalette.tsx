@@ -24,14 +24,14 @@ interface StarPaletteProps {
   star: StarStyle | null;
 }
 
-interface StarEntry {
+export interface StarEntry {
   style: StarStyle;
   icon: LucideIcon;
   color: string;
   label: string;
 }
 
-const STAR_ENTRIES: StarEntry[] = [
+export const STAR_ENTRIES: StarEntry[] = [
   { style: "yellow", icon: Star, color: "var(--color-link-2)", label: "Yellow star" },
   { style: "red", icon: Star, color: "var(--color-link-1)", label: "Red star" },
   { style: "orange", icon: Star, color: "oklch(0.66 0.16 55)", label: "Orange star" },

@@ -61,6 +61,8 @@ import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
 import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
+import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
+import type { StarStyle } from "@/data/types";
 import {
   getAccountPreferences,
   saveAccountPreferences,
@@ -850,6 +852,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
   const showSnippets = useWorkspace((s) => s.showSnippets);
   const setShowSnippets = useWorkspace((s) => s.setShowSnippets);
+  const activeStars = useWorkspace((s) => s.activeStars);
+  const setActiveStars = useWorkspace((s) => s.setActiveStars);
 
   // App-global preferences (not workspace-scoped)
   const [notificationsEnabled, setNotificationsEnabledState] = React.useState(
@@ -1176,6 +1180,99 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     {opt.label}
                   </button>
                 ))}
+              </div>
+
+              {/* Stars */}
+              <SectionHeader>Stars</SectionHeader>
+              <div className="px-4 pb-4">
+                <p className="mb-3 text-small text-text-tertiary">
+                  Click a star to move it in or out of the rotation. Stars in use cycle when you click successively.
+                </p>
+                {(() => {
+                  const inUse = activeStars.length > 0
+                    ? STAR_ENTRIES.filter((e) => activeStars.includes(e.style))
+                    : STAR_ENTRIES;
+                  const notInUse = activeStars.length > 0
+                    ? STAR_ENTRIES.filter((e) => !activeStars.includes(e.style))
+                    : [];
+
+                  function toggleStar(style: StarStyle) {
+                    const current = activeStars.length > 0 ? activeStars : STAR_ENTRIES.map((e) => e.style);
+                    if (current.includes(style)) {
+                      const next = current.filter((s) => s !== style);
+                      // Keep at least 1 star in use
+                      if (next.length === 0) return;
+                      setActiveStars(next);
+                    } else {
+                      // Preserve canonical order from STAR_ENTRIES
+                      const next = STAR_ENTRIES.map((e) => e.style).filter(
+                        (s) => current.includes(s) || s === style,
+                      );
+                      setActiveStars(next);
+                    }
+                  }
+
+                  function StarBadge({ entry, dim }: { entry: typeof STAR_ENTRIES[0]; dim?: boolean }) {
+                    const Icon = entry.icon;
+                    return (
+                      <button
+                        type="button"
+                        title={entry.label}
+                        onClick={() => toggleStar(entry.style)}
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-sm border transition-colors",
+                          dim
+                            ? "border-border-subtle bg-surface-1 opacity-40 hover:opacity-70"
+                            : "border-border-default bg-surface-2 hover:border-accent hover:bg-accent-soft",
+                        )}
+                      >
+                        <Icon size={14} fill={dim ? "none" : entry.color} style={{ color: entry.color }} />
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <div>
+                        <p className="mb-1.5 text-small text-text-secondary">In use</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {inUse.map((e) => <StarBadge key={e.style} entry={e} />)}
+                        </div>
+                      </div>
+                      {notInUse.length > 0 && (
+                        <div>
+                          <p className="mb-1.5 text-small text-text-tertiary">Not in use</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {notInUse.map((e) => <StarBadge key={e.style} entry={e} dim />)}
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars(["yellow"])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          1 star
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars(["yellow", "red", "orange", "green"])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          4 stars
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActiveStars([])}
+                          className="rounded-sm border border-border-subtle bg-surface-2 px-2.5 py-1 text-small text-text-secondary transition-colors hover:border-border-default hover:text-text-primary"
+                        >
+                          All
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Undo send */}
