@@ -126,20 +126,24 @@ These are known deferred items from completed epics. None block current function
 | 2 | **CFD option drag-reorder** | GripVertical icon is rendered but drag-and-drop is not wired. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
 | 3 | **CFD definition drag-reorder** | Same as above for field-level ordering. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
 | 4 | **Native date picker in FlagPicker** | Currently uses `<input type="date">` / `<input type="datetime-local">`. A styled calendar picker (react-day-picker or similar) is a cosmetic upgrade. Deferred from EP-2. | `src/components/` |
-| 5 | **Mobile shells (iOS / Android)** | Relay protocol is plain HTTPS + XChaCha20-Poly1305 blobs — mobile only needs HTTP polling, decryption, and the mutation format. Planned for EP-8. | — |
+| 5 | **Android shell** | iOS app is in progress (EP-8, Swift reimplementation sharing vault format). Android to follow. | — |
 | 6 | **Conflict resolution UI** | Conflicts are currently silent last-write-wins via Lamport ordering. No user-visible conflict chips or resolution UI. Planned for EP-9. | — |
 
 ---
 
-## Upcoming Epics
+## In Progress
 
-### EP-8 — Mobile (iOS, then Android)
+### EP-8 — iOS app
 
-- iOS app with FileProvider extension for vault access
-- Same data model and mutation format as desktop
-- Relay sync over HTTPS — no relay changes needed
+- Swift reimplementation sharing the Nexus vault format
+- FileProvider extension for native Files app access
+- Relay sync over HTTPS (same protocol as desktop)
 - Background push notifications for new messages
 - Android to follow
+
+---
+
+## Upcoming Epics
 
 ### EP-9 — Conflict resolution UI
 

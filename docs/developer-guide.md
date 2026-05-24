@@ -287,6 +287,8 @@ The vault database lives at `{vault_path}/.nexus/db.sqlite` and is encrypted wit
 | `tag_usage` | Denormalized tag count + lastUsedAt (for autocomplete) |
 | `message_bodies` | HTML body cache by body_ref |
 | `mutations` | Write-ahead log: kind, payload_json, device_id, lamport, relay_seq |
+| `rules` | Automation rules: conditions JSON, actions JSON, enabled, position |
+| `templates` | Email templates: name, subject, bodyHtml |
 | `messages_fts` | FTS5 virtual table (subject + notes full-text search) |
 | `contacts` | Contact records |
 | `contact_emails` / `contact_phones` | Contact email/phone lists |
@@ -358,13 +360,23 @@ export function actionForKey(key: string, keyBindings: ...): ShortcutAction | nu
 
 ### FTS5 search
 
-The `messages_fts` virtual table indexes `subject` and `notes`. It's updated by triggers in `schema.rs`. To search:
+The `messages_fts` virtual table indexes `subject`, `notes`, `from_addr`, `to_addrs`, and tag/label names. It's updated by INSERT/UPDATE/DELETE triggers in `schema.rs`. A backfill migration populates it on first open.
+
+The `search_messages` IPC command routes to native FTS5 in Tauri mode and falls back to MiniSearch in web/dev mode. Use `src/storage/fts.ts` — do not call the IPC directly.
+
+**Field-prefix operators** (native FTS5 only):
+- `from:alice` — messages from addresses containing "alice"
+- `to:bob` — messages to addresses containing "bob"
+- `tag:urgent` — messages with tag containing "urgent"
+- `label:work` — messages with label containing "work"
+- `has:attachment` — messages with attachments
 
 ```rust
+// Native FTS5 query (commands.rs)
 self.conn.prepare(
     "SELECT m.id FROM messages_fts fts JOIN messages m ON m.id = fts.rowid
-     WHERE fts MATCH ?1 LIMIT 100"
-)?.query_map([query], ...)?
+     WHERE fts MATCH ?1 LIMIT ?2"
+)?.query_map([query, limit], ...)?
 ```
 
 ---
@@ -426,6 +438,120 @@ cargo build -p nexus-relay --release
 
 ---
 
+## Multi-Provider Support (EP-6+)
+
+### IMAP autodiscovery
+
+```ts
+// 1. Discover IMAP/SMTP settings from the domain
+const discovery = await discoverImapSettings("user@example.com");
+// → { imapHost, imapPort, imapSecurity, smtpHost, smtpPort, smtpSecurity }
+
+// 2. Test credentials
+const ok = await testImapConnection({ host, port, security, username, password });
+
+// 3. Add the account
+const { accountId, email } = await addImapAccount({ email, imapHost, imapPort, ... });
+```
+
+All three functions are in `src/storage/tauri.ts`. The Rust implementations live in `src-tauri/src/commands.rs`.
+
+### Outlook OAuth
+
+```ts
+// Opens browser for Microsoft OAuth; returns { accountId, email }
+const result = await startOutlookOAuth();
+```
+
+After OAuth completes, the account uses the IMAP/SMTP sync path with tokens stored in the macOS Keychain.
+
+### Sync workers
+
+Every provider account syncs via `sync_account_now(accountId)`. The Rust side dispatches by `provider_type` in the `accounts` table:
+- `"gmail"` → `GmailSyncer` (History API)
+- `"imap"` / `"outlook"` → `ImapProvider` (IMAP IDLE + FETCH)
+
+Background polling runs every 60s and reads `client_mode` fresh on each tick via `read_client_mode(vault_path)`.
+
+---
+
+## Local-First Mode (EP-6+)
+
+When `client_mode == "local-first"`, mutations trigger filesystem side-effects **in addition to** DB writes.
+
+### App → disk (`apply_local_first_fs` in `commands.rs`)
+
+Called at the end of `apply_mutation` for every mutation when in local-first mode:
+
+| Mutation | FS side-effect |
+|---|---|
+| `CREATE_FOLDER` | `fs::create_dir_all(mail_root/diskPath)` |
+| `RENAME_FOLDER` | `fs::rename(old_dir, new_dir)` + bulk `UPDATE messages SET eml_path` |
+| `MOVE_TO_FOLDER` | `fs::rename(old_eml_path, new_folder/filename.eml)` + `UPDATE messages SET eml_path` |
+
+EML files are written inside the DB transaction during sync via `write_eml_file()` in `src-tauri/src/gmail/sync.rs`.
+
+### Disk → app (FS watcher → mutations)
+
+The `notify` crate watcher (`src-tauri/src/watcher/`) emits `vault:hydrate-needed` events when files change. Expected changes (tagged by the app) are ignored to prevent loops.
+
+### Client mode lifecycle
+
+```rust
+// Read from .nexus-mode file (used at startup + on every poll tick)
+pub fn read_client_mode(vault_path: &str) -> String { ... }
+
+// IPC: get current mode
+pub async fn get_client_mode(state: State<AppState>) -> Result<String, String>
+
+// IPC: set mode + persist to .nexus-mode + create mail/ dir if local-first
+pub async fn set_client_mode(mode: String, state: State<AppState>) -> Result<(), String>
+```
+
+Frontend: `src/lib/clientMode.ts` provides `loadClientMode()` / `saveClientMode()` over `localStorage`. `VaultSetup.tsx` calls `setClientModeIpc()` on mode selection.
+
+---
+
+## Rules and Templates (EP-7+)
+
+### Rules
+
+Rules fire once when a message is inserted. The engine runs in `apply_rules_to_message()` in `src-tauri/src/db/queries.rs`, called by `upsert_message_from_gmail()` on every inbound message.
+
+**IPC:**
+```ts
+const rules = await getRules(vaultId);
+await saveRule(vaultId, rule);      // create or update
+await deleteRule(ruleId, vaultId);
+```
+
+**Mutation helpers** (always use these — not the IPC directly):
+```ts
+saveRuleMutation(rule)       // in src/state/mutations.ts
+deleteRuleMutation(ruleId)
+```
+
+**UI:** `RulesSettings.tsx` + `RuleEditorDialog.tsx` in `src/components/settings/`.
+
+### Templates
+
+**IPC:**
+```ts
+const templates = await getTemplates(vaultId);
+await saveTemplate(vaultId, template);
+await deleteTemplate(templateId, vaultId);
+```
+
+**Mutation helpers:**
+```ts
+saveTemplateMutation(template)
+deleteTemplateMutation(templateId)
+```
+
+**UI:** `TemplatesSettings.tsx` in `src/components/settings/`. Composer toolbar "Insert template" button in `EmailComposerPanel.tsx`.
+
+---
+
 ## Known Gotchas
 
 **Non-Send VaultDb across async:** `VaultDb` wraps `rusqlite::Connection` which contains `RefCell<LruCache>` — not `Send`. Never hold a `&VaultDb` across an `.await` point in a Tokio future. Pattern: pass `db_path: &str`, open a fresh connection inside the async fn after all awaits. See `src-tauri/src/relay/client.rs` for an example.
@@ -439,3 +565,5 @@ cargo build -p nexus-relay --release
 **Gmail OAuth redirect URI:** The OAuth flow opens a local HTTP listener on an ephemeral port. Google requires `http://localhost` (without a port number) in the authorized redirect URIs list, not `http://localhost:PORT`. A specific port will cause `redirect_uri_mismatch`.
 
 **pnpm workspace:** Always run `pnpm install` from the repository root. The `relay-server/` crate has its own `Cargo.lock` and is a separate Cargo workspace.
+
+**EmailViewerPanel / EmailBody:** Body rendering uses `contentDocument.write()` + `ResizeObserver` (not `srcDoc`/`onLoad`). The `bodyHtml` state is `string | null` — `null` = loading (show spinner), `""` = no body (show snippet), non-empty string = render in `EmailBody`. Do not revert to `srcDoc` — it breaks the image-blocking and auto-height logic.

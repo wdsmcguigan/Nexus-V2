@@ -234,6 +234,15 @@ in `custom_field_values(message_id, field_id, value_text, value_number,
 value_date, value_bool)` for fast indexed filter.
 **Lives in**: `src/storage/local.ts` (Epic 0).
 
+### CMM — Client Mode
+**Is**: Application-level switch between two sync models, persisted per vault.
+- `"traditional"` — cloud-first. Provider (Gmail/IMAP) is the primary source of truth. Mutations write to DB only; no filesystem side-effects.
+- `"local-first"` — disk-first. Maildir `.eml` tree is canonical. Mutations write to DB **and** trigger FS side-effects (rename/move/create). Manual file moves in Finder generate equivalent mutations via the `notify` watcher.
+**Lives in**: `AppState.client_mode: Mutex<String>` (Rust), persisted to `{vault_path}/.nexus-mode` file. Frontend: `src/lib/clientMode.ts` (`loadClientMode()` / `saveClientMode()`).
+**IPC**: `get_client_mode`, `set_client_mode` in `src-tauri/src/commands.rs`.
+**Set during**: `VaultSetup` onboarding (mode selection step) and can be changed in Settings.
+**See also**: `VLT`, `WF-FS-RECONCILE-APP-TO-DISK`, `WF-FS-RECONCILE-DISK-TO-APP`.
+
 ### RULE — Automation Rule
 **Is**: A saved automation that fires when an inbound message matches one or more conditions. Conditions test message fields (from, subject, has_attachment, label, tag) with string operators (contains, equals, starts_with, not_contains) combined with AND or OR logic. Actions include ADD_LABEL, REMOVE_LABEL, SET_STATUS, SET_PRIORITY, ADD_TAG, STAR, MARK_READ, ARCHIVE, TRASH.
 **Is NOT**: A filter (`MetadataFilter` — synchronous, query-time); rules fire once at ingest time.
@@ -433,6 +442,22 @@ the chip can render. **Always disambiguate** in code/conversation:
 #### SET-CUSTOM-FIELDS — Custom field definitions UI (Epic 2)
 **Is**: Settings surface to create/edit/delete `CFD`s.
 
+#### SET-RULES — Automation rules UI (EP-7)
+**Is**: Settings surface to create/edit/delete/reorder `RULE`s. Opens `RuleEditorDialog` for condition + action builder.
+**Lives in**: `src/components/settings/RulesSettings.tsx`, `src/components/settings/RuleEditorDialog.tsx`.
+
+#### SET-TEMPLATES — Email templates UI (EP-7)
+**Is**: Settings surface to create/edit/delete `TMPL`s.
+**Lives in**: `src/components/settings/TemplatesSettings.tsx`.
+
+### Email body rendering
+
+#### EmailBody — iframe-based HTML email renderer
+**Is**: Component that renders sanitized HTML email bodies inside a sandboxed iframe using `contentDocument.write()` + `ResizeObserver` for auto-height. Applies DOMPurify sanitization and optionally strips remote images for tracking protection.
+**Is NOT**: The full `EmailViewerPanel` (which handles loading state, thread display, metadata). `EmailBody` is only the iframe rendering primitive.
+**Lives in**: `src/components/email/EmailViewerPanel.tsx` (inline component). `bodyHtml` state uses `string | null`: `null` = loading, `""` = no body/show snippet, `string` = render.
+**See also**: `LST-VIEWER`.
+
 ---
 
 ## 5. Workflows / processes
@@ -504,10 +529,11 @@ groupable by any indexed axis.
 | **EP-3** | FTS index + contacts (web) | Shipped | Soundminer-class search |
 | **EP-4** | Tauri shell (desktop) + Gmail sync | Shipped | Local-first thesis |
 | **EP-5** | E2EE relay sync | Shipped | Cross-device |
-| **EP-6** | Provider workers (Gmail / JMAP / IMAP) | Planned | Real mail |
-| **EP-7** | Mobile (iOS, then Android) | Planned | Phone-first users |
-| **EP-8** | Conflict UI + advanced sync state | Planned | Edge-case polish |
-| **EP-9** | Encrypted FTS hardening | Planned | Trust |
+| **EP-6** | Multi-provider mail (Gmail / IMAP / SMTP / Outlook) + local-first EML writing | Shipped | Real mail |
+| **EP-7** | Native FTS5, rules engine & quick wins | Shipped | Power tools |
+| **EP-8** | iOS app (Swift, shares vault format) | In progress | Phone-first users |
+| **EP-9** | Conflict UI + advanced sync state | Planned | Edge-case polish |
+| **EP-10** | Encrypted FTS hardening | Planned | Trust |
 
 Full per-epic scope lives in `docs/architecture.md`.
 

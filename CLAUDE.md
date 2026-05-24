@@ -8,7 +8,7 @@ Quick orientation for AI coding agents and new contributors. Read this first; di
 
 Nexus is a **local-first, privacy-focused email client for macOS** built with Tauri 2 (Rust backend) and React 18 (TypeScript frontend). All mail data lives in a local SQLite vault encrypted with SQLCipher. Cross-device sync is optional and E2EE via a self-hosted relay server.
 
-Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay), EP-6 (multi-provider: IMAP/SMTP/Outlook), EP-7 (FTS5 + rules engine + quick wins).
+Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay), EP-6 (multi-provider: IMAP/SMTP/Outlook), EP-7 (FTS5 + rules engine + quick wins), EP-8 (iOS Swift app — partial; shares vault format via relay sync).
 
 ---
 
@@ -98,6 +98,12 @@ UI event
 
 All 44+ commands are registered in `src-tauri/src/lib.rs:invoke_handler!` and implemented in `src-tauri/src/commands.rs`. Every command needs a typed wrapper in `src/storage/tauri.ts`.
 
+EP-6 additions: `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `start_outlook_oauth`, `sync_account_now`, `disconnect_account`
+
+EP-7 additions: `search_messages`, `get_rules`, `save_rule`, `delete_rule`, `get_templates`, `save_template`, `delete_template`, `send_unsubscribe`, `get_client_mode`, `set_client_mode`
+
+EP-7E additions: `get_account_preferences`, `save_account_preferences`, `get_account_signature`, `save_account_signature`, `get_vacation_responder`, `save_vacation_responder`, `delete_vacation_responder`
+
 ### Non-Send VaultDb across async
 
 `VaultDb` wraps `rusqlite::Connection` which contains `RefCell<LruCache>` — it is **not `Send`**. You cannot hold a `&VaultDb` reference across an `.await` point in a Tokio task. Instead, pass a `db_path: &str` and open a fresh `VaultDb::open()` inside the async function after all await points.
@@ -125,6 +131,23 @@ async fn good(db_path: &str) {
 
 Every mutation is stamped with `deviceId` (stable per device, stored in `devices` table) and a `lamport` counter (monotonically increasing logical clock). These flow from `recordMutation()` → IPC → `mutations.device_id` / `mutations.lamport` columns. The relay uses them for causal ordering across devices.
 
+### Local-First mode and filesystem synchronization
+
+`AppState.client_mode: Mutex<String>` holds `"traditional"` or `"local-first"`. The value persists to `{vault_path}/.nexus-mode` on disk and is loaded by `read_client_mode()` at startup and on every background poll.
+
+In `"local-first"` mode, `apply_mutation` in `commands.rs` runs DB writes **then** calls `apply_local_first_fs()` for filesystem side-effects:
+- `MOVE_TO_FOLDER` → `fs::rename(.eml)` to the new folder directory
+- `RENAME_FOLDER` → `fs::rename(directory)` + bulk UPDATE of `eml_path` in DB
+- `CREATE_FOLDER` → `fs::create_dir_all`
+
+Expected FS changes are tagged with a cookie so the `notify` watcher ignores them and doesn't generate duplicate mutations.
+
+In `"traditional"` mode only the DB is written; no filesystem side-effects occur.
+
+The `GmailSyncer` (and all sync workers) receive `client_mode` at construction time and call `write_eml_file()` inside the DB transaction for every newly inserted message when in local-first mode.
+
+**Frontend**: `VaultSetup.tsx` has a three-step onboarding flow: vault path → mode selection (Traditional / Local-First) → connect account. `setClientModeIpc(mode)` is called on selection and again in `handleVaultContinue` for returning users (via `loadClientMode()` from `src/lib/clientMode.ts`).
+
 ---
 
 ## Environment Setup
@@ -136,9 +159,70 @@ cp .env.example .env
 # NEXUS_GMAIL_CLIENT_SECRET=your-client-secret
 ```
 
-Gmail OAuth requires a Google Cloud project with the Gmail API enabled and `http://localhost:PORT` added as an authorized redirect URI. See `docs/developer-guide.md` for full setup steps.
+Gmail OAuth requires a Google Cloud project with the Gmail API enabled and `http://localhost` (no port number) added as an authorized redirect URI. See `docs/developer-guide.md` for full setup steps.
 
 ---
+## General Rules
+
+### 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+### 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+### 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+### 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 ## Where to Find Things
 
@@ -172,6 +256,8 @@ Gmail OAuth requires a Google Cloud project with the Gmail API enabled and `http
 **pnpm workspace:** This is a pnpm workspace. Always run `pnpm install` from the root, not inside subdirectories. The `relay-server/` Rust crate is a separate Cargo workspace (its own `Cargo.lock`), not part of the root pnpm workspace.
 
 **Rules/Templates mutation pipeline:** Rules and templates must be saved via `saveRuleMutation()` / `saveTemplateMutation()` / `deleteRuleMutation()` / `deleteTemplateMutation()` in `src/state/mutations.ts` — NOT by calling the IPC functions directly. Direct IPC calls bypass the local store and the relay queue.
+
+**EmailViewerPanel rendering:** The email body is rendered by the `EmailBody` component using `contentDocument.write()` + `ResizeObserver` for reliable iframe sizing and DOMPurify sanitization. The `bodyHtml` state is `string | null` — `null` = loading, `""` = no body (show snippet), string = render. Do not revert to `srcDoc`/`onLoad` — that pattern broke image blocking and produced layout pop-in.
 
 ---
 
