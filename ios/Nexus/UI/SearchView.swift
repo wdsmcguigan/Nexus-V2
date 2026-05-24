@@ -49,7 +49,7 @@ struct SearchView: View {
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 48))
                 .foregroundColor(.secondary)
-            Text("No results for "\(query)"")
+            Text("No results for \"\(query)\"")
                 .font(.headline)
         }
         .padding()
