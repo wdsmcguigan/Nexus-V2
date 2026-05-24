@@ -53,6 +53,12 @@ are non-negotiable; the **phasing** of how we deliver them is flexible.
     Apple / others (JMAP), legacy (IMAP). Provider-foreign metadata
     (`STA`/`PRI`/`CFD`/`STR`/`TAG`/`NTE`) is NEXUS-local; only `LBL` +
     `\Flagged` + `\Seen` sync to providers.
+11. **Client mode flexibility** — Two orthogonal sync models, selectable
+    per vault: `"traditional"` (cloud-first; Gmail/IMAP as primary source of
+    truth) and `"local-first"` (disk-first; Maildir `.eml` tree is canonical,
+    mutations drive both DB and filesystem). Choice persists to
+    `{vault_path}/.nexus-mode`. Both modes share the same schema and mutation
+    log; mode only affects whether FS side-effects fire in `apply_mutation`.
 
 ---
 
@@ -188,6 +194,22 @@ type CustomFieldValue =
   | string[]                   // multi-select option ids
   | { type: "person", addr: string, name?: string }
   | null;
+
+// ───── Automation ─────
+
+type Rule = {
+  id, vaultId, name, enabled: boolean, position: number,
+  conditions: RuleCondition[],
+  conditionLogic: "AND" | "OR",
+  actions: RuleAction[],
+};
+
+type Template = {
+  id, vaultId, name,
+  subject: string,
+  bodyHtml: string,
+  createdAt: number,
+};
 
 // ───── Mutation log (the sync substrate) ─────
 
@@ -338,17 +360,23 @@ vault appears in Files app; same reconciler logic, OS-mediated.
 
 ---
 
-## 9. Provider adapters (Epic 6)
+## 9. Provider adapters (EP-6, shipped)
 
-- **JMAP** (Fastmail, Stalwart, Apache James) — preferred. Native
-  multi-mailbox (= label) semantics. RFC 8621.
-- **Gmail API** — first-class. Map Gmail labels ↔ NEXUS `LBL`. Map
-  Gmail's INBOX/SENT/TRASH/SPAM/DRAFT/STARRED/IMPORTANT → our system
-  labels. User-created Gmail labels → user `LBL` (nesting preserved).
-- **IMAP** (legacy) — last resort. Each IMAP folder maps to a NEXUS
-  `LBL` (because IMAP is single-folder-per-message and we still want
-  other labels). Default user folder for incoming IMAP messages:
-  `Inbox stuff/<account-name>/<year>/<month>/`.
+Four adapters are shipped. All generate `RECEIVE_FROM_PROVIDER` mutations on inbound; outbound flows through the provider's send API.
+
+- **Gmail API** — first-class. OAuth 2.0; tokens in macOS Keychain. Initial
+  sync via `messages.list` + `messages.get`; incremental via History API
+  (`historyId` cursor). MIME parsed in Rust. Maps Gmail labels ↔ NEXUS `LBL`.
+  Push-back: `messages.modify` for label changes; archive/trash via label ops.
+- **IMAP/SMTP** (shipped EP-6) — autodiscovery via MX + provider lookup; falls
+  back to manual config. IMAP IDLE for push notifications. TLS / STARTTLS / plain
+  SMTP for outbound. Each IMAP folder maps to a NEXUS `FLD` + `LBL`. Credentials
+  stored in Keychain.
+- **Outlook / Microsoft 365** (shipped EP-6) — Microsoft OAuth 2.0; account auto-
+  configured for IMAP/SMTP after auth. Same IMAP/SMTP sync path underneath.
+- **JMAP** (Fastmail, Stalwart, Apache James) — skeleton only (EP-6 stub).
+  Full implementation planned. Native multi-mailbox semantics align perfectly
+  with NEXUS `LBL` model.
 
 Push-back to provider (`WF-LABEL-PROVIDER-SYNC`):
 - Gmail: `messages.modify`; folder moves are local-only.
@@ -385,8 +413,8 @@ End-game: zero-knowledge E2EE.
 | 0 | Data model + mutation log + local store via OPFS. Master key in `crypto.subtle` + browser keychain. At-rest encryption in OPFS. No over-the-wire concerns yet. | Web (`EP-0`–`EP-3`) |
 | 1 | Vault on real disk + SQLCipher + FS watcher. Single-device. Full at-rest encryption. | Tauri (`EP-4`) |
 | 2 | Mutation relay with E2EE payloads. Two-device sync. | `EP-5` |
-| 3 | Gmail + JMAP + IMAP adapters. Encrypted ingestion. | `EP-6` |
-| 4 | Native iOS/Android shells with FileProvider extensions. | `EP-7` |
+| 3 | Gmail + IMAP + Outlook adapters. Encrypted ingestion. | `EP-6` |
+| 4 | Native iOS shell with FileProvider extension. | `EP-8` |
 
 We never put plaintext PII on the relay server, even in Phase 0/1 — the
 contract is set from day one.
@@ -414,18 +442,19 @@ and indexes are committed up front, because schema migration + index
 backfill on encrypted, multi-device synced data is the most expensive
 thing we can defer.
 
-| Epic | Title | Scope summary | Validates |
-|---|---|---|---|
-| `EP-0` | Data model overhaul (web) | Replace flat fixtures with the full metadata-axis schema (`FLD`, `LBL`, `TAG`, `STA`, `PRI`, `STR`, `FLG`, `PIN`, `MUT`, `NTE`, `CFD` + `CFV`). All indexes in place. Mutation log covers every axis. CRUD UI for high-frequency axes. Persist to OPFS. | Power-user mental model + filter speed |
-| `EP-1` | Filter & saved-views (web) | `queryMessages` filter builder + `VW-SAVED`. Surface in `PAL-COMMAND` + a real Search/Filter panel. Drives `VW-KANBAN-BY-STATUS` and `VW-TABLE-CUSTOM-FIELDS`. | Power-user feel |
-| `EP-2` | `CFD` UI + `NTE` editor + `FLG`-with-due-date | `SET-CUSTOM-FIELDS` settings surface. `INS-CUSTOM-FIELDS` per-message editors. `INS-NOTE-EDITOR`. `INS-FLAG-PICKER` with date + reminder. (Schema landed in `EP-0`.) | Airtable-grade expressivity |
-| `EP-3` | FTS index (web) | SQLite-FTS5 via wa-sqlite/sql.js or OPFS-SQLite. Subject + body + `NTE` full-text. Combined with `EP-1` filters in a single query plan. | Soundminer-class search |
-| `EP-4` | Tauri shell (desktop) | Tauri 2 wrapper. Vault on real disk. SQLCipher. `notify` crate FS watcher. Bidirectional reflection working end-to-end on macOS. | Local-first thesis |
-| `EP-5` | Sync relay (Replicache substrate) | NEXUS-hosted relay. E2EE mutation stream. Two-device sync (desktop ↔ desktop). | Cross-device |
-| `EP-6` | Provider workers | Gmail API + JMAP adapter; IMAP fallback. Reconciler. Outbound writes. Provider-foreign axes stay NEXUS-local. | Real mail |
-| `EP-7` | Mobile (iOS, then Android) | Native shell with FileProvider extension. Same data model, OS-mediated FS visibility. | Phone-first users |
-| `EP-8` | Conflict UI + advanced sync state | `WSP-CONFLICT-CHIP`; resolve sheet; per-folder sync log. | Edge-case polish |
-| `EP-9` | Encrypted FTS hardening | Move from at-rest to true zero-knowledge encrypted index. Audit. Pen-test. | Trust |
+| Epic | Title | Status | Scope summary | Validates |
+|---|---|---|---|---|
+| `EP-0` | Data model overhaul (web) | Shipped | Full metadata-axis schema (`FLD`, `LBL`, `TAG`, `STA`, `PRI`, `STR`, `FLG`, `PIN`, `MUT`, `NTE`, `CFD` + `CFV`). All indexes. Mutation log covers every axis. OPFS persist. | Power-user mental model + filter speed |
+| `EP-1` | Filter & saved-views (web) | Shipped | `queryMessages` filter builder + `VW-SAVED`. Kanban + table views. | Power-user feel |
+| `EP-2` | `CFD` UI + `NTE` editor + `FLG`-with-due-date | Shipped | `SET-CUSTOM-FIELDS`, `INS-CUSTOM-FIELDS`, `INS-NOTE-EDITOR`, `INS-FLAG-PICKER`. | Airtable-grade expressivity |
+| `EP-3` | FTS index + contacts (web) | Shipped | MiniSearch BM25; body store; contacts panel; 118 tests. | Soundminer-class search |
+| `EP-4` | Tauri shell + Gmail sync (desktop) | Shipped | Tauri 2. SQLCipher vault. `notify` FS watcher. Gmail OAuth + initial/incremental sync. | Local-first thesis |
+| `EP-5` | E2EE relay sync | Shipped | XChaCha20-Poly1305 mutations. Embedded + standalone relay. 30s sync loop. Enrollment codes. | Cross-device |
+| `EP-6` | Multi-provider mail | Shipped | Gmail History API, IMAP/IDLE/SMTP, Outlook OAuth, provider autodiscovery. Local-first EML writing. Client mode (traditional / local-first). | Real mail |
+| `EP-7` | Native FTS5, rules engine & quick wins | Shipped | SQLite FTS5 with field-prefix operators. Automation rules engine. Email templates. List-Unsubscribe. System notifications. Multi-account From selector. | Power tools |
+| `EP-8` | iOS app | In progress | Swift reimplementation sharing vault format. FileProvider extension. Relay sync over HTTPS. | Phone-first users |
+| `EP-9` | Conflict UI + advanced sync state | Planned | `WSP-CONFLICT-CHIP`; resolve sheet; per-folder sync log. | Edge-case polish |
+| `EP-10` | Encrypted FTS hardening | Planned | Zero-knowledge encrypted index. Audit. Pen-test. | Trust |
 
 Per-epic detailed checklists live alongside this doc once an epic
 becomes the active focus (e.g. `docs/epic-0-checklist.md`).

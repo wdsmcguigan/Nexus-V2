@@ -7,7 +7,7 @@ Welcome to Nexus, a local-first email client for macOS. This guide walks you thr
 ## Table of Contents
 
 1. [First Launch — Creating Your Vault](#1-first-launch--creating-your-vault)
-2. [Connecting Gmail](#2-connecting-gmail)
+2. [Connecting Email Accounts](#2-connecting-email-accounts)
 3. [Navigating the Interface](#3-navigating-the-interface)
 4. [Reading and Writing Email](#4-reading-and-writing-email)
 5. [Organizing Your Email](#5-organizing-your-email)
@@ -32,38 +32,56 @@ A vault is a folder that Nexus uses to store a local database of your messages, 
 - Avoid network drives or iCloud Drive if you want offline access to work reliably
 
 **After creating the vault:**
-Nexus will open to the main interface. Your vault is empty until you connect an email account.
+Nexus asks you to choose how you want to use it.
+
+### Choosing a mode
+
+**Traditional Client** — Use Nexus as a fast Gmail/IMAP interface. Mail syncs from your provider's servers. No local file copies beyond the database.
+
+**Local-First & Private** *(recommended)* — Your mail is mirrored to real `.eml` files in folders you can browse in Finder, back up, or move around. Changes you make in Finder (moving files between folders) sync back to Nexus automatically. Best for offline access and local archiving.
+
+You can change your mode later in **Settings → Preferences**.
 
 ---
 
-## 2. Connecting Gmail
+## 2. Connecting Email Accounts
 
-Nexus currently supports Gmail. More providers (JMAP-based services like Fastmail, and IMAP) are planned.
+Nexus supports Gmail, Outlook/Microsoft 365, and any IMAP/SMTP provider. You can connect multiple accounts to one vault.
 
-**To connect your Gmail account:**
+### Gmail
 
-1. Open **Settings** (click the settings icon or press `⌘,`)
-2. Go to the **Accounts** section
-3. Click **"Connect Gmail"**
-4. A browser window opens asking you to sign in to Google and authorize Nexus
-5. Grant the requested permissions (read and manage mail)
-6. Nexus begins syncing your mail in the background
+1. Open **Settings** (`⌘,`) → **Accounts** → **Add account** → **Gmail**
+2. A browser window opens asking you to sign in to Google and authorize Nexus
+3. Grant the requested permissions (read and manage mail)
+4. Nexus begins syncing your mail in the background
 
-**What Nexus syncs from Gmail:**
-- Your messages (subject, sender, recipients, body, date)
-- Your Gmail labels (mapped to Nexus labels)
+Nexus uses Gmail's **History API** for incremental sync — only new changes are fetched after the initial load.
+
+### Outlook / Microsoft 365
+
+1. **Settings** → **Accounts** → **Add account** → **Outlook**
+2. A browser window opens for Microsoft sign-in
+3. After authorization, Nexus auto-configures IMAP and SMTP for your account
+
+### IMAP / SMTP (any provider)
+
+Works with Fastmail, iCloud Mail, ProtonMail Bridge, self-hosted mail servers, and any standard IMAP provider.
+
+1. **Settings** → **Accounts** → **Add account** → **IMAP**
+2. Enter your email address — Nexus will try to auto-discover the server settings
+3. If auto-discovery fails, enter manually: IMAP host + port (usually 993), security (TLS/STARTTLS), SMTP host + port, and your password
+4. Click **Test** to verify the connection, then **Save**
+
+### What syncs from providers
+
+- Messages (subject, sender, recipients, body, date)
+- Provider labels/folders (mapped to Nexus labels)
 - Read/unread state
 
-**What stays local to Nexus (never sent to Google):**
-- Workflow status (e.g., "In Progress", "Done")
-- Tags
-- Priority ratings
-- Star styles
-- Notes
-- Custom fields
-- Snooze dates
+### What stays local to Nexus
 
-Nexus uses Gmail's **History API** for incremental sync — only new changes are fetched after the initial load, so ongoing sync is fast and efficient.
+These are never sent to your email provider:
+- Workflow status, tags, priority ratings, star styles, notes, custom fields, snooze dates
 
 ---
 
@@ -157,6 +175,37 @@ Each message has a free-form notes field (markdown supported). Write anything �
 
 **Pin** a message to keep it at the top of any list view.
 **Mute** a thread to stop it from appearing in Inbox even when new replies arrive.
+
+### Automation Rules
+
+Automatically apply labels, status, priority, tags, and other actions to incoming messages based on conditions.
+
+**To create a rule:**
+1. Open **Settings → Rules**
+2. Click **"Add rule"**
+3. Set one or more conditions — you can match on sender, subject, whether the message has attachments, existing labels, or tags, using AND or OR logic
+4. Pick one or more actions (add label, set status, mark read, archive, etc.)
+5. Save and enable the rule
+
+Rules fire once when a new message arrives. You can reorder rules (earlier rules run first) and enable/disable them individually.
+
+### Email Templates
+
+Save reusable email subjects and bodies that you can insert into the composer with one click.
+
+**To create a template:**
+1. Open **Settings → Templates** → **"Add template"**
+2. Give it a name, subject, and body
+3. Save
+
+**To use a template:**
+1. Open the composer (`⌘N`, Reply, or Forward)
+2. Click the template icon in the toolbar
+3. Select a template — the subject and body are filled in automatically. You can still edit before sending.
+
+### Unsubscribing from mailing lists
+
+When a message has a machine-readable unsubscribe link, Nexus shows an **Unsubscribe** button at the bottom of the email viewer. Click it to unsubscribe in one step using the RFC 8058 one-click protocol (or open the unsubscribe URL in your browser if one-click isn't supported).
 
 ---
 
