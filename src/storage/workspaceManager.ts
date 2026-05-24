@@ -36,6 +36,8 @@ export interface WorkspaceSnapshot {
   filteredViewBehavior: "replace" | "new-panel";
   /** When true, the list collapses messages into one row per threadId (default: true). */
   threadedView: boolean;
+  /** When false, message rows never show the body snippet preview (default: true). */
+  showSnippets: boolean;
 }
 
 export interface WorkspacesData {
@@ -83,5 +85,6 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     tableColumnWidths: {},
     filteredViewBehavior: "replace",
     threadedView: true,
+    showSnippets: true,
   };
 }

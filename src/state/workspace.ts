@@ -286,6 +286,10 @@ interface WorkspaceState {
   threadedView: boolean;
   toggleThreadedView: () => void;
 
+  // Snippet visibility (workspace-scoped, independent of density)
+  showSnippets: boolean;
+  setShowSnippets: (v: boolean) => void;
+
   // Client mode (installation-level, not per-workspace)
   clientMode: ClientMode;
   setClientMode: (mode: ClientMode) => void;
@@ -328,6 +332,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnWidths: s.tableColumnWidths,
       filteredViewBehavior: s.filteredViewBehavior,
       threadedView: s.threadedView,
+      showSnippets: s.showSnippets,
     };
     const workspaces = s.workspaces.map((w) =>
       w.id === s.activeWorkspaceId ? updated : w,
@@ -365,6 +370,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnWidths: mode === "clone" ? { ...s.tableColumnWidths } : {},
       filteredViewBehavior: s.filteredViewBehavior,
       threadedView: mode === "clone" ? s.threadedView : true,
+      showSnippets: mode === "clone" ? s.showSnippets : true,
     };
     const workspaces = [...s.workspaces, newWs];
     set({ workspaces });
@@ -403,6 +409,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tableColumnWidths: ws.tableColumnWidths ?? {},
       filteredViewBehavior: ws.filteredViewBehavior ?? "replace",
       threadedView: ws.threadedView ?? true,
+      showSnippets: ws.showSnippets ?? true,
       // Panel associations from the old layout are invalid after fromJSON —
       // clear so no stale ownership blocks the new layout's inspector panels.
       viewerInspectorMap: {},
@@ -558,6 +565,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   threadedView: _activeWs.threadedView ?? true,
   toggleThreadedView: () => set((s) => ({ threadedView: !s.threadedView })),
+
+  // ── Snippet visibility ─────────────────────────────────────────────────────
+
+  showSnippets: _activeWs.showSnippets ?? true,
+  setShowSnippets: (v) => set({ showSnippets: v }),
 
   // ── Client mode (installation-level, not in WorkspaceSnapshot) ────────────
 

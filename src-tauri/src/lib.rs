@@ -18,6 +18,8 @@ pub struct AppState {
     pub client_mode: Mutex<String>,
     pub relay: Arc<Mutex<relay::RelayState>>,
     pub token_refresh_lock: AsyncMutex<()>,
+    /// Whether desktop notifications are enabled (controlled by frontend preference).
+    pub notifications_enabled: Mutex<bool>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -33,6 +35,7 @@ pub fn run() {
             client_mode: Mutex::new("traditional".to_string()),
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
             token_refresh_lock: AsyncMutex::new(()),
+            notifications_enabled: Mutex::new(true),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
@@ -74,6 +77,7 @@ pub fn run() {
             commands::send_unsubscribe,
             commands::get_client_mode,
             commands::set_client_mode,
+            commands::set_notification_pref,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously

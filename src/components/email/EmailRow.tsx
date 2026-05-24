@@ -39,6 +39,8 @@ interface EmailRowProps {
   /** Pre-resolved status (null if not set). */
   status: Status | null;
   threadCount?: number;
+  /** When false, never show body snippet regardless of density (default: true). */
+  showSnippets?: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onFocus: () => void;
   onToggleStar: () => void;
@@ -95,6 +97,7 @@ export const EmailRow = React.memo(function EmailRow({
   labels,
   status,
   threadCount,
+  showSnippets = true,
   onSelect,
   onFocus,
   onToggleStar,
@@ -102,7 +105,7 @@ export const EmailRow = React.memo(function EmailRow({
   onMoveToFolder,
 }: EmailRowProps) {
   const showAvatar = density !== "compact";
-  const showSnippet = density !== "compact";
+  const showSnippet = density !== "compact" && showSnippets;
   const showStatusTags = density === "comfortable" || density === "cozy";
   const cozy = density === "cozy";
   const compact = density === "compact";

@@ -46,6 +46,7 @@ import {
   startEnrollmentSession,
   startRelayHosting,
   resetVault,
+  setNotificationPref,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -54,6 +55,8 @@ import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
+import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
+import type { AppPreferences } from "@/lib/appPreferences";
 
 // ─── Section header ───────────────────────────────────────────────────────────
 
@@ -657,6 +660,41 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const filteredViewBehavior = useWorkspace((s) => s.filteredViewBehavior);
   const setFilteredViewBehavior = useWorkspace((s) => s.setFilteredViewBehavior);
   const clientMode = useWorkspace((s) => s.clientMode);
+  const threadedView = useWorkspace((s) => s.threadedView);
+  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
+  const showSnippets = useWorkspace((s) => s.showSnippets);
+  const setShowSnippets = useWorkspace((s) => s.setShowSnippets);
+
+  // App-global preferences (not workspace-scoped)
+  const [notificationsEnabled, setNotificationsEnabledState] = React.useState(
+    () => getAppPreferences().notificationsEnabled,
+  );
+  const [undoSendSeconds, setUndoSendSecondsState] = React.useState(
+    () => getAppPreferences().undoSendSeconds,
+  );
+  const [markReadAfterMs, setMarkReadAfterMsState] = React.useState(
+    () => getAppPreferences().markReadAfterMs,
+  );
+
+  function updatePref<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]) {
+    saveAppPreferences({ [key]: value });
+  }
+
+  function handleNotificationsToggle(enabled: boolean) {
+    setNotificationsEnabledState(enabled);
+    updatePref("notificationsEnabled", enabled);
+    if (isTauri()) setNotificationPref(enabled).catch(console.warn);
+  }
+
+  function handleUndoSendChange(s: AppPreferences["undoSendSeconds"]) {
+    setUndoSendSecondsState(s);
+    updatePref("undoSendSeconds", s);
+  }
+
+  function handleMarkReadChange(ms: AppPreferences["markReadAfterMs"]) {
+    setMarkReadAfterMsState(ms);
+    updatePref("markReadAfterMs", ms);
+  }
 
   const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates">("accounts");
 
@@ -900,6 +938,147 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
               <p className="px-4 pb-4 font-mono text-mono-xs text-text-muted">
                 ⌘/Ctrl+click always does the opposite of this setting.
               </p>
+
+              {/* Conversation view */}
+              <SectionHeader>Conversation view</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "Threaded" },
+                    { value: false, label: "Flat" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => { if (threadedView !== opt.value) toggleThreadedView(); }}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      threadedView === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Show snippets */}
+              <SectionHeader>Message snippets</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "Show" },
+                    { value: false, label: "Hide" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => setShowSnippets(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      showSnippets === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Undo send */}
+              <SectionHeader>Undo send</SectionHeader>
+              <div className="flex gap-1.5 px-4 pb-4">
+                {(
+                  [
+                    { value: 0 as const, label: "Off" },
+                    { value: 5 as const, label: "5s" },
+                    { value: 10 as const, label: "10s" },
+                    { value: 20 as const, label: "20s" },
+                    { value: 30 as const, label: "30s" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleUndoSendChange(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      undoSendSeconds === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Mark as read timing */}
+              <SectionHeader>Mark as read</SectionHeader>
+              <div className="flex flex-col gap-1 px-4 pb-4">
+                {(
+                  [
+                    { value: 0 as const, label: "Immediately" },
+                    { value: 1000 as const, label: "After 1 second" },
+                    { value: 3000 as const, label: "After 3 seconds" },
+                    { value: 10000 as const, label: "After 10 seconds" },
+                    { value: -1 as const, label: "Never" },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleMarkReadChange(opt.value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-sm border px-3 py-2 text-left transition-colors",
+                      markReadAfterMs === opt.value
+                        ? "border-accent bg-accent-soft"
+                        : "border-border-subtle bg-surface-2 hover:border-border-default",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "text-body",
+                        markReadAfterMs === opt.value ? "text-text-primary" : "text-text-secondary",
+                      )}
+                    >
+                      {opt.label}
+                    </div>
+                    {markReadAfterMs === opt.value && (
+                      <CheckCircle2 size={14} className="ml-auto shrink-0 text-accent" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Desktop notifications */}
+              <SectionHeader>Desktop notifications</SectionHeader>
+              <div className="flex gap-2 px-4 pb-4">
+                {(
+                  [
+                    { value: true, label: "On" },
+                    { value: false, label: "Off" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => handleNotificationsToggle(opt.value)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-sm border py-2 text-body transition-colors",
+                      notificationsEnabled === opt.value
+                        ? "border-accent bg-accent-soft text-text-primary"
+                        : "border-border-subtle bg-surface-2 text-text-tertiary hover:border-border-default hover:text-text-secondary",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

@@ -66,6 +66,10 @@ export async function setClientModeIpc(mode: "traditional" | "local-first"): Pro
   return invoke<void>("set_client_mode", { mode });
 }
 
+export async function setNotificationPref(enabled: boolean): Promise<void> {
+  return invoke<void>("set_notification_pref", { enabled });
+}
+
 export async function listAccounts(): Promise<unknown[]> {
   return invoke<unknown[]>("list_accounts");
 }

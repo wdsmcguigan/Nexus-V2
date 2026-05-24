@@ -47,6 +47,7 @@ import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
 import { pickPanelLink } from "@/design-system/tokens";
+import { getAppPreferences } from "@/lib/appPreferences";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
 
@@ -213,12 +214,14 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
 
-  // Auto-mark as read after 500ms — gives time to skip past without marking
+  // Auto-mark as read based on user preference (markReadAfterMs; -1 = never)
   React.useEffect(() => {
     if (!effectiveEmailId) return;
     const current = localStore.messages.get(effectiveEmailId);
     if (!current || current.flags.read) return;
-    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), 500);
+    const { markReadAfterMs } = getAppPreferences();
+    if (markReadAfterMs === -1) return;
+    const timer = setTimeout(() => readMessage(localStore, effectiveEmailId), markReadAfterMs);
     return () => clearTimeout(timer);
   }, [effectiveEmailId]);
 

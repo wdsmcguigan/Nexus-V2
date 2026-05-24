@@ -1683,10 +1683,25 @@ fn validate_unsubscribe_url(raw: &str) -> std::result::Result<reqwest::Url, Stri
 
 fn fire_notification(app: &tauri::AppHandle, count: u32) {
     use tauri_plugin_notification::NotificationExt;
+    let state = app.state::<crate::AppState>();
+    let enabled = state.notifications_enabled.lock().map(|g| *g).unwrap_or(true);
+    if !enabled {
+        return;
+    }
     let body = if count == 1 {
         "1 new message".to_string()
     } else {
         format!("{count} new messages")
     };
     let _ = app.notification().builder().title("Nexus").body(&body).show();
+}
+
+#[tauri::command]
+pub async fn set_notification_pref(
+    state: tauri::State<'_, crate::AppState>,
+    enabled: bool,
+) -> std::result::Result<(), String> {
+    let mut guard = state.notifications_enabled.lock().map_err(|e| e.to_string())?;
+    *guard = enabled;
+    Ok(())
 }

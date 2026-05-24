@@ -39,9 +39,9 @@ import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
 import { loadSignature } from "@/lib/signature";
+import { getAppPreferences } from "@/lib/appPreferences";
 
 const PANEL_ID = "composer";
-const COUNTDOWN_SECONDS = 5;
 const DRAFT_KEY_PREFIX = "nexus-draft-";
 
 interface DraftData {
@@ -361,6 +361,7 @@ export function EmailComposerPanel() {
   const [showTemplates, setShowTemplates] = React.useState(false);
   const templates = Array.from(localStore.templates?.values() ?? []);
   const [countdown, setCountdown] = React.useState(0);
+  const sendDurationRef = React.useRef<number>(5);
   const sendTimeoutRef = React.useRef<number | null>(null);
   const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
   const [schedulePickerOpen, setSchedulePickerOpen] = React.useState(false);
@@ -404,8 +405,14 @@ export function EmailComposerPanel() {
   }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive]);
 
   const startSend = React.useCallback(() => {
+    const seconds = getAppPreferences().undoSendSeconds;
+    sendDurationRef.current = seconds;
     setSending(true);
-    setCountdown(COUNTDOWN_SECONDS);
+    if (seconds === 0) {
+      doActualSend();
+      return;
+    }
+    setCountdown(seconds);
     const tick = (remaining: number) => {
       if (remaining <= 0) { doActualSend(); return; }
       sendTimeoutRef.current = window.setTimeout(() => {
@@ -413,10 +420,10 @@ export function EmailComposerPanel() {
         tick(remaining - 1);
       }, 1000);
     };
-    tick(COUNTDOWN_SECONDS);
+    tick(seconds);
     toast("Sending…", {
       action: { label: "Undo", onClick: () => undoSend() },
-      duration: COUNTDOWN_SECONDS * 1000,
+      duration: seconds * 1000,
     });
   }, [doActualSend]);
 
@@ -781,7 +788,7 @@ export function EmailComposerPanel() {
               className="relative flex h-ctrl-md items-center gap-2 rounded-sm border border-accent bg-accent-soft px-3 text-text-primary transition-colors duration-fast hover:bg-accent-ghost"
             >
               <span className="font-sans text-body-strong">Sending… {countdown}</span>
-              <CountdownRing total={COUNTDOWN_SECONDS} remaining={countdown} />
+              <CountdownRing total={sendDurationRef.current} remaining={countdown} />
               <span className="ml-1 font-mono text-mono-xs text-text-tertiary">Click to undo</span>
             </button>
           )}

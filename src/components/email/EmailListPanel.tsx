@@ -74,6 +74,7 @@ type VItem =
 export function EmailListPanel({ panelId }: { panelId: string }) {
   const density = useWorkspace((s) => s.density);
   const cycleDensity = useWorkspace((s) => s.cycleDensity);
+  const showSnippets = useWorkspace((s) => s.showSnippets);
   const selectedEmailIds = useWorkspace((s) => s.selectedEmailIds);
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const focusedRowId = useWorkspace((s) => s.focusedRowId);
@@ -794,6 +795,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                     <EmailRow
                       message={msg}
                       density={density}
+                      showSnippets={showSnippets}
                       selected={isSelected || isSinglySelected}
                       focused={isFocused}
                       ghosted={!isPanelFocused}
