@@ -35,6 +35,11 @@ final class AppState: ObservableObject {
         let dbPath = "\(expandedPath)/vault.db"
 
         let newDb = try VaultDB(path: dbPath)
+        // Protect the database file so it is inaccessible while the device is locked.
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: dbPath
+        )
         self.db = newDb
 
         // Load or create vault record

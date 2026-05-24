@@ -7,7 +7,7 @@ struct ComposeView: View {
 
     @State private var toField: String = ""
     @State private var subject: String = ""
-    @State private var body: String = ""
+    @State private var bodyText: String = ""
     @State private var selectedAccountId: String = ""
     @State private var isSending = false
     @State private var error: String? = nil
@@ -50,7 +50,7 @@ struct ComposeView: View {
                 }
 
                 Section {
-                    TextEditor(text: $body)
+                    TextEditor(text: $bodyText)
                         .frame(minHeight: 200)
                 }
 
@@ -89,7 +89,7 @@ struct ComposeView: View {
         if let replyTo {
             toField = replyTo.fromAddr?.email ?? ""
             subject = replyTo.subject.hasPrefix("Re:") ? replyTo.subject : "Re: \(replyTo.subject)"
-            body = "\n\n--- Original message ---\n"
+            bodyText = "\n\n--- Original message ---\n"
         }
     }
 
@@ -98,7 +98,7 @@ struct ComposeView: View {
         error = nil
 
         let to = toField.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        let bodyHtml = "<p>\(body.replacingOccurrences(of: "\n", with: "<br>"))</p>"
+        let bodyHtml = "<p>\(bodyText.replacingOccurrences(of: "\n", with: "<br>"))</p>"
 
         let payload: [String: Any] = [
             "accountId": selectedAccountId,

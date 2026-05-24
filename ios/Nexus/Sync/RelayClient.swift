@@ -1,4 +1,5 @@
 import Foundation
+import Crypto
 
 /// HTTP client for the Nexus E2EE relay server.
 /// Wraps the 4 endpoints defined in relay-server/src/routes.rs.
