@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
-import * as ContextMenu from "@radix-ui/react-context-menu";
+import * as RCMenu from "@radix-ui/react-context-menu";
 import {
   Inbox,
   Star,
@@ -904,8 +904,8 @@ export function NavigationPanel() {
 
         {/* NAV-LABEL-TAG-LIST */}
         <div className="p-1">
-          <ContextMenu.Root>
-            <ContextMenu.Trigger asChild>
+          <RCMenu.Root>
+            <RCMenu.Trigger asChild>
               <div className="flex items-center px-2 py-1">
                 <button
                   type="button"
@@ -933,93 +933,93 @@ export function NavigationPanel() {
                   </Button>
                 </Tooltip>
               </div>
-            </ContextMenu.Trigger>
+            </RCMenu.Trigger>
 
-            <ContextMenu.Portal>
-              <ContextMenu.Content className={cmContent}>
+            <RCMenu.Portal>
+              <RCMenu.Content className={cmContent}>
                 {/* Visibility toggles */}
                 <div className={cmLabel}>Show</div>
-                <ContextMenu.CheckboxItem
+                <RCMenu.CheckboxItem
                   checked={showLabels}
                   onCheckedChange={(v) => setShowLabels(!!v)}
                   className={cmItem}
                 >
-                  <ContextMenu.ItemIndicator className="absolute left-2">
+                  <RCMenu.ItemIndicator className="absolute left-2">
                     <Check size={11} />
-                  </ContextMenu.ItemIndicator>
+                  </RCMenu.ItemIndicator>
                   Labels
-                </ContextMenu.CheckboxItem>
-                <ContextMenu.CheckboxItem
+                </RCMenu.CheckboxItem>
+                <RCMenu.CheckboxItem
                   checked={showTags}
                   onCheckedChange={(v) => setShowTags(!!v)}
                   className={cmItem}
                 >
-                  <ContextMenu.ItemIndicator className="absolute left-2">
+                  <RCMenu.ItemIndicator className="absolute left-2">
                     <Check size={11} />
-                  </ContextMenu.ItemIndicator>
+                  </RCMenu.ItemIndicator>
                   Tags
-                </ContextMenu.CheckboxItem>
+                </RCMenu.CheckboxItem>
 
                 <div className={cmSeparator} />
 
                 {/* Label sort submenu */}
-                <ContextMenu.Sub>
-                  <ContextMenu.SubTrigger className={cmSubTrigger}>
+                <RCMenu.Sub>
+                  <RCMenu.SubTrigger className={cmSubTrigger}>
                     <span className="flex-1">Label order</span>
                     <span className="ml-auto flex items-center gap-1.5 text-text-muted">
                       <span className="font-mono text-mono-xs">{LABEL_SORT_LABELS[labelSort]}</span>
                       <ChevronRight size={11} />
                     </span>
-                  </ContextMenu.SubTrigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.SubContent className={cmContent}>
-                      <ContextMenu.RadioGroup
+                  </RCMenu.SubTrigger>
+                  <RCMenu.Portal>
+                    <RCMenu.SubContent className={cmContent}>
+                      <RCMenu.RadioGroup
                         value={labelSort}
                         onValueChange={(v) => setLabelSort(v as LabelSort)}
                       >
                         {(["manual", "alpha-asc", "alpha-desc", "count-desc"] as LabelSort[]).map((val) => (
-                          <ContextMenu.RadioItem key={val} value={val} className={cmItem}>
-                            <ContextMenu.ItemIndicator className="absolute left-2">
+                          <RCMenu.RadioItem key={val} value={val} className={cmItem}>
+                            <RCMenu.ItemIndicator className="absolute left-2">
                               <Check size={11} />
-                            </ContextMenu.ItemIndicator>
+                            </RCMenu.ItemIndicator>
                             {LABEL_SORT_LABELS[val]}
-                          </ContextMenu.RadioItem>
+                          </RCMenu.RadioItem>
                         ))}
-                      </ContextMenu.RadioGroup>
-                    </ContextMenu.SubContent>
-                  </ContextMenu.Portal>
-                </ContextMenu.Sub>
+                      </RCMenu.RadioGroup>
+                    </RCMenu.SubContent>
+                  </RCMenu.Portal>
+                </RCMenu.Sub>
 
                 {/* Tag sort submenu */}
-                <ContextMenu.Sub>
-                  <ContextMenu.SubTrigger className={cmSubTrigger}>
+                <RCMenu.Sub>
+                  <RCMenu.SubTrigger className={cmSubTrigger}>
                     <span className="flex-1">Tag order</span>
                     <span className="ml-auto flex items-center gap-1.5 text-text-muted">
                       <span className="font-mono text-mono-xs">{TAG_SORT_LABELS[tagSort]}</span>
                       <ChevronRight size={11} />
                     </span>
-                  </ContextMenu.SubTrigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.SubContent className={cmContent}>
-                      <ContextMenu.RadioGroup
+                  </RCMenu.SubTrigger>
+                  <RCMenu.Portal>
+                    <RCMenu.SubContent className={cmContent}>
+                      <RCMenu.RadioGroup
                         value={tagSort}
                         onValueChange={(v) => setTagSort(v as TagSort)}
                       >
                         {(["count-desc", "alpha-asc", "alpha-desc"] as TagSort[]).map((val) => (
-                          <ContextMenu.RadioItem key={val} value={val} className={cmItem}>
-                            <ContextMenu.ItemIndicator className="absolute left-2">
+                          <RCMenu.RadioItem key={val} value={val} className={cmItem}>
+                            <RCMenu.ItemIndicator className="absolute left-2">
                               <Check size={11} />
-                            </ContextMenu.ItemIndicator>
+                            </RCMenu.ItemIndicator>
                             {TAG_SORT_LABELS[val]}
-                          </ContextMenu.RadioItem>
+                          </RCMenu.RadioItem>
                         ))}
-                      </ContextMenu.RadioGroup>
-                    </ContextMenu.SubContent>
-                  </ContextMenu.Portal>
-                </ContextMenu.Sub>
-              </ContextMenu.Content>
-            </ContextMenu.Portal>
-          </ContextMenu.Root>
+                      </RCMenu.RadioGroup>
+                    </RCMenu.SubContent>
+                  </RCMenu.Portal>
+                </RCMenu.Sub>
+              </RCMenu.Content>
+            </RCMenu.Portal>
+          </RCMenu.Root>
 
           {labelTagsExpanded && (
             <>
