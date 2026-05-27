@@ -90,12 +90,15 @@ pub fn run() {
             commands::delete_vacation_responder,
         ])
         .setup(|app| {
-            // On startup, auto-load vault if the path was saved previously
+            // On startup, auto-load vault if the path was saved previously.
+            // Emitting vault:hydrate-needed after init_vault ensures the frontend
+            // re-hydrates even if it called get_vault_path before init_vault finished.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Some(path) = commands::load_saved_vault_path(&app_handle) {
-                    if let Err(e) = commands::init_vault(&app_handle, &path).await {
-                        log::error!("Failed to auto-load vault: {e}");
+                    match commands::init_vault(&app_handle, &path).await {
+                        Ok(()) => { let _ = app_handle.emit("vault:hydrate-needed", ()); }
+                        Err(e) => log::error!("Failed to auto-load vault: {e}"),
                     }
                 }
             });

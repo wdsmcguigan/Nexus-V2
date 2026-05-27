@@ -248,7 +248,17 @@ pub async fn list_accounts(
 pub async fn get_vault_path(
     state: State<'_, AppState>,
 ) -> std::result::Result<Option<String>, String> {
-    Ok(state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone())
+    // Prefer in-memory state (set after init_vault runs).
+    // Fall back to the on-disk file so calls that race the startup init hook
+    // still return the saved path instead of None → prevents spurious Welcome screen.
+    let in_memory = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone();
+    if in_memory.is_some() {
+        return Ok(in_memory);
+    }
+    Ok(dirs::data_local_dir()
+        .map(|d| d.join("Nexus").join("vault_path.txt"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| expand_tilde(s.trim())))
 }
 
 #[tauri::command]
