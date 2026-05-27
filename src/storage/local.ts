@@ -216,6 +216,19 @@ export class LocalStore {
     this._schedulePersist();
   }
 
+  /** Merge new messages into the store without clearing existing data.
+   *  Used for on-demand label loading when messages fall outside the initial hydration window. */
+  mergeMessages(msgs: Message[]): void {
+    let changed = false;
+    for (const msg of msgs) {
+      if (!this.messages.has(msg.id)) {
+        this._insertMessageIndexes(msg);
+        changed = true;
+      }
+    }
+    if (changed) this._notify();
+  }
+
   deleteMessage(id: string): void {
     const msg = this.messages.get(id);
     if (msg) {

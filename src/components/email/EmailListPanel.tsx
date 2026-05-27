@@ -37,7 +37,7 @@ import { EmailRowContextMenu } from "./EmailRowContextMenu";
 import { LabelPickerDialog } from "@/components/email/LabelPickerPopover";
 import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels } from "@/storage/useStore";
+import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels, useEnsureLabelMessages } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { isTauri, getMessageBody } from "@/storage/tauri";
@@ -155,6 +155,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const [groupBy, setGroupBy] = React.useState<"none" | "priority" | "status">("none");
 
   const title = useSelectionTitle();
+  const globalFolderId = useWorkspace((s) => s.selectedFolderId);
+  const currentFolderId = panelLocalState?.selectedFolderId ?? globalFolderId;
+  // If the current selection is a user label, ensure its messages are loaded from DB.
+  const currentLabelId = localStore.labels.has(currentFolderId) ? currentFolderId : null;
+  useEnsureLabelMessages(currentLabelId);
   const allMessages = useVisibleMessagesForPanel(panelId, sortBy, sortDir);
 
   // Collapse to one row per threadId when threaded view is active

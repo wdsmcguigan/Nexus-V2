@@ -348,7 +348,131 @@ impl VaultDb {
         Ok(result)
     }
 
-    pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+    /// Load all messages that carry a specific Nexus label ID.
+    /// Used for on-demand label hydration when the label's messages fall
+    /// outside the initial 2000-message hydration window.
+    pub fn load_messages_for_label(&self, vault_id: &str, label_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT m.id, m.folder_id, m.thread_id, m.subject, m.snippet, m.body_ref, m.received_at,
+                    m.status_id, m.priority, m.star, m.pinned, m.muted, m.notes, m.flag_json,
+                    m.from_addr_json, m.to_addrs_json, m.cc_addrs_json, m.bcc_addrs_json,
+                    m.attachment_refs_json, m.custom_fields_json,
+                    m.flags_read, m.flags_answered, m.flags_draft, m.flags_flagged
+             FROM messages m
+             INNER JOIN message_labels ml ON ml.message_id = m.id
+             WHERE m.vault_id = ?1 AND ml.label_id = ?2
+             ORDER BY m.received_at DESC",
+        )?;
+
+        let msg_rows: Vec<(String, JsonValue)> = stmt.query_map(params![vault_id, label_id], |r| {
+            let id: String = r.get(0)?;
+            let msg = serde_json::json!({
+                "id": id.clone(),
+                "vaultId": vault_id,
+                "folderId": r.get::<_, String>(1)?,
+                "threadId": r.get::<_, String>(2)?,
+                "subject": r.get::<_, String>(3)?,
+                "snippet": r.get::<_, String>(4)?,
+                "bodyRef": r.get::<_, String>(5)?,
+                "receivedAt": r.get::<_, i64>(6)?,
+                "statusId": r.get::<_, Option<String>>(7)?,
+                "priority": r.get::<_, Option<i64>>(8)?,
+                "star": r.get::<_, Option<String>>(9)?,
+                "pinned": r.get::<_, bool>(10)?,
+                "muted": r.get::<_, bool>(11)?,
+                "notes": r.get::<_, Option<String>>(12)?,
+                "flag": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, Option<String>>(13)?.unwrap_or_default()
+                ).unwrap_or(JsonValue::Null),
+                "fromAddr": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(14)?
+                ).unwrap_or(JsonValue::Null),
+                "toAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(15)?
+                ).unwrap_or_default(),
+                "ccAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(16)?
+                ).unwrap_or_default(),
+                "bccAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(17)?
+                ).unwrap_or_default(),
+                "attachmentRefs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(18)?
+                ).unwrap_or_default(),
+                "customFields": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(19)?
+                ).unwrap_or_default(),
+                "flags": {
+                    "read": r.get::<_, bool>(20)?,
+                    "answered": r.get::<_, bool>(21)?,
+                    "draft": r.get::<_, bool>(22)?,
+                    "flagged": r.get::<_, bool>(23)?
+                },
+                "labelIds": [],
+                "tags": []
+            });
+            Ok((id, msg))
+        })?.map(|r| r.context("loading message row for label"))
+          .collect::<Result<Vec<_>>>()?;
+
+        if msg_rows.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Collect message IDs to batch-load their label and tag associations.
+        let ids: Vec<&str> = msg_rows.iter().map(|(id, _)| id.as_str()).collect();
+        let placeholders = ids.iter().enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let id_params: Vec<&dyn rusqlite::types::ToSql> = ids.iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut label_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let sql = format!(
+                "SELECT message_id, label_id FROM message_labels WHERE message_id IN ({placeholders})"
+            );
+            let mut ls = self.conn.prepare(&sql)?;
+            for row in ls.query_map(id_params.as_slice(), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, lbl_id) = row.context("loading label row")?;
+                label_map.entry(msg_id).or_default().push(lbl_id);
+            }
+        }
+
+        let mut tag_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let sql = format!(
+                "SELECT message_id, tag FROM message_tags WHERE message_id IN ({placeholders})"
+            );
+            let mut ts = self.conn.prepare(&sql)?;
+            for row in ts.query_map(id_params.as_slice(), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, tag) = row.context("loading tag row for label")?;
+                tag_map.entry(msg_id).or_default().push(tag);
+            }
+        }
+
+        let mut result = Vec::with_capacity(msg_rows.len());
+        for (id, mut msg) in msg_rows {
+            msg["labelIds"] = label_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
+            msg["tags"] = tag_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
+            result.push(msg);
+        }
+        Ok(result)
+    }
+
+
         let mut stmt = self.conn.prepare(
             "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url, always_show_images
              FROM contacts WHERE vault_id = ?1 ORDER BY name"

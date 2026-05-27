@@ -40,6 +40,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
+            commands::get_messages_for_label,
             commands::apply_mutation,
             commands::get_message_body,
             commands::list_accounts,

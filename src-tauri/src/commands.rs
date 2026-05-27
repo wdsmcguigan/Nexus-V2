@@ -44,6 +44,20 @@ pub async fn load_vault_data(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_messages_for_label(
+    state: State<'_, AppState>,
+    label_id: String,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
+        .ok_or_else(|| "DB not open".to_string())?
+        .load_messages_for_label(&vault_id, &label_id)
+        .map_err(|e| e.to_string())
+}
+
 /// Read the client mode from the vault's .nexus-mode file.
 /// Returns "traditional" if the file is absent or unreadable (safe default).
 pub fn read_client_mode(vault_path: &str) -> String {

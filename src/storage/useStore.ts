@@ -6,11 +6,12 @@
  * from that version so references are stable until data actually changes.
  */
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
+import { isTauri, getMessagesForLabel } from "@/storage/tauri";
 import type { Contact, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
@@ -343,4 +344,32 @@ export function useVisibleMessagesForPanel(
     }
     return queryMessages({ ...base, ...filter }, localStore).items;
   }, [v, panelId, panelState, globalFolderId, globalFilter, globalSavedViewId, sortBy, sortDir]);
+}
+
+/**
+ * When a label is selected and has no messages in the in-memory cache (because
+ * they fall outside the initial 2000-message hydration window), fetch them
+ * on-demand from the DB and merge into the local store.
+ */
+export function useEnsureLabelMessages(labelId: string | null): void {
+  const fetchedRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!labelId || !isTauri()) return;
+    if (fetchedRef.current.has(labelId)) return;
+
+    // Only fetch if the label exists but has no messages in the store yet.
+    const lbl = localStore.labels.get(labelId);
+    if (!lbl) return;
+    const cached = localStore.messagesByLabel.get(labelId)?.size ?? 0;
+    if (cached > 0) return;
+
+    fetchedRef.current.add(labelId);
+    getMessagesForLabel(labelId)
+      .then((raw) => {
+        if (raw.length === 0) return;
+        localStore.mergeMessages(raw as Message[]);
+      })
+      .catch((e) => console.warn("Failed to load messages for label", labelId, e));
+  }, [labelId]);
 }

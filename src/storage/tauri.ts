@@ -47,6 +47,10 @@ export async function loadVaultData(vaultPath: string): Promise<HydratePayload> 
   return invoke<HydratePayload>("load_vault_data", { vaultPath });
 }
 
+export async function getMessagesForLabel(labelId: string): Promise<unknown[]> {
+  return invoke<unknown[]>("get_messages_for_label", { labelId });
+}
+
 export async function applyMutationIpc(
   kind: string,
   payload: unknown,
