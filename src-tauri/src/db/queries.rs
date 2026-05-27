@@ -472,7 +472,7 @@ impl VaultDb {
         Ok(result)
     }
 
-
+    pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url, always_show_images
              FROM contacts WHERE vault_id = ?1 ORDER BY name"
