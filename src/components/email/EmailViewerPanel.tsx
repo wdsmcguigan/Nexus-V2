@@ -10,7 +10,6 @@ import {
   Mail,
   MailOpen,
   MailX,
-  Star,
   Archive,
   Trash2,
   Pin,
@@ -25,9 +24,9 @@ import {
   BellOff,
   Printer,
   FileDown,
+  AlarmClock,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -375,60 +374,6 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
                 </Button>
               </Tooltip>
-              <Tooltip label={msg.star ? "Unstar" : "Star"} shortcut="S">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Star"
-                  className={msg.star ? "text-accent" : ""}
-                  onClick={() => { if (msg.star) Mut.clearStar(localStore, msg.id); else Mut.setStar(localStore, msg.id, "yellow"); }}
-                >
-                  <Star />
-                </Button>
-              </Tooltip>
-              <SnoozePopover messageId={msg.id} />
-              <Tooltip label="Archive" shortcut="E">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Archive"
-                  onClick={() => {
-                    const id = msg.id;
-                    Mut.archiveMessage(localStore, id);
-                    toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
-                  }}
-                >
-                  <Archive />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Delete" shortcut="#">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Delete"
-                  onClick={() => {
-                    Mut.deleteMessage(localStore, msg.id);
-                    toast("Moved to Trash");
-                  }}
-                >
-                  <Trash2 />
-                </Button>
-              </Tooltip>
-              <Tooltip label={msg.muted ? "Unmute thread" : "Mute thread"}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label={msg.muted ? "Unmute" : "Mute"}
-                  className={msg.muted ? "text-accent" : ""}
-                  onClick={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
-                >
-                  {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
-                </Button>
-              </Tooltip>
               <Tooltip label="Mark as unread">
                 <Button
                   variant="ghost"
@@ -458,6 +403,53 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                     align="end"
                     className="z-50 min-w-[180px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
                   >
+                    {/* Snooze */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        d.setHours(8, 0, 0, 0);
+                        Mut.snoozeMessage(localStore, msg.id, d.getTime());
+                        toast("Snoozed until tomorrow");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <AlarmClock size={12} />
+                      Snooze to tomorrow
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    {/* Archive */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.archiveMessage(localStore, id);
+                        toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Archive size={12} />
+                      Archive
+                    </DropdownMenu.Item>
+                    {/* Mute */}
+                    <DropdownMenu.Item
+                      onSelect={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
+                      {msg.muted ? "Unmute thread" : "Mute thread"}
+                    </DropdownMenu.Item>
+                    {/* Delete */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        Mut.deleteMessage(localStore, msg.id);
+                        toast("Moved to Trash");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-error outline-none focus:bg-error/10 focus:text-error"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
                     <DropdownMenu.Item
                       onSelect={() => setLabelPickerOpen(true)}
                       className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
