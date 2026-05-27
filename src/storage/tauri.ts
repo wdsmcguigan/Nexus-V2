@@ -51,6 +51,10 @@ export async function getMessagesForLabel(labelId: string): Promise<unknown[]> {
   return invoke<unknown[]>("get_messages_for_label", { labelId });
 }
 
+export async function getMessageSource(messageId: string): Promise<string | null> {
+  return invoke<string | null>("get_message_source", { messageId });
+}
+
 export async function applyMutationIpc(
   kind: string,
   payload: unknown,

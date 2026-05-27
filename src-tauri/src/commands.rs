@@ -58,6 +58,29 @@ pub async fn get_messages_for_label(
         .map_err(|e| e.to_string())
 }
 
+/// Read the raw RFC 822 source of a message from its on-disk `.eml` file.
+/// Returns None when no `.eml` exists (e.g. traditional mode, where the
+/// frontend falls back to reconstructed headers).
+#[tauri::command]
+pub async fn get_message_source(
+    state: State<'_, AppState>,
+    message_id: String,
+) -> std::result::Result<Option<String>, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let eml_path = {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        db_guard
+            .as_ref()
+            .ok_or_else(|| "DB not open".to_string())?
+            .get_message_eml_path(&vault_id, &message_id)
+            .map_err(|e| e.to_string())?
+    };
+    match eml_path {
+        Some(path) => std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
 /// Read the client mode from the vault's .nexus-mode file.
 /// Returns "traditional" if the file is absent or unreadable (safe default).
 pub fn read_client_mode(vault_path: &str) -> String {

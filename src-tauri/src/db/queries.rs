@@ -472,6 +472,19 @@ impl VaultDb {
         Ok(result)
     }
 
+    /// Absolute path to the message's `.eml` on disk, if one was written
+    /// (local-first mode only). Returns None when the column is NULL or the
+    /// message does not exist.
+    pub fn get_message_eml_path(&self, vault_id: &str, message_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT eml_path FROM messages WHERE vault_id = ?1 AND id = ?2 LIMIT 1",
+        )?;
+        let path: Option<Option<String>> = stmt
+            .query_row(params![vault_id, message_id], |row| row.get::<_, Option<String>>(0))
+            .optional()?;
+        Ok(path.flatten())
+    }
+
     pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url, always_show_images

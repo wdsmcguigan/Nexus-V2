@@ -1079,6 +1079,9 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const [markReadAfterMs, setMarkReadAfterMsState] = React.useState(
     () => getAppPreferences().markReadAfterMs,
   );
+  const [translateApiKey, setTranslateApiKeyState] = React.useState(
+    () => getAppPreferences().translateApiKey,
+  );
 
   function updatePref<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]) {
     saveAppPreferences({ [key]: value });
@@ -1581,6 +1584,28 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     {opt.label}
                   </button>
                 ))}
+              </div>
+
+              {/* Translate */}
+              <SectionHeader>Translation</SectionHeader>
+              <div className="px-4 pb-4">
+                <label className="mb-1 block text-small text-text-secondary">
+                  Google Translate API key
+                </label>
+                <input
+                  type="password"
+                  value={translateApiKey}
+                  onChange={(e) => {
+                    setTranslateApiKeyState(e.target.value);
+                    updatePref("translateApiKey", e.target.value);
+                  }}
+                  placeholder="AIza…"
+                  className="w-full rounded-sm border border-border-subtle bg-surface-2 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+                <p className="mt-1.5 text-small text-text-tertiary">
+                  Required for the Translate action in the message viewer. Uses the Cloud
+                  Translation API v2.
+                </p>
               </div>
             </div>
           )}

@@ -639,6 +639,16 @@ export const unarchiveMessage = (s: LocalStore, messageId: string) => {
 };
 export const trashMessage = (s: LocalStore, messageId: string) =>
   recordMutation("TRASH", { messageId }, s);
+export const markAsSpam = (s: LocalStore, messageId: string) => {
+  const msg = s.messages.get(messageId);
+  if (!msg) return;
+  const spamId = _spamLabelId(s);
+  const inboxId = _systemLabelId(s, "inbox");
+  if (spamId && !msg.labelIds.includes(spamId))
+    recordMutation("ADD_LABEL", { messageId, labelId: spamId }, s);
+  if (inboxId && msg.labelIds.includes(inboxId))
+    recordMutation("REMOVE_LABEL", { messageId, labelId: inboxId }, s);
+};
 export const snoozeMessage = (s: LocalStore, messageId: string, until: number) =>
   recordMutation("SNOOZE", { messageId, until }, s);
 export const deleteMessage = (s: LocalStore, messageId: string) =>
@@ -667,6 +677,20 @@ function _mergedFlags(
 function _systemLabelId(store: LocalStore, systemKind: string): string | null {
   for (const label of store.labels.values()) {
     if (label.kind === "system" && label.systemKind === systemKind) return label.id;
+  }
+  return null;
+}
+
+// Spam has no stable systemKind: fixtures tag it "important", Gmail sync leaves it
+// null. Both keep kind "system" and either an id of "spam"/"{vault}-spam" or the
+// name "Spam", so match on those instead.
+function _spamLabelId(store: LocalStore): string | null {
+  for (const label of store.labels.values()) {
+    if (
+      label.kind === "system" &&
+      (label.id === "spam" || label.id.endsWith("-spam") || label.name.toLowerCase() === "spam")
+    )
+      return label.id;
   }
   return null;
 }

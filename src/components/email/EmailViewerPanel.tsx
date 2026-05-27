@@ -25,9 +25,16 @@ import {
   Printer,
   FileDown,
   AlarmClock,
+  ShieldAlert,
+  Fish,
+  Filter,
+  Languages,
+  Code,
+  X,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
+import { RuleEditorDialog } from "@/components/settings/RuleEditorDialog";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -42,7 +49,7 @@ import { localStore } from "@/storage/local";
 import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody, downloadAttachment, sendUnsubscribe } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment, sendUnsubscribe, getMessageSource } from "@/storage/tauri";
 import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
@@ -216,6 +223,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
   const [accountPrefs, setAccountPrefs] = React.useState<AccountPreferences | null>(null);
+  const [showRuleDialog, setShowRuleDialog] = React.useState(false);
+  const [translatedBody, setTranslatedBody] = React.useState<string | null>(null);
+  const [translating, setTranslating] = React.useState(false);
+  const [showSourceModal, setShowSourceModal] = React.useState(false);
+  const [sourceContent, setSourceContent] = React.useState<string | null | "loading">("loading");
 
   // Auto-mark as read based on user preference (markReadAfterMs; -1 = never)
   React.useEffect(() => {
@@ -236,6 +248,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   );
   React.useEffect(() => {
     if (!msg) return;
+    setTranslatedBody(null);
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBodyHtml(cached); return; }
     if (!isTauri()) { setBodyHtml(""); return; }
@@ -340,6 +353,41 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
   const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
+  const renderedBody = translatedBody ?? bodyHtml;
+
+  async function handleTranslate() {
+    if (!msg) return;
+    const key = getAppPreferences().translateApiKey.trim();
+    if (!key) {
+      toast.error("Add a Google Translate API key in Settings → Preferences");
+      return;
+    }
+    const source = bodyHtml || msg.snippet;
+    if (!source) {
+      toast.error("Nothing to translate");
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: source, target: "en", format: "html" }),
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const translated = data?.data?.translations?.[0]?.translatedText;
+      if (typeof translated !== "string") throw new Error("Unexpected API response");
+      setTranslatedBody(translated);
+    } catch (e) {
+      toast.error(`Translation failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTranslating(false);
+    }
+  }
 
   return (
     <Panel
@@ -450,12 +498,67 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                       Delete
                     </DropdownMenu.Item>
                     <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    {/* Report spam */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.markAsSpam(localStore, id);
+                        toast("Reported as spam");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <ShieldAlert size={12} />
+                      Report spam
+                    </DropdownMenu.Item>
+                    {/* Report phishing */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.markAsSpam(localStore, id);
+                        toast("Reported as phishing");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Fish size={12} />
+                      Report phishing
+                    </DropdownMenu.Item>
+                    {/* Filter messages like this */}
+                    <DropdownMenu.Item
+                      onSelect={() => setShowRuleDialog(true)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Filter size={12} />
+                      Filter messages like this
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
                     <DropdownMenu.Item
                       onSelect={() => setLabelPickerOpen(true)}
                       className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
                     >
                       <TagIcon size={12} />
                       Label…
+                    </DropdownMenu.Item>
+                    {/* Translate */}
+                    <DropdownMenu.Item
+                      onSelect={() => { void handleTranslate(); }}
+                      disabled={translating}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary data-[disabled]:opacity-50"
+                    >
+                      <Languages size={12} />
+                      {translating ? "Translating…" : "Translate"}
+                    </DropdownMenu.Item>
+                    {/* Show original */}
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        setShowSourceModal(true);
+                        setSourceContent("loading");
+                        const raw = await getMessageSource(msg.id).catch(() => null);
+                        setSourceContent(raw);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Code size={12} />
+                      Show original
                     </DropdownMenu.Item>
                     <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
                     <DropdownMenu.Item
@@ -644,19 +747,32 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
           </div>
         )}
 
+        {/* Translation banner */}
+        {translatedBody !== null && (
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-accent bg-accent-soft px-4">
+            <Languages size={14} className="text-accent" />
+            <span className="text-small text-text-primary">Translated to English</span>
+            <div className="ml-auto">
+              <Button variant="ghost" size="sm" onClick={() => setTranslatedBody(null)}>
+                Show original
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Iframe sandbox boundary */}
         <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas">
-          {bodyHtml === null ? (
+          {renderedBody === null ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
             </div>
-          ) : bodyHtml === "" ? (
+          ) : renderedBody === "" ? (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1 px-6 py-5">
               <p className="text-sm text-text-secondary leading-relaxed">{msg.snippet}</p>
             </div>
           ) : (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown} />
+              <EmailBody html={renderedBody} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown || translatedBody !== null} />
             </div>
           )}
         </div>
@@ -716,6 +832,120 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
           </Button>
         </div>
       </div>
+
+      {/* Filter messages like this — opens the rule editor pre-filled from sender */}
+      {showRuleDialog && (
+        <RuleEditorDialog
+          open={showRuleDialog}
+          initial={{
+            id: "",
+            vaultId: localStore.vault?.id ?? "local",
+            name: `Messages from ${msg.fromAddr.email}`,
+            conditionLogic: "AND",
+            conditions: [{ field: "from", op: "contains", value: msg.fromAddr.email }],
+            actions: [],
+            enabled: true,
+            position: 0,
+          }}
+          vaultId={localStore.vault?.id ?? "local"}
+          onSave={(rule) => {
+            Mut.saveRuleMutation(rule, localStore);
+            setShowRuleDialog(false);
+            toast("Rule created");
+          }}
+          onClose={() => setShowRuleDialog(false)}
+        />
+      )}
+
+      {/* Show original — raw RFC 822 source */}
+      {showSourceModal && (
+        <MessageSourceModal
+          msg={msg}
+          content={sourceContent}
+          onClose={() => setShowSourceModal(false)}
+        />
+      )}
     </Panel>
+  );
+}
+
+// ─── Show-original modal ──────────────────────────────────────────────────────
+
+function reconstructHeaders(msg: Message): string {
+  const fmtAddr = (a: { name: string | null; email: string }) =>
+    a.name ? `${a.name} <${a.email}>` : a.email;
+  const lines = [
+    `Message-ID: ${msg.id}`,
+    `Date: ${new Date(msg.receivedAt).toUTCString()}`,
+    `From: ${fmtAddr(msg.fromAddr)}`,
+    `To: ${msg.toAddrs.map(fmtAddr).join(", ")}`,
+  ];
+  if (msg.ccAddrs.length > 0) lines.push(`Cc: ${msg.ccAddrs.map(fmtAddr).join(", ")}`);
+  lines.push(`Subject: ${msg.subject}`);
+  return lines.join("\n");
+}
+
+function MessageSourceModal({
+  msg,
+  content,
+  onClose,
+}: {
+  msg: Message;
+  content: string | null | "loading";
+  onClose: () => void;
+}) {
+  const reconstructed = React.useMemo(() => reconstructHeaders(msg), [msg]);
+  const text = content === "loading" ? "" : (content ?? reconstructed);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-8"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-default bg-surface-2 shadow-l4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 py-3">
+          <span className="text-body-strong text-text-primary">Original message</span>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose}>
+            <X size={14} />
+          </Button>
+        </div>
+        <div className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
+          {content === "loading" ? (
+            <div className="flex h-32 items-center justify-center">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+            </div>
+          ) : (
+            <>
+              {content === null && (
+                <p className="mb-3 text-small text-text-tertiary">
+                  Raw source is not stored for this message. Showing reconstructed headers.
+                </p>
+              )}
+              <pre className="whitespace-pre-wrap break-words font-mono text-mono-xs text-text-primary">
+                {text}
+              </pre>
+            </>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border-subtle px-4 py-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={content === "loading"}
+            onClick={() => {
+              navigator.clipboard.writeText(text).then(
+                () => toast("Copied to clipboard"),
+                () => toast.error("Copy failed"),
+              );
+            }}
+          >
+            Copy to clipboard
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
