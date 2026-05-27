@@ -17,7 +17,6 @@ import {
   Trash2,
   MailOpen,
   Mail,
-  CheckCheck,
   Bookmark,
   Tag,
   ArrowDown,
@@ -566,7 +565,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     />
   );
 
-  const unreadInList = msgList.filter((m) => !m.flags.read).length;
 
   // Unified command bar: search + sort + group + filter in one elevated row.
   // Sort / group / mark-all-read are list-view concepts and hide in kanban/table.
@@ -711,23 +709,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         {/* Filter */}
         <AddFilterButton />
 
-        {/* Mark all read (list view) */}
-        {viewMode === "list" && unreadInList > 0 && (
-          <Tooltip label={`Mark all ${unreadInList} as read`}>
-            <button
-              type="button"
-              aria-label="Mark all as read"
-              onClick={() => {
-                for (const msg of msgList) {
-                  if (!msg.flags.read) Mut.readMessage(localStore, msg.id);
-                }
-              }}
-              className="flex size-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary"
-            >
-              <CheckCheck size={12} />
-            </button>
-          </Tooltip>
-        )}
       </div>
     </div>
   );
