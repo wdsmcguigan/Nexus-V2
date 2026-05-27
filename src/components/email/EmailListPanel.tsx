@@ -3,7 +3,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
   Inbox,
-  Layers,
   List,
   Trello,
   Table2,
@@ -154,7 +153,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
-  const [groupBySta, setGroupBySta] = React.useState(false);
+  const [groupBy, setGroupBy] = React.useState<"none" | "priority" | "status">("none");
 
   const title = useSelectionTitle();
   const allMessages = useVisibleMessagesForPanel(panelId, sortBy, sortDir);
@@ -192,12 +191,38 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     return m;
   }, [messages]);
 
+  const PRI_GROUP_LABELS: Record<number, string> = { 1: "Urgent", 2: "High", 3: "Normal", 4: "Low" };
+
   // Build virtual item list
   const vItems = React.useMemo((): VItem[] => {
-    if (!groupBySta) {
+    if (groupBy === "none") {
       return messages.map((msg) => ({ kind: "row" as const, msg }));
     }
-    // Group by status: sort by statusId, add group headers
+
+    if (groupBy === "priority") {
+      const groups = new Map<number | null, Message[]>();
+      for (const msg of messages) {
+        const key = msg.priority ?? null;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(msg);
+      }
+      const items: VItem[] = [];
+      for (const level of [1, 2, 3, 4] as const) {
+        const msgs = groups.get(level);
+        if (msgs?.length) {
+          items.push({ kind: "header", label: PRI_GROUP_LABELS[level]! });
+          for (const msg of msgs) items.push({ kind: "row", msg });
+        }
+      }
+      const noPri = groups.get(null);
+      if (noPri?.length) {
+        items.push({ kind: "header", label: "No Priority" });
+        for (const msg of noPri) items.push({ kind: "row", msg });
+      }
+      return items;
+    }
+
+    // groupBy === "status"
     const groups = new Map<string | null, Message[]>();
     for (const msg of messages) {
       const key = msg.statusId ?? null;
@@ -205,7 +230,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       groups.get(key)!.push(msg);
     }
     const items: VItem[] = [];
-    // No-status group first, then ordered by statusId
     const noStatus = groups.get(null);
     if (noStatus?.length) {
       items.push({ kind: "header", label: "No Status" });
@@ -218,7 +242,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       for (const msg of msgs) items.push({ kind: "row", msg });
     }
     return items;
-  }, [messages, groupBySta]);
+  }, [messages, groupBy]);
 
   const msgList = vItems.filter((v): v is { kind: "row"; msg: Message } => v.kind === "row").map((v) => v.msg);
 
@@ -597,6 +621,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                 >
                   <span className="text-text-tertiary">Sort</span>
                   {SORT_LABELS[sortBy]}
+                  {groupBy !== "none" && (
+                    <span className="ml-0.5 rounded-xs bg-accent-soft px-1 font-mono text-mono-xs text-accent">
+                      {groupBy === "priority" ? "pri" : "sta"}
+                    </span>
+                  )}
                   <ChevronDown size={10} />
                 </button>
               </DropdownMenu.Trigger>
@@ -625,6 +654,39 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                       {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
                     </DropdownMenu.Item>
                   ))}
+
+                  <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                  <div className="px-2 py-0.5 font-mono text-mono-xs text-text-muted uppercase tracking-wide">Group by</div>
+
+                  <DropdownMenu.CheckboxItem
+                    checked={groupBy === "priority"}
+                    onCheckedChange={(v) => setGroupBy(v ? "priority" : "none")}
+                    className={cn(
+                      "flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 pl-6 text-body outline-none",
+                      "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                      "relative",
+                    )}
+                  >
+                    <DropdownMenu.ItemIndicator className="absolute left-2">
+                      <span className="font-mono text-mono-xs">✓</span>
+                    </DropdownMenu.ItemIndicator>
+                    Priority
+                  </DropdownMenu.CheckboxItem>
+
+                  <DropdownMenu.CheckboxItem
+                    checked={groupBy === "status"}
+                    onCheckedChange={(v) => setGroupBy(v ? "status" : "none")}
+                    className={cn(
+                      "flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 pl-6 text-body outline-none",
+                      "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                      "relative",
+                    )}
+                  >
+                    <DropdownMenu.ItemIndicator className="absolute left-2">
+                      <span className="font-mono text-mono-xs">✓</span>
+                    </DropdownMenu.ItemIndicator>
+                    Status
+                  </DropdownMenu.CheckboxItem>
                 </DropdownMenu.Content>
               </DropdownMenu.Portal>
             </DropdownMenu.Root>
@@ -643,23 +705,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
               </Tooltip>
             )}
 
-            {/* Group by status */}
-            <Tooltip label={groupBySta ? "Ungroup" : "Group by status"}>
-              <button
-                type="button"
-                onClick={() => setGroupBySta((v) => !v)}
-                aria-pressed={groupBySta}
-                className={cn(
-                  "flex h-7 shrink-0 items-center gap-1 rounded-xs px-2 text-caption transition-colors",
-                  groupBySta
-                    ? "bg-accent-soft text-text-primary"
-                    : "text-text-secondary hover:bg-surface-3 hover:text-text-primary",
-                )}
-              >
-                <Layers size={11} className={groupBySta ? "" : "text-text-tertiary"} />
-                Group
-              </button>
-            </Tooltip>
           </>
         )}
 
