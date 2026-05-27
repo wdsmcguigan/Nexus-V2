@@ -18,6 +18,8 @@ import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
+import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -193,6 +195,59 @@ export function Workspace() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Global navigation chords: "g" then a key (gi, gs, gt, gd, gb, ga, gc).
+  // Works from any panel. The list panel's own handler defers to this one
+  // while a "g" sequence is pending (see isNavSequencePending).
+  React.useEffect(() => {
+    let prefixActive = false;
+    let timer: number | undefined;
+
+    function isEditable(el: EventTarget | null): boolean {
+      const node = el as HTMLElement | null;
+      if (!node) return false;
+      return node.tagName === "INPUT" || node.tagName === "TEXTAREA" || node.isContentEditable;
+    }
+    function resetPrefix() {
+      prefixActive = false;
+      setNavSequencePending(false);
+      if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+    }
+    function goToSystemFolder(systemKind: string) {
+      const label = Array.from(localStore.labels.values()).find(
+        (l) => l.kind === "system" && l.systemKind === systemKind,
+      );
+      if (label) useWorkspace.getState().setSelectedFolder(label.id);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) { resetPrefix(); return; }
+      if (isEditable(document.activeElement) || isEditable(e.target)) { resetPrefix(); return; }
+
+      if (prefixActive) {
+        // Second key of a "g" sequence.
+        prefixActive = false;
+        if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+        const target = navTargetForKey(e.key);
+        if (target) {
+          e.preventDefault();
+          if (target.kind === "folder") goToSystemFolder(target.systemKind);
+          else if (target.kind === "contacts") useWorkspace.getState().openContactsPanel();
+        }
+        // Keep the guard set through the end of this event so the list handler
+        // ignores this key regardless of window-listener ordering, then clear.
+        window.setTimeout(() => setNavSequencePending(false), 0);
+        return;
+      }
+
+      if (e.key === NAV_PREFIX) {
+        prefixActive = true;
+        setNavSequencePending(true);
+        timer = window.setTimeout(resetPrefix, 1200);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); resetPrefix(); };
   }, []);
 
   return (

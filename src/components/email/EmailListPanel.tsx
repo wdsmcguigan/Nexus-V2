@@ -43,7 +43,13 @@ import { bodyStore } from "@/storage/bodyStore";
 import { isTauri, getMessageBody } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
-import { actionForKey } from "@/lib/shortcuts";
+import {
+  actionForKey,
+  isNavSequencePending,
+  SELECTION_PREFIX,
+  selectionCommandForKey,
+  type SelectionCommand,
+} from "@/lib/shortcuts";
 import type { Density } from "@/design-system/tokens";
 import type { Message, MetadataFilter, Status, Label } from "@/data/types";
 
@@ -304,6 +310,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     setSelectedEmail(emailId);
   }, [panelId, setSelectedEmail]);
 
+  // "*" selection-prefix state (e.g. "*a" select all). Persisted in a ref so it
+  // survives the keyboard effect re-subscribing between the two keypresses.
+  const selectPrefixRef = React.useRef(false);
+  const selectPrefixTimer = React.useRef<number | undefined>(undefined);
+
   // Keyboard navigation + actions
   React.useEffect(() => {
     if (!isPanelFocused) return;
@@ -314,6 +325,8 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       ) {
         return;
       }
+      // Defer to the global "g" navigation handler while a chord is in flight.
+      if (isNavSequencePending()) return;
 
       const activeId = focusedRowId ?? selectedEmailId;
       const idx = msgList.findIndex((m) => m.id === activeId);
@@ -324,6 +337,48 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         if (viewMode !== "list") return;
         const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === id);
         if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
+      }
+
+      function clearSelectPrefix() {
+        selectPrefixRef.current = false;
+        if (selectPrefixTimer.current !== undefined) {
+          window.clearTimeout(selectPrefixTimer.current);
+          selectPrefixTimer.current = undefined;
+        }
+      }
+
+      function runSelectionCommand(cmd: SelectionCommand) {
+        if (cmd === "none") {
+          useWorkspace.getState().clearSelection();
+          return;
+        }
+        const match = (m: Message): boolean => {
+          switch (cmd) {
+            case "all":       return true;
+            case "read":      return m.flags.read;
+            case "unread":    return !m.flags.read;
+            case "starred":   return m.star !== null && m.star !== undefined;
+            case "unstarred": return m.star === null || m.star === undefined;
+          }
+        };
+        setSelectionRange(msgList.filter(match).map((m) => m.id));
+      }
+
+      // ── Selection commands: "*" then a key ───────────────────────
+      if (selectPrefixRef.current) {
+        clearSelectPrefix();
+        const cmd = selectionCommandForKey(e.key);
+        if (cmd) {
+          e.preventDefault();
+          runSelectionCommand(cmd);
+        }
+        return;
+      }
+      if (e.key === SELECTION_PREFIX) {
+        e.preventDefault();
+        selectPrefixRef.current = true;
+        selectPrefixTimer.current = window.setTimeout(() => { selectPrefixRef.current = false; }, 1200);
+        return;
       }
 
       function advanceAfterAction() {
@@ -346,11 +401,23 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
       } else if (e.key === "Enter" || e.key === " ") {
         if (activeId) { e.preventDefault(); openEmail(activeId); }
+      } else if (e.key === "I") {
+        // Shift+I — mark read (explicit, non-toggling)
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.readMessage(localStore, activeMsg.id);
+      } else if (e.key === "U") {
+        // Shift+U — mark unread (explicit, non-toggling)
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.unreadMessage(localStore, activeMsg.id);
 
       // ── Action shortcuts (rebindable via keyBindings) ────────────
       } else if (!e.metaKey && !e.ctrlKey) {
         const action = e.key === "#" || e.key === "Delete"
           ? "delete"
+          : e.key === "="
+          ? "markImportant"
           : actionForKey(e.key, keyBindings);
         if (!action) return;
         switch (action) {
@@ -390,11 +457,57 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
             e.preventDefault();
             openComposer({ mode: "reply", replyToMessage: activeMsg });
             break;
+          case "replyAll":
+            if (!activeMsg) return;
+            e.preventDefault();
+            openComposer({ mode: "reply-all", replyToMessage: activeMsg });
+            break;
           case "forward":
             if (!activeMsg) return;
             e.preventDefault();
             openComposer({ mode: "forward", replyToMessage: activeMsg });
             break;
+          case "reportSpam":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.markAsSpam(localStore, activeMsg.id);
+            advanceAfterAction();
+            break;
+          case "mute":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.setMuted(localStore, activeMsg.id, !activeMsg.muted);
+            break;
+          case "selectRow":
+            e.preventDefault();
+            if (activeId) toggleEmailSelection(activeId);
+            break;
+          case "markImportant":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.setPriority(localStore, activeMsg.id, 1);
+            break;
+          case "markNotImportant":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.clearPriority(localStore, activeMsg.id);
+            break;
+          case "openConversation":
+            e.preventDefault();
+            if (activeId) openEmail(activeId);
+            break;
+          case "prevMessage": {
+            e.preventDefault();
+            const prev = msgList[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
+            if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
+            break;
+          }
+          case "nextMessage": {
+            e.preventDefault();
+            const next = msgList[Math.min(msgList.length - 1, Math.max(0, idx + 1))];
+            if (next) { openEmail(next.id); scrollToMsg(next.id); }
+            break;
+          }
           case "snooze": {
             if (!activeMsg) return;
             e.preventDefault();

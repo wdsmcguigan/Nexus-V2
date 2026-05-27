@@ -66,7 +66,7 @@ import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
 import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
 import type { StarStyle } from "@/data/types";
-import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
+import { DEFAULT_SHORTCUTS, effectiveKey, NAV_SEQUENCES, SELECTION_SEQUENCES } from "@/lib/shortcuts";
 import type { ShortcutAction } from "@/lib/shortcuts";
 import {
   getAccountPreferences,
@@ -1693,6 +1693,34 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Navigation chords (read-only) */}
+              <SectionHeader>Go to (press G, then a key)</SectionHeader>
+              <div className="divide-y divide-border-subtle">
+                {NAV_SEQUENCES.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-body text-text-secondary">{s.label}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">G</span>
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">{s.key.toUpperCase()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Selection commands (read-only) */}
+              <SectionHeader>Select (press ✻, then a key)</SectionHeader>
+              <div className="divide-y divide-border-subtle">
+                {SELECTION_SEQUENCES.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-body text-text-secondary">{s.label}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">✻</span>
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">{s.key.toUpperCase()}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
