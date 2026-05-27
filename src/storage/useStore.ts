@@ -289,6 +289,7 @@ export function useSelectionTitle(): string {
     }
     const lbl = localStore.labels.get(folderId);
     if (lbl) return lbl.name;
+    if (folderId.startsWith("tag:")) return `#${folderId.slice(4)}`;
     const folder = localStore.folders.get(folderId);
     if (folder) return folder.name;
     return "Mail";
@@ -337,6 +338,8 @@ export function useVisibleMessagesForPanel(
     const lbl = localStore.labels.get(folderId);
     if (lbl) {
       base.labelIds = [folderId];
+    } else if (folderId.startsWith("tag:")) {
+      base.tags = [folderId.slice(4)];
     } else if (localStore.folders.has(folderId)) {
       base.folderId = folderId;
     } else {

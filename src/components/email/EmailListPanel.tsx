@@ -157,8 +157,8 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const title = useSelectionTitle();
   const globalFolderId = useWorkspace((s) => s.selectedFolderId);
   const currentFolderId = panelLocalState?.selectedFolderId ?? globalFolderId;
-  // If the current selection is a user label, ensure its messages are loaded from DB.
-  const currentLabelId = localStore.labels.has(currentFolderId) ? currentFolderId : null;
+  // If the current selection is a user label (not a tag view), ensure its messages are loaded from DB.
+  const currentLabelId = localStore.labels.has(currentFolderId) && !currentFolderId.startsWith("tag:") ? currentFolderId : null;
   useEnsureLabelMessages(currentLabelId);
   const allMessages = useVisibleMessagesForPanel(panelId, sortBy, sortDir);
 

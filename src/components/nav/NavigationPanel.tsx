@@ -642,6 +642,43 @@ function FolderTreeNode({
   );
 }
 
+// ─── Tag nav row ──────────────────────────────────────────────────────────────
+
+function TagNavRow({ tag }: { tag: string }) {
+  const folderId = useWorkspace((s) => s.selectedFolderId);
+  const setFolder = useWorkspace((s) => s.setSelectedFolder);
+  const tagId = `tag:${tag}`;
+  const active = folderId === tagId;
+  const count = localStore.messagesByTag.get(tag)?.size ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setFolder(tagId)}
+      className={cn(
+        "group/row relative flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left",
+        "transition-colors duration-fast ease-out",
+        "focus-visible:outline-none focus-visible:shadow-focus",
+        active
+          ? "bg-accent-soft text-text-primary"
+          : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+      )}
+    >
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-xs bg-accent"
+        />
+      )}
+      <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">#</span>
+      <span className="flex-1 truncate text-body">{tag}</span>
+      {count > 0 && (
+        <span className="font-mono text-mono-xs text-text-tertiary opacity-dim">{count}</span>
+      )}
+    </button>
+  );
+}
+
 // ─── Labels & Tags context menu ───────────────────────────────────────────────
 
 type LabelSort = "manual" | "alpha-asc" | "alpha-desc" | "count-desc" | "recently-created" | "recently-used";
@@ -1043,14 +1080,9 @@ export function NavigationPanel() {
                 />
               )}
               {showTags && sortedTags.length > 0 && (
-                <div className={cn("flex flex-wrap gap-1 px-2 py-1", showLabels && sortedRootLabels.length > 0 && "border-t border-border-subtle mt-1 pt-2")}>
+                <div className={cn(showLabels && sortedRootLabels.length > 0 && "border-t border-border-subtle mt-1 pt-1")}>
                   {sortedTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="flex h-[18px] items-center rounded-xs bg-surface-3 px-1.5 font-mono text-mono-xs text-text-secondary"
-                    >
-                      #{tag}
-                    </span>
+                    <TagNavRow key={tag} tag={tag} />
                   ))}
                 </div>
               )}
