@@ -8,6 +8,7 @@ pub mod smtp;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Shared application state, held behind a Mutex so commands can mutate it.
