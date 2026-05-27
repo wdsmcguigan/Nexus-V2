@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   ImageIcon,
   Mail,
+  MailOpen,
   MailX,
   Star,
   Archive,
@@ -426,6 +427,17 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   onClick={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
                 >
                   {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
+                </Button>
+              </Tooltip>
+              <Tooltip label="Mark as unread">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Mark as unread"
+                  onClick={() => Mut.unreadMessage(localStore, msg.id)}
+                >
+                  <MailOpen size={12} />
                 </Button>
               </Tooltip>
               <span className="mx-1 h-4 w-px bg-border-subtle" />

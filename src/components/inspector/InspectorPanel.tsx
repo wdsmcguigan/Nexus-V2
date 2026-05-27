@@ -9,6 +9,7 @@ import {
   Trash2,
   MoreHorizontal,
   MailQuestion,
+  MailOpen,
   BellOff,
   Bell,
   Folder,
@@ -249,6 +250,10 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
             <Button variant="secondary" size="sm" onClick={() => Mut.deleteMessage(localStore, msg.id)}>
               <Trash2 />
               Delete
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => Mut.unreadMessage(localStore, msg.id)}>
+              <MailOpen />
+              Mark unread
             </Button>
           </div>
         </Section>
