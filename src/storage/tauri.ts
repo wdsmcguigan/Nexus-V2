@@ -167,6 +167,10 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
+export async function refreshAccountPhotos(accountId: string): Promise<void> {
+  return invoke("refresh_account_photos", { accountId });
+}
+
 // ─── EP6 Multi-Provider ───────────────────────────────────────────────────────
 
 import type { DiscoveryResult, ImapAccountInput, SyncStats } from "@/data/types";

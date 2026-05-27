@@ -45,6 +45,7 @@ pub fn run() {
             commands::disconnect_account,
             commands::start_gmail_oauth,
             commands::sync_gmail_now,
+            commands::refresh_account_photos,
             commands::start_watcher,
             commands::send_message,
             commands::save_file_to_downloads,

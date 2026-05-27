@@ -492,6 +492,85 @@ pub async fn sync_gmail_now(
     Ok(stats)
 }
 
+/// Backfill the profile photo for a Gmail account and refresh all contact photos.
+/// Safe to call for existing accounts that predate the photo_url column.
+#[tauri::command]
+pub async fn refresh_account_photos(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let vault_path = state
+        .vault_path
+        .lock()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
+        .clone()
+        .ok_or("No vault loaded")?;
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+
+    // Only Gmail accounts have People API / userinfo
+    let provider = {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or("DB not open")?;
+        db.conn
+            .query_row(
+                "SELECT provider FROM accounts WHERE id = ?1",
+                rusqlite::params![&account_id],
+                |r| r.get::<_, String>(0),
+            )
+            .map_err(|e| e.to_string())?
+    };
+    if provider != "gmail" {
+        return Ok(());
+    }
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let vault_id_clone = vault_id.clone();
+    let account_id_clone = account_id.clone();
+    let app_handle = app.clone();
+
+    tokio::spawn(async move {
+        let http = reqwest::Client::new();
+
+        // Fetch own profile photo
+        match crate::gmail::oauth::fetch_userinfo(&http, &access_token).await {
+            Ok((_, Some(photo_url))) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        if let Err(e) = db.update_account_photo(&account_id_clone, &photo_url) {
+                            log::warn!("update_account_photo error: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
+                }
+            }
+            Ok((_, None)) => {}
+            Err(e) => log::warn!("fetch_userinfo error: {e}"),
+        }
+
+        // Refresh contact photos via People API
+        match crate::gmail::contacts::fetch_contact_photos(&http, &access_token).await {
+            Ok(photos) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        if let Err(e) = db.update_contact_photos(&vault_id_clone, &photos) {
+                            log::warn!("update_contact_photos error: {e}");
+                        } else {
+                            log::info!("Refreshed {} contact photos", photos.len());
+                        }
+                    }
+                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
+                }
+            }
+            Err(e) => log::warn!("fetch_contact_photos error: {e}"),
+        }
+
+        let _ = app_handle.emit("vault:hydrate-needed", ());
+    });
+
+    Ok(())
+}
+
 /// Batch re-fetch HTML bodies for all messages missing from message_bodies.
 /// Uses 10 concurrent requests (same as initial sync). Fire-and-forget safe.
 #[tauri::command]

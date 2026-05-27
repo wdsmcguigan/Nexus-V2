@@ -165,7 +165,7 @@ async fn listen_for_code(listener: TcpListener, expected_state: &str) -> Result<
         })
 }
 
-async fn fetch_userinfo(client: &reqwest::Client, access_token: &str) -> Result<(String, Option<String>)> {
+pub async fn fetch_userinfo(client: &reqwest::Client, access_token: &str) -> Result<(String, Option<String>)> {
     let resp: serde_json::Value = client
         .get("https://www.googleapis.com/oauth2/v3/userinfo")
         .bearer_auth(access_token)
