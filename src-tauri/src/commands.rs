@@ -371,7 +371,7 @@ pub async fn start_gmail_oauth(
         // Save contact photos (own profile photo already stored via userinfo in upsert_account)
         match photos_result {
             Ok(photos) => {
-                let db = match crate::db::VaultDb::open(&db_path, "nexus") {
+                let db = match crate::db::VaultDb::open(&vault_path, "nexus") {
                     Ok(d) => d,
                     Err(e) => { log::warn!("Could not open DB for contact photos: {e}"); return; }
                 };
