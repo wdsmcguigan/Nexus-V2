@@ -140,6 +140,7 @@ function EmailBody({ html, title, imagesShown }: { html: string; title: string; 
 function ThreadMessageRow({ msg }: { msg: Message }) {
   const [expanded, setExpanded] = React.useState(false);
   const colorSeed = pickPanelLink(msg.fromAddr.email);
+  const senderContact = useContactByEmail(msg.fromAddr.email);
   const [body, setBody] = React.useState<string | null>(
     () => bodyStore.get(msg.bodyRef) ?? null
   );
@@ -163,7 +164,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2 transition-colors duration-fast"
       >
-        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} />
+        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} src={senderContact?.photoUrl} />
         <div className="min-w-0 flex-1">
           {expanded ? (
             <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
@@ -526,7 +527,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Sender chrome */}
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
-          <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} />
+          <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
               <span className="truncate font-sans text-body-strong text-text-primary">

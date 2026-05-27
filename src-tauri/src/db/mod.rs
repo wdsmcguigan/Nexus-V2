@@ -44,6 +44,8 @@ impl VaultDb {
             .context("running EP6 column migrations")?;
         self.run_ep7_migrations()
             .context("running EP7 column migrations")?;
+        self.run_ep8_migrations()
+            .context("running EP8 column migrations")?;
         Ok(())
     }
 
@@ -103,6 +105,18 @@ impl VaultDb {
         self.conn
             .execute_batch(schema::EP7_STAGE4_SQL)
             .context("EP7 stage-4 DDL")?;
+        Ok(())
+    }
+
+    /// Apply EP8 migrations (photo_url on accounts and contacts).
+    fn run_ep8_migrations(&self) -> Result<()> {
+        for &sql in schema::EP8_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
         Ok(())
     }
 }

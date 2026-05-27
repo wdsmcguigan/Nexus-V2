@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
@@ -698,12 +699,15 @@ export function NavigationPanel() {
                 "transition-colors duration-fast hover:bg-surface-2",
               )}
             >
-              <div
-                className={cn(
-                  "size-2 shrink-0 rounded-full",
-                  SYNC_DOT_COLOR[a.syncStatus] ?? "bg-success",
-                )}
-              />
+              <div className="relative shrink-0">
+                <Avatar name={a.email} size={20} colorSeed={8} src={a.photoUrl} />
+                <div
+                  className={cn(
+                    "absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-surface-1",
+                    SYNC_DOT_COLOR[a.syncStatus] ?? "bg-success",
+                  )}
+                />
+              </div>
               <span className="min-w-0 flex-1 truncate font-mono text-mono-sm text-text-secondary">
                 {a.email}
               </span>

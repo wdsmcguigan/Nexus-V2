@@ -24,6 +24,7 @@ export interface Account {
   provider: "gmail" | "jmap" | "imap";
   /** Sync state reflected on NAV-ACCOUNT-DOT. */
   syncStatus: "idle" | "syncing" | "pending" | "error";
+  photoUrl?: string;
 }
 
 // ─── EP6 — Multi-Provider Types ──────────────────────────────────────────────
@@ -88,6 +89,7 @@ export interface Contact {
   location?: string;
   notes?: string;
   tags: string[];
+  photoUrl?: string;
   alwaysShowImages?: boolean;
   createdAt: number;
   updatedAt: number;

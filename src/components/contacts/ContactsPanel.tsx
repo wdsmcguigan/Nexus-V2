@@ -20,6 +20,7 @@ function ContactRow({
   contactId,
   name,
   primaryEmail,
+  photoUrl,
   isSelected,
   onSelect,
   onMessageCountClick,
@@ -27,6 +28,7 @@ function ContactRow({
   contactId: string;
   name: string;
   primaryEmail: string;
+  photoUrl?: string;
   isSelected: boolean;
   onSelect: () => void;
   onMessageCountClick?: (modifierKey: boolean) => void;
@@ -44,7 +46,7 @@ function ContactRow({
           : "hover:bg-surface-2 text-text-primary",
       )}
     >
-      <Avatar name={name} size={32} colorSeed={colorSeed} />
+      <Avatar name={name} size={32} colorSeed={colorSeed} src={photoUrl} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-strong">{name}</div>
         <div className="truncate font-mono text-mono-xs text-text-tertiary">
@@ -246,6 +248,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     contactId={contact.id}
                     name={contact.name}
                     primaryEmail={(contact.emails ?? [])[0] ?? email}
+                    photoUrl={contact.photoUrl}
                     isSelected={contact.id === selectedContactId}
                     onSelect={() => setSelectedContactId(contact.id)}
                     onMessageCountClick={(mod) => openContactMessages(contact.id, mod)}
@@ -272,6 +275,7 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                     contactId={c.id}
                     name={c.name}
                     primaryEmail={(c.emails ?? [])[0] ?? ""}
+                    photoUrl={c.photoUrl}
                     isSelected={c.id === selectedContactId}
                     onSelect={() => setSelectedContactId(c.id)}
                     onMessageCountClick={(mod) => openContactMessages(c.id, mod)}

@@ -250,6 +250,12 @@ pub const EP7_ALTER_SQL: &[&str] = &[
     "ALTER TABLE accounts ADD COLUMN preferences_json TEXT",
 ];
 
+/// EP8 ALTER TABLE statements — photo_url on accounts and contacts.
+pub const EP8_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE accounts ADD COLUMN photo_url TEXT",
+    "ALTER TABLE contacts ADD COLUMN photo_url TEXT",
+];
+
 /// EP7 (Stage 4) idempotent DDL — vacation responder table.
 pub const EP7_STAGE4_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS vacation_responders (

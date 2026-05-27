@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useState } from "react";
 import { cn, initials } from "@/lib/utils";
 import type { PanelLink } from "@/design-system/tokens";
 
@@ -28,9 +29,11 @@ export function Avatar({
   style,
   ...props
 }: AvatarProps) {
+  const [imgFailed, setImgFailed] = useState(false);
   const inits = initials(name);
   const single = size <= 20;
   const hue = COLOR_VAR[colorSeed];
+  const showImg = src && !imgFailed;
   return (
     <div
       role="img"
@@ -44,13 +47,18 @@ export function Avatar({
         width: size,
         height: size,
         fontSize: Math.max(9, Math.floor(size * 0.42)),
-        backgroundColor: src ? "var(--color-surface-3)" : hue,
+        backgroundColor: showImg ? "var(--color-surface-3)" : hue,
         ...style,
       }}
       {...props}
     >
-      {src ? (
-        <img src={src} alt={name} className="w-full h-full object-cover" />
+      {showImg ? (
+        <img
+          src={src}
+          alt={name}
+          className="w-full h-full object-cover"
+          onError={() => setImgFailed(true)}
+        />
       ) : single ? (
         inits[0]
       ) : (

@@ -66,7 +66,7 @@ impl VaultDb {
 
     pub fn load_accounts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, provider, email, display_name FROM accounts WHERE vault_id = ?1",
+            "SELECT id, provider, email, display_name, photo_url FROM accounts WHERE vault_id = ?1",
         )?;
         let rows = stmt.query_map(params![vault_id], |r| {
             Ok(serde_json::json!({
@@ -74,7 +74,8 @@ impl VaultDb {
                 "vaultId": vault_id,
                 "provider": r.get::<_, String>(1)?,
                 "email": r.get::<_, String>(2)?,
-                "displayName": r.get::<_, Option<String>>(3)?
+                "displayName": r.get::<_, Option<String>>(3)?,
+                "photoUrl": r.get::<_, Option<String>>(4)?
             }))
         })?;
         rows.map(|r| r.context("loading account row")).collect()
@@ -349,18 +350,18 @@ impl VaultDb {
 
     pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at
+            "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url
              FROM contacts WHERE vault_id = ?1 ORDER BY name"
         )?;
-        let contacts: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, i64, i64)> =
+        let contacts: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, i64, i64, Option<String>)> =
             stmt.query_map(params![vault_id], |r| Ok((
                 r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
                 r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?,
-                r.get(8)?, r.get(9)?
+                r.get(8)?, r.get(9)?, r.get(10)?
             )))?.filter_map(|r| r.ok()).collect();
 
         let mut result = Vec::new();
-        for (id, name, company, title, website, location, notes, tags_json, created_at, updated_at) in contacts {
+        for (id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url) in contacts {
             let emails = self.load_contact_emails(&id)?;
             let phones = self.load_contact_phones(&id)?;
             let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or(serde_json::json!([]));
@@ -376,6 +377,7 @@ impl VaultDb {
                 "location": location,
                 "notes": notes,
                 "tags": tags,
+                "photoUrl": photo_url,
                 "createdAt": created_at,
                 "updatedAt": updated_at
             }));
@@ -408,17 +410,20 @@ impl VaultDb {
         let location = contact["location"].as_str();
         let notes = contact["notes"].as_str();
         let tags = contact["tags"].to_string();
+        let photo_url = contact["photoUrl"].as_str();
         let created_at = contact["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         let updated_at = contact["updatedAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         self.conn.execute(
-            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes, tags_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes, tags_json, photo_url, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, company=excluded.company, title=excluded.title,
                website=excluded.website, location=excluded.location, notes=excluded.notes,
-               tags_json=excluded.tags_json, updated_at=excluded.updated_at",
-            params![id, vault_id, name, company, title, website, location, notes, tags, created_at, updated_at],
+               tags_json=excluded.tags_json,
+               photo_url=COALESCE(excluded.photo_url, photo_url),
+               updated_at=excluded.updated_at",
+            params![id, vault_id, name, company, title, website, location, notes, tags, photo_url, created_at, updated_at],
         )?;
 
         // Rebuild email list
@@ -447,6 +452,25 @@ impl VaultDb {
             }
         }
 
+        Ok(())
+    }
+
+    /// Bulk-update contact photo URLs from a People API response (email → photo_url map).
+    /// Only updates contacts that already exist in this vault; does not create new ones.
+    pub fn update_contact_photos(
+        &self,
+        vault_id: &str,
+        photos: &std::collections::HashMap<String, String>,
+    ) -> Result<()> {
+        for (email, photo_url) in photos {
+            self.conn.execute(
+                "UPDATE contacts SET photo_url = ?1
+                 WHERE vault_id = ?2 AND id IN (
+                     SELECT contact_id FROM contact_emails WHERE email = ?3
+                 )",
+                params![photo_url, vault_id, email],
+            )?;
+        }
         Ok(())
     }
 
@@ -503,16 +527,26 @@ impl VaultDb {
         provider: &str,
         email: &str,
         display_name: Option<&str>,
+        photo_url: Option<&str>,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO accounts (id, vault_id, provider, email, display_name, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO accounts (id, vault_id, provider, email, display_name, photo_url, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
                provider = excluded.provider,
                email = excluded.email,
-               display_name = excluded.display_name",
-            params![id, vault_id, provider, email, display_name,
+               display_name = excluded.display_name,
+               photo_url = COALESCE(excluded.photo_url, photo_url)",
+            params![id, vault_id, provider, email, display_name, photo_url,
                     chrono::Utc::now().timestamp_millis()],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_account_photo(&self, account_id: &str, photo_url: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET photo_url = ?1 WHERE id = ?2",
+            params![photo_url, account_id],
         )?;
         Ok(())
     }

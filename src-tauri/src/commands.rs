@@ -322,7 +322,7 @@ pub async fn start_gmail_oauth(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "gmail", &token_resp.email, Some(&token_resp.email))
+        db.upsert_account(&account_id, &vault_id, "gmail", &token_resp.email, Some(&token_resp.email), token_resp.photo_url.as_deref())
             .map_err(|e| e.to_string())?;
         if let Some(rt) = &token_resp.refresh_token {
             db.save_tokens(&account_id, &token_resp.access_token, rt, expires_at)
@@ -344,22 +344,46 @@ pub async fn start_gmail_oauth(
             .to_string_lossy()
             .into_owned();
 
+        let http = reqwest::Client::new();
+
+        // Fetch Google Contacts photos in parallel with initial mail sync
+        let photos_future = crate::gmail::contacts::fetch_contact_photos(&http, &access_token);
+
         let syncer = GmailSyncer::new(
-            account_id_clone,
-            vault_id_clone,
-            access_token,
+            account_id_clone.clone(),
+            vault_id_clone.clone(),
+            access_token.clone(),
             std::path::Path::new(&vault_path),
             client_mode,
             app_handle.clone(),
         );
 
-        match syncer.initial_sync_with_db(&db_path).await {
-            Ok(stats) => {
-                log::info!("Initial sync complete: {stats:?}");
-                let _ = app_handle.emit("vault:hydrate-needed", ());
-            }
+        let (sync_result, photos_result) = tokio::join!(
+            syncer.initial_sync_with_db(&db_path),
+            photos_future,
+        );
+
+        match sync_result {
+            Ok(stats) => log::info!("Initial sync complete: {stats:?}"),
             Err(e) => log::error!("Initial sync failed: {e}"),
         }
+
+        // Save contact photos (own profile photo already stored via userinfo in upsert_account)
+        match photos_result {
+            Ok(photos) => {
+                let db = match crate::db::VaultDb::open(&db_path, "nexus") {
+                    Ok(d) => d,
+                    Err(e) => { log::warn!("Could not open DB for contact photos: {e}"); return; }
+                };
+                if let Err(e) = db.update_contact_photos(&vault_id_clone, &photos) {
+                    log::warn!("update_contact_photos error: {e}");
+                }
+                log::info!("Synced {} Google Contact photos", photos.len());
+            }
+            Err(e) => log::warn!("Google Contacts fetch failed: {e}"),
+        }
+
+        let _ = app_handle.emit("vault:hydrate-needed", ());
     });
 
     Ok(OAuthResult {
@@ -1007,7 +1031,7 @@ pub async fn add_imap_account(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "imap", &email, display_name.as_deref())
+        db.upsert_account(&account_id, &vault_id, "imap", &email, display_name.as_deref(), None)
             .map_err(|e| e.to_string())?;
         db.save_settings_json(&account_id, &settings.to_string())
             .map_err(|e| e.to_string())?;
@@ -1228,7 +1252,7 @@ pub async fn start_outlook_oauth(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "imap", &email, Some(&email))
+        db.upsert_account(&account_id, &vault_id, "imap", &email, Some(&email), None)
             .map_err(|e| e.to_string())?;
 
         let settings = serde_json::json!({

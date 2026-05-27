@@ -74,7 +74,7 @@ function ParticipantRow({
 
   return (
     <div className="flex items-center gap-2 py-1">
-      <Avatar name={displayName} size={24} colorSeed={colorSeed} />
+      <Avatar name={displayName} size={24} colorSeed={colorSeed} src={contact?.photoUrl} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-small text-text-primary">{displayName}</div>
         <div className="truncate font-mono text-mono-xs text-text-tertiary">{email}</div>
