@@ -977,7 +977,7 @@ export function NavigationPanel() {
                         value={labelSort}
                         onValueChange={(v) => setLabelSort(v as LabelSort)}
                       >
-                        {(["manual", "alpha-asc", "alpha-desc", "count-desc"] as LabelSort[]).map((val) => (
+                        {(["manual", "alpha-asc", "alpha-desc", "count-desc", "recently-created", "recently-used"] as LabelSort[]).map((val) => (
                           <RCMenu.RadioItem key={val} value={val} className={cmItem}>
                             <RCMenu.ItemIndicator className="absolute left-2">
                               <Check size={11} />
@@ -1005,7 +1005,7 @@ export function NavigationPanel() {
                         value={tagSort}
                         onValueChange={(v) => setTagSort(v as TagSort)}
                       >
-                        {(["count-desc", "alpha-asc", "alpha-desc"] as TagSort[]).map((val) => (
+                        {(["count-desc", "alpha-asc", "alpha-desc", "recently-used"] as TagSort[]).map((val) => (
                           <RCMenu.RadioItem key={val} value={val} className={cmItem}>
                             <RCMenu.ItemIndicator className="absolute left-2">
                               <Check size={11} />

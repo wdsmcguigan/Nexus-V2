@@ -3,9 +3,15 @@
  * All functions are no-ops (or throw) when running in the browser without Tauri.
  */
 
-// Tauri injects window.__TAURI__ when running inside the desktop shell.
+// Tauri injects window.__TAURI__ (withGlobalTauri:true) and always injects
+// window.__TAURI_INTERNALS__ before page scripts run. Check both so detection
+// is robust even when withGlobalTauri is absent or injected asynchronously in
+// some dev-mode configurations.
 export function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI__" in window;
+  return (
+    typeof window !== "undefined" &&
+    ("__TAURI__" in window || "__TAURI_INTERNALS__" in window)
+  );
 }
 
 // Lazy import so the web bundle never pays the cost of resolving @tauri-apps/api

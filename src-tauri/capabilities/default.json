@@ -16,6 +16,9 @@
     "fs:allow-remove",
     "dialog:default",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "core:window-allow-start-dragging",
+    "core:window-allow-set-focus",
+    "core:window-allow-set-title"
   ]
 }
