@@ -644,19 +644,22 @@ function FolderTreeNode({
 
 // ─── Labels & Tags context menu ───────────────────────────────────────────────
 
-type LabelSort = "manual" | "alpha-asc" | "alpha-desc" | "count-desc";
-type TagSort   = "count-desc" | "alpha-asc" | "alpha-desc";
+type LabelSort = "manual" | "alpha-asc" | "alpha-desc" | "count-desc" | "recently-created" | "recently-used";
+type TagSort   = "count-desc" | "alpha-asc" | "alpha-desc" | "recently-used";
 
 const LABEL_SORT_LABELS: Record<LabelSort, string> = {
-  "manual":     "Manual order",
-  "alpha-asc":  "A → Z",
-  "alpha-desc": "Z → A",
-  "count-desc": "Most used",
+  "manual":           "Manual order",
+  "alpha-asc":        "A → Z",
+  "alpha-desc":       "Z → A",
+  "count-desc":       "Most used",
+  "recently-created": "Recently created",
+  "recently-used":    "Recently used",
 };
 const TAG_SORT_LABELS: Record<TagSort, string> = {
-  "count-desc": "Most used",
-  "alpha-asc":  "A → Z",
-  "alpha-desc": "Z → A",
+  "count-desc":    "Most used",
+  "alpha-asc":     "A → Z",
+  "alpha-desc":    "Z → A",
+  "recently-used": "Recently used",
 };
 
 const cmContent = cn(
@@ -705,13 +708,32 @@ export function NavigationPanel() {
       }
       return [...rootUserLabels].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0));
     }
+    if (labelSort === "recently-created") {
+      // IDs are generated as `lbl-{Date.now()}-{random}` so the timestamp is in segment [1]
+      const tsOf = (id: string) => parseInt(id.split("-")[1] ?? "0", 10) || 0;
+      return [...rootUserLabels].sort((a, b) => tsOf(b.id) - tsOf(a.id));
+    }
+    if (labelSort === "recently-used") {
+      const lastUsed = new Map<string, number>();
+      for (const msg of localStore.messages.values()) {
+        for (const lid of msg.labelIds) {
+          if (msg.receivedAt > (lastUsed.get(lid) ?? 0)) lastUsed.set(lid, msg.receivedAt);
+        }
+      }
+      return [...rootUserLabels].sort((a, b) => (lastUsed.get(b.id) ?? 0) - (lastUsed.get(a.id) ?? 0));
+    }
     return rootUserLabels;
   }, [rootUserLabels, labelSort, showLabels]);
 
   const sortedTags = React.useMemo(() => {
     if (!showTags) return [];
-    if (tagSort === "alpha-asc")  return [...allTags].sort((a, b) => a.localeCompare(b));
-    if (tagSort === "alpha-desc") return [...allTags].sort((a, b) => b.localeCompare(a));
+    if (tagSort === "alpha-asc")     return [...allTags].sort((a, b) => a.localeCompare(b));
+    if (tagSort === "alpha-desc")    return [...allTags].sort((a, b) => b.localeCompare(a));
+    if (tagSort === "recently-used") {
+      return [...allTags].sort((a, b) =>
+        (localStore.tagUsage.get(b)?.lastUsedAt ?? 0) - (localStore.tagUsage.get(a)?.lastUsedAt ?? 0)
+      );
+    }
     return allTags; // count-desc — already sorted by useAllTags()
   }, [allTags, tagSort, showTags]);
 
