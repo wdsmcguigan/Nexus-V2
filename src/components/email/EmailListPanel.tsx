@@ -816,6 +816,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                 >
                   <EmailRowContextMenu
                     message={msg}
+                    selectedIds={selectedEmailIds}
                     onArchive={() => {
                       Mut.archiveMessage(localStore, msg.id);
                       const i = msgList.findIndex((m) => m.id === msg.id);
