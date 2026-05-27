@@ -265,6 +265,18 @@ export function useVisibleMessages(
   }, [v, folderId, activeFilter, savedViewId, sortBy, sortDir]);
 }
 
+/** Returns all tag strings sorted by usage count descending, then alphabetically. */
+export function useAllTags(): string[] {
+  const v = useStoreVersion();
+  return useMemo(
+    () =>
+      Array.from(localStore.tagUsage.values())
+        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+        .map((t) => t.tag),
+    [v],
+  );
+}
+
 /** Returns display title of the current view (nav selection or saved view name). */
 export function useSelectionTitle(): string {
   const folderId = useWorkspace((s) => s.selectedFolderId);

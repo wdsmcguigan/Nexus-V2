@@ -22,6 +22,7 @@ import {
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { Button } from "@/components/ui/Button";
+import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ColorPicker } from "@/components/ui/ColorPicker";
 import { useWorkspace } from "@/state/workspace";
@@ -36,10 +37,12 @@ import {
   useFolderCount,
   useFolderUnreadCount,
   useSavedViews,
+  useAllTags,
 } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
+import type { PanelLink } from "@/design-system/tokens";
 import type { Folder as FolderType, Label as LabelType } from "@/data/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -63,12 +66,6 @@ const SYNC_DOT_COLOR: Record<string, string> = {
   pending: "bg-warning",
   error: "bg-danger",
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function labelDotStyle(color: number): React.CSSProperties {
-  return { backgroundColor: `var(--color-link-${color})` };
-}
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 
@@ -436,19 +433,14 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
             ) : (
               <span className="size-4 shrink-0" />
             )}
-            <span
-              className="size-2 shrink-0 rounded-full"
-              style={labelDotStyle(label.color)}
-              aria-hidden
-            />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-body",
-                unread > 0 && !active && "font-semibold text-text-primary",
-              )}
+            <Tag
+              color={label.color as PanelLink}
+              size="sm"
+              selected={active}
             >
               {displayName}
-            </span>
+            </Tag>
+            <span className="flex-1" />
             {unread > 0 ? (
               <span className="rounded-xs bg-surface-3 px-1 py-px font-mono text-mono-xs font-semibold text-text-secondary">
                 {unread}
@@ -661,8 +653,9 @@ export function NavigationPanel() {
   const renameSavedView = useWorkspace((s) => s.renameSavedView);
   const selectedSavedViewId = useWorkspace((s) => s.selectedSavedViewId);
 
+  const allTags = useAllTags();
   const [foldersExpanded, setFoldersExpanded] = React.useState(true);
-  const [labelsExpanded, setLabelsExpanded] = React.useState(true);
+  const [labelTagsExpanded, setLabelTagsExpanded] = React.useState(true);
   const [viewsExpanded, setViewsExpanded] = React.useState(true);
   const [creatingFolder, setCreatingFolder] = React.useState(false);
   const [creatingLabel, setCreatingLabel] = React.useState(false);
@@ -823,16 +816,16 @@ export function NavigationPanel() {
           )}
         </div>
 
-        {/* NAV-LABEL-LIST */}
+        {/* NAV-LABEL-TAG-LIST */}
         <div className="p-1">
           <div className="flex items-center px-2 py-1">
             <button
               type="button"
               className="flex flex-1 items-center gap-1 text-overline uppercase text-text-tertiary hover:text-text-secondary"
-              onClick={() => setLabelsExpanded((v) => !v)}
+              onClick={() => setLabelTagsExpanded((v) => !v)}
             >
-              {labelsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-              Labels
+              {labelTagsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              Labels &amp; Tags
             </button>
             <Tooltip label="New label">
               <Button
@@ -841,7 +834,7 @@ export function NavigationPanel() {
                 iconOnly
                 aria-label="New label"
                 onClick={() => {
-                  setLabelsExpanded(true);
+                  setLabelTagsExpanded(true);
                   setCreatingLabel(true);
                 }}
               >
@@ -849,7 +842,7 @@ export function NavigationPanel() {
               </Button>
             </Tooltip>
           </div>
-          {labelsExpanded && (
+          {labelTagsExpanded && (
             <>
               {rootUserLabels.map((label) => (
                 <LabelTreeNode key={label.id} label={label} depth={0} />
@@ -869,6 +862,18 @@ export function NavigationPanel() {
                   }}
                   onCancel={() => setCreatingLabel(false)}
                 />
+              )}
+              {allTags.length > 0 && (
+                <div className={cn("flex flex-wrap gap-1 px-2 py-1", rootUserLabels.length > 0 && "border-t border-border-subtle mt-1 pt-2")}>
+                  {allTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="flex h-[18px] items-center rounded-xs bg-surface-3 px-1.5 font-mono text-mono-xs text-text-secondary"
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
               )}
             </>
           )}
