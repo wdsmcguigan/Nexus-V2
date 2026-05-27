@@ -277,12 +277,24 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
     // ── Star ─────────────────────────────────────────────────────
     case "SET_STAR": {
       const { messageId, star } = m.payload as { messageId: string; star: StarStyle };
-      _updateMessage(store, messageId, { star });
+      const msg = store.messages.get(messageId);
+      if (!msg) break;
+      const starredLabel = Array.from(store.labels.values()).find((l) => l.systemKind === "starred");
+      const labelIds = starredLabel && !msg.labelIds.includes(starredLabel.id)
+        ? [...msg.labelIds, starredLabel.id]
+        : msg.labelIds;
+      _updateMessage(store, messageId, { star, labelIds });
       break;
     }
     case "CLEAR_STAR": {
       const { messageId } = m.payload as { messageId: string };
-      _updateMessage(store, messageId, { star: null });
+      const msg = store.messages.get(messageId);
+      if (!msg) break;
+      const starredLabel = Array.from(store.labels.values()).find((l) => l.systemKind === "starred");
+      const labelIds = starredLabel
+        ? msg.labelIds.filter((l) => l !== starredLabel.id)
+        : msg.labelIds;
+      _updateMessage(store, messageId, { star: null, labelIds });
       break;
     }
 

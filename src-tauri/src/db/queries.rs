@@ -747,18 +747,25 @@ impl VaultDb {
             None
         };
 
+        let starred_label_id = format!("{vault_id}-starred");
+        let initial_star: Option<&str> = if msg.label_ids.contains(&starred_label_id) {
+            Some("yellow")
+        } else {
+            None
+        };
+
         self.conn.execute(
             "INSERT OR IGNORE INTO messages (
                 id, vault_id, folder_id, thread_id, subject, snippet, body_ref, received_at,
                 from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                 attachment_refs_json, custom_fields_json,
                 flags_read, flags_answered, flags_draft, flags_flagged,
-                provider_id, provider_account_id, eml_path, list_unsubscribe_json
+                provider_id, provider_account_id, eml_path, list_unsubscribe_json, star
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                 ?9, ?10, ?11, ?12, ?13, '{}',
                 ?14, 0, 0, 0,
-                ?15, ?16, ?17, ?18
+                ?15, ?16, ?17, ?18, ?19
             )",
             params![
                 msg.id, vault_id, msg.folder_id, msg.thread_id,
@@ -771,7 +778,8 @@ impl VaultDb {
                 if msg.flags_read { 1 } else { 0 },
                 msg.provider_id, msg.account_id,
                 msg.eml_path,
-                list_unsubscribe_json
+                list_unsubscribe_json,
+                initial_star
             ],
         )?;
 
@@ -980,6 +988,14 @@ impl VaultDb {
                 self.conn.execute(
                     "UPDATE messages SET star = ?1 WHERE id = ?2",
                     params![star, msg_id],
+                )?;
+                // Keep the starred system label in sync with the star field.
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                     SELECT ?1, l.id FROM labels l
+                     WHERE l.system_kind = 'starred'
+                       AND l.vault_id = (SELECT vault_id FROM messages WHERE id = ?1 LIMIT 1)",
+                    params![msg_id],
                 )?;
             }
             "SET_CUSTOM_FIELD_VALUE" => {
@@ -1207,6 +1223,13 @@ impl VaultDb {
             "CLEAR_STAR" => {
                 let msg_id = p["messageId"].as_str().unwrap_or_default();
                 self.conn.execute("UPDATE messages SET star = NULL WHERE id = ?1", params![msg_id])?;
+                // Keep the starred system label in sync with the star field.
+                self.conn.execute(
+                    "DELETE FROM message_labels
+                     WHERE message_id = ?1
+                       AND label_id IN (SELECT id FROM labels WHERE system_kind = 'starred')",
+                    params![msg_id],
+                )?;
             }
 
             // ── Message lifecycle ──────────────────────────────────
@@ -1571,6 +1594,15 @@ impl VaultDb {
              SELECT id, ?2 FROM messages WHERE provider_id = ?1",
             params![provider_id, label_id],
         )?;
+        // If this is the starred system label, also set the star field (only when null
+        // to preserve any custom star style the user may have set locally).
+        self.conn.execute(
+            "UPDATE messages SET star = 'yellow'
+             WHERE provider_id = ?1
+               AND star IS NULL
+               AND EXISTS (SELECT 1 FROM labels WHERE id = ?2 AND system_kind = 'starred')",
+            params![provider_id, label_id],
+        )?;
         Ok(())
     }
 
@@ -1580,6 +1612,13 @@ impl VaultDb {
             "DELETE FROM message_labels
              WHERE label_id = ?2
                AND message_id = (SELECT id FROM messages WHERE provider_id = ?1 LIMIT 1)",
+            params![provider_id, label_id],
+        )?;
+        // If this is the starred system label, also clear the star field.
+        self.conn.execute(
+            "UPDATE messages SET star = NULL
+             WHERE provider_id = ?1
+               AND EXISTS (SELECT 1 FROM labels WHERE id = ?2 AND system_kind = 'starred')",
             params![provider_id, label_id],
         )?;
         Ok(())
