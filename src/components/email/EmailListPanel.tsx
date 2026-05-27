@@ -21,15 +21,15 @@ import {
   CheckCheck,
   Bookmark,
   Tag,
-  MessagesSquare,
-  ArrowDownUp,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
-import { FilterBar } from "@/components/filter/FilterBar";
+import { FilterBar, AddFilterButton } from "@/components/filter/FilterBar";
 import { KanbanView } from "@/components/views/KanbanView";
 import { TableView } from "@/components/views/TableView";
 import { Button } from "@/components/ui/Button";
@@ -101,7 +101,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const _removeListPanelAxis = useWorkspace((s) => s.removeListPanelAxis);
   const saveCurrentFilter = useWorkspace((s) => s.saveCurrentFilter);
   const threadedView = useWorkspace((s) => s.threadedView);
-  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
 
   const [saveViewOpen, setSaveViewOpen] = React.useState(false);
   const [saveViewName, setSaveViewName] = React.useState("");
@@ -543,32 +542,148 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     />
   );
 
-  const searchBar = (
-    <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2">
-      <Search size={12} className="shrink-0 text-text-tertiary" />
-      <input
-        ref={searchRef}
-        type="search"
-        value={searchValue}
-        onChange={(e) => setSearchValue(e.target.value)}
-        placeholder="Search subject, body, notes… (/)"
-        aria-label="Search messages"
+  const unreadInList = msgList.filter((m) => !m.flags.read).length;
+
+  // Unified command bar: search + sort + group + filter in one elevated row.
+  // Sort / group / mark-all-read are list-view concepts and hide in kanban/table.
+  const toolbar = (
+    <div className="shrink-0 border-b border-border-subtle bg-surface-1 px-2 py-2">
+      <div
         className={cn(
-          "min-w-0 flex-1 bg-transparent font-mono text-mono-sm text-text-primary outline-none",
-          "placeholder:text-text-tertiary",
+          "flex h-9 items-center gap-1 rounded-md border border-border-default bg-surface-2 px-2",
+          "shadow-sm transition-colors",
+          "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30",
         )}
-        onKeyDown={(e) => { if (e.key === "Escape") { setSearchValue(""); searchRef.current?.blur(); } }}
-      />
-      {searchValue && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => { setSearchValue(""); searchRef.current?.focus(); }}
-          className="shrink-0 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
-        >
-          <X size={11} />
-        </button>
-      )}
+      >
+        {/* Search */}
+        <Search size={13} className="shrink-0 text-text-tertiary" />
+        <input
+          ref={searchRef}
+          type="search"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          placeholder="Search subject, body, notes… (/)"
+          aria-label="Search messages"
+          className={cn(
+            "min-w-0 flex-1 bg-transparent text-body text-text-primary outline-none",
+            "placeholder:text-text-tertiary",
+          )}
+          onKeyDown={(e) => { if (e.key === "Escape") { setSearchValue(""); searchRef.current?.blur(); } }}
+        />
+        {searchValue && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => { setSearchValue(""); searchRef.current?.focus(); }}
+            className="shrink-0 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+          >
+            <X size={12} />
+          </button>
+        )}
+
+        <div className="mx-0.5 h-5 w-px shrink-0 bg-border-subtle" />
+
+        {/* Sort picker (list view) */}
+        {viewMode === "list" && (
+          <>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  className={cn(
+                    "flex h-7 shrink-0 items-center gap-1 rounded-xs px-2 text-caption",
+                    "text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary",
+                    "data-[state=open]:bg-surface-3 data-[state=open]:text-text-primary",
+                  )}
+                >
+                  <span className="text-text-tertiary">Sort</span>
+                  {SORT_LABELS[sortBy]}
+                  <ChevronDown size={10} />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className={cn(
+                    "z-50 min-w-[140px] overflow-hidden rounded-md border border-border-subtle",
+                    "bg-surface-2 p-1 shadow-lg",
+                    "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+                    "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+                  )}
+                  sideOffset={6}
+                  align="start"
+                >
+                  {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+                    <DropdownMenu.Item
+                      key={key}
+                      onSelect={() => setSortBy(key)}
+                      className={cn(
+                        "flex h-7 cursor-pointer items-center rounded-xs px-2 text-body outline-none",
+                        "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                        key === sortBy && "text-text-primary",
+                      )}
+                    >
+                      {SORT_LABELS[key]}
+                      {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            {/* Sort direction — only meaningful for time-based sort */}
+            {sortBy === "receivedAt" && (
+              <Tooltip label={sortDir === "desc" ? "Newest first" : "Oldest first"}>
+                <button
+                  type="button"
+                  aria-label="Toggle sort direction"
+                  onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary"
+                >
+                  {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+                </button>
+              </Tooltip>
+            )}
+
+            {/* Group by status */}
+            <Tooltip label={groupBySta ? "Ungroup" : "Group by status"}>
+              <button
+                type="button"
+                onClick={() => setGroupBySta((v) => !v)}
+                aria-pressed={groupBySta}
+                className={cn(
+                  "flex h-7 shrink-0 items-center gap-1 rounded-xs px-2 text-caption transition-colors",
+                  groupBySta
+                    ? "bg-accent-soft text-text-primary"
+                    : "text-text-secondary hover:bg-surface-3 hover:text-text-primary",
+                )}
+              >
+                <Layers size={11} className={groupBySta ? "" : "text-text-tertiary"} />
+                Group
+              </button>
+            </Tooltip>
+          </>
+        )}
+
+        {/* Filter */}
+        <AddFilterButton />
+
+        {/* Mark all read (list view) */}
+        {viewMode === "list" && unreadInList > 0 && (
+          <Tooltip label={`Mark all ${unreadInList} as read`}>
+            <button
+              type="button"
+              aria-label="Mark all as read"
+              onClick={() => {
+                for (const msg of msgList) {
+                  if (!msg.flags.read) Mut.readMessage(localStore, msg.id);
+                }
+              }}
+              className="flex size-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary"
+            >
+              <CheckCheck size={12} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   );
 
@@ -576,7 +691,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (viewMode === "kanban") {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <KanbanView />
       </Panel>
@@ -586,7 +701,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (viewMode === "table") {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <TableView />
       </Panel>
@@ -596,7 +711,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (msgList.length === 0) {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <PanelEmpty
           icon={Inbox}
@@ -610,131 +725,10 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   return (
     <Panel panelId={panelId} type="stage" header={header}>
-      {/* Search bar (EP-3 FTS) */}
-      {searchBar}
-      {/* Filter pills bar */}
+      {/* Unified command bar: search + sort + group + filter */}
+      {toolbar}
+      {/* Active filter pills (hidden when no filter) */}
       <FilterBar />
-
-      {/* Sub-toolbar: sort + group-by */}
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 px-2">
-        {/* Sort picker */}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              className={cn(
-                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary",
-                "hover:bg-surface-2 hover:text-text-secondary",
-              )}
-            >
-              Sort: {SORT_LABELS[sortBy]}
-              <ChevronDown size={10} />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              className={cn(
-                "z-50 min-w-[140px] overflow-hidden rounded-md border border-border-subtle",
-                "bg-surface-2 p-1 shadow-lg",
-                "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-                "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-              )}
-              sideOffset={4}
-              align="start"
-            >
-              {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
-                <DropdownMenu.Item
-                  key={key}
-                  onSelect={() => setSortBy(key)}
-                  className={cn(
-                    "flex h-7 cursor-pointer items-center rounded-xs px-2 text-body outline-none",
-                    "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
-                    key === sortBy && "text-text-primary",
-                  )}
-                >
-                  {SORT_LABELS[key]}
-                  {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
-                </DropdownMenu.Item>
-              ))}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-
-        {/* Sort direction toggle — only shown for receivedAt (time-based sorts) */}
-        {sortBy === "receivedAt" && (
-          <Tooltip label={sortDir === "desc" ? "Showing newest first" : "Showing oldest first"}>
-            <button
-              type="button"
-              onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
-              className={cn(
-                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-                "hover:bg-surface-2 hover:text-text-secondary",
-                sortDir === "asc" ? "text-text-secondary" : "text-text-tertiary",
-              )}
-            >
-              <ArrowDownUp size={10} />
-              {sortDir === "desc" ? "Newest" : "Oldest"}
-            </button>
-          </Tooltip>
-        )}
-
-        <span className="text-caption text-text-muted">·</span>
-
-        {/* Group-by STA toggle */}
-        <Tooltip label={groupBySta ? "Ungroup" : "Group by status"}>
-          <button
-            type="button"
-            onClick={() => setGroupBySta((v) => !v)}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-              "transition-colors hover:bg-surface-2",
-              groupBySta
-                ? "bg-accent-soft text-text-primary"
-                : "text-text-tertiary hover:text-text-secondary",
-            )}
-            aria-pressed={groupBySta}
-          >
-            <Layers size={11} />
-            {groupBySta ? "Grouped" : "Group by Status"}
-          </button>
-        </Tooltip>
-
-        {/* Threaded view toggle */}
-        <Tooltip label={threadedView ? "Showing conversations — click for flat view" : "Showing all messages — click for conversation view"}>
-          <button
-            type="button"
-            onClick={toggleThreadedView}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-              "transition-colors hover:bg-surface-2",
-              threadedView
-                ? "bg-accent-soft text-text-primary"
-                : "text-text-tertiary hover:text-text-secondary",
-            )}
-            aria-pressed={threadedView}
-          >
-            <MessagesSquare size={11} />
-            {threadedView ? "Threaded" : "Flat"}
-          </button>
-        </Tooltip>
-
-        {/* Mark all as read */}
-        {msgList.some((m) => !m.flags.read) && (
-          <Tooltip label={`Mark all ${msgList.filter((m) => !m.flags.read).length} as read`}>
-            <button
-              type="button"
-              onClick={() => {
-                for (const msg of msgList) {
-                  if (!msg.flags.read) Mut.readMessage(localStore, msg.id);
-                }
-              }}
-              className="ml-auto flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary hover:bg-surface-2 hover:text-text-secondary"
-            >
-              <CheckCheck size={11} />
-              Mark all read
-            </button>
-          </Tooltip>
-        )}
-      </div>
 
       {/* Virtualized list */}
       <div className="relative min-h-0 flex-1">

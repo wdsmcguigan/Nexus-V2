@@ -1,13 +1,15 @@
 /**
  * FLT-BAR — Active filter pills row.
  *
- * Sits above the email list. Shows one pill per active filter axis.
- * "Add filter" button opens a dropdown to pick an axis + value.
- * Each pill has an ✕ to remove that axis. "Save as view…" appears
- * when any filter is active.
+ * Sits below the email-list toolbar. Shows one pill per active filter axis.
+ * Each pill has an ✕ to remove that axis. "Clear all" / "Save as view…"
+ * appear when any filter is active. Renders nothing when no filter is set.
+ *
+ * The "+ Add filter" control is exported separately as <AddFilterButton />
+ * so it can live inline in the unified toolbar alongside search/sort/group.
  */
 import * as React from "react";
-import { X, SlidersHorizontal, Bookmark } from "lucide-react";
+import { X, Bookmark, SlidersHorizontal } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useWorkspace } from "@/state/workspace";
 import { useStatuses, useUserLabels } from "@/storage/useStore";
@@ -171,6 +173,37 @@ const itemCls = cn(
   "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
 );
 
+/**
+ * Standalone "+ Add filter" dropdown trigger, styled to sit inline in the
+ * email-list toolbar next to the sort/group controls.
+ */
+export function AddFilterButton() {
+  const [addOpen, setAddOpen] = React.useState(false);
+  return (
+    <DropdownMenu.Root open={addOpen} onOpenChange={setAddOpen}>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          aria-label="Add filter"
+          className={cn(
+            "flex h-7 items-center gap-1 rounded-xs px-2 text-caption",
+            "text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary",
+            "data-[state=open]:bg-surface-3 data-[state=open]:text-text-primary",
+          )}
+        >
+          <SlidersHorizontal size={11} className="text-text-tertiary" />
+          Filter
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className={contentCls} sideOffset={6} align="end">
+          <AddFilterMenu onClose={() => setAddOpen(false)} />
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+
 export function FilterBar() {
   const activeFilter = useWorkspace((s) => s.activeFilter);
   const removeFilterAxis = useWorkspace((s) => s.removeFilterAxis);
@@ -178,7 +211,6 @@ export function FilterBar() {
   const saveCurrentFilter = useWorkspace((s) => s.saveCurrentFilter);
   const [saveOpen, setSaveOpen] = React.useState(false);
   const [saveName, setSaveName] = React.useState("");
-  const [addOpen, setAddOpen] = React.useState(false);
 
   // Build pill descriptors from the active filter
   const pills: { key: keyof MetadataFilter; label: string }[] = [];
@@ -209,13 +241,12 @@ export function FilterBar() {
 
   const hasFilter = pills.length > 0;
 
+  // Pills-only row — hidden entirely when no filter is active. The add-filter
+  // control now lives in the toolbar via <AddFilterButton />.
+  if (!hasFilter) return null;
+
   return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2",
-        hasFilter ? "min-h-[36px] py-1.5" : "h-8",
-      )}
-    >
+    <div className="flex min-h-[36px] shrink-0 flex-wrap items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2 py-1.5">
       {/* Filter icon label */}
       <SlidersHorizontal size={12} className="shrink-0 text-text-tertiary" />
 
@@ -224,47 +255,20 @@ export function FilterBar() {
         <FilterPill key={key} label={label} onRemove={() => removeFilterAxis(key)} />
       ))}
 
-      {/* Add filter dropdown */}
-      <DropdownMenu.Root open={addOpen} onOpenChange={setAddOpen}>
-        <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-full border border-dashed border-border-subtle px-2",
-              "font-mono text-mono-xs text-text-tertiary",
-              "hover:border-border-default hover:text-text-secondary",
-            )}
-          >
-            + Add filter
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className={contentCls}
-            sideOffset={4}
-            align="start"
-          >
-            <AddFilterMenu onClose={() => setAddOpen(false)} />
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-
       {/* Spacer */}
       <div className="flex-1" />
 
       {/* Clear all */}
-      {hasFilter && (
-        <button
-          type="button"
-          onClick={clearFilter}
-          className="font-mono text-mono-xs text-text-tertiary hover:text-text-secondary"
-        >
-          Clear all
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={clearFilter}
+        className="font-mono text-mono-xs text-text-tertiary hover:text-text-secondary"
+      >
+        Clear all
+      </button>
 
       {/* Save as view */}
-      {hasFilter && !saveOpen && (
+      {!saveOpen && (
         <button
           type="button"
           onClick={() => { setSaveName(""); setSaveOpen(true); }}
