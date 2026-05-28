@@ -279,6 +279,7 @@ export function EmailComposerPanel() {
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
+  const prefilledTo = composerContext?.prefilledTo ?? null;
   const _draftKey = draftKey(replyMsg?.id ?? null);
   const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
   const sendAndArchiveRef = React.useRef(false);
@@ -289,6 +290,7 @@ export function EmailComposerPanel() {
 
   const [recipients, setRecipients] = React.useState<string[]>(() => {
     if (_draft) return _draft.recipients;
+    if (prefilledTo) return prefilledTo;
     if (!replyMsg || mode === "forward") return [];
     if (mode === "reply") return [replyMsg.fromAddr.email];
     const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";

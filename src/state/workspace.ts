@@ -51,8 +51,10 @@ export function newPanelId(type: string): string { return `${type}-${++_panelSeq
 
 export type ComposerMode = "reply" | "reply-all" | "forward";
 export interface ComposerContext {
-  mode: ComposerMode;
-  replyToMessage: Message;
+  mode?: ComposerMode;
+  replyToMessage?: Message;
+  /** Pre-fill To: field for new compose (no replyToMessage needed). */
+  prefilledTo?: string[];
 }
 
 // ─── Default layout capture ───────────────────────────────────────────────────

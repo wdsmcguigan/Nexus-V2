@@ -211,6 +211,19 @@ export function useContactMessageCount(contactId: string): number {
   return localStore.messagesByContact.get(contactId)?.size ?? 0;
 }
 
+/** Returns the most recent `limit` messages involving a contact, newest first. */
+export function useContactMessages(contactId: string, limit = 5): Message[] {
+  const v = useStoreVersion();
+  void v;
+  const ids = localStore.messagesByContact.get(contactId);
+  if (!ids) return [];
+  return Array.from(ids)
+    .map((id) => localStore.messages.get(id))
+    .filter((m): m is Message => m !== undefined)
+    .sort((a, b) => b.receivedAt - a.receivedAt)
+    .slice(0, limit);
+}
+
 /** Returns a single message by id, or null. */
 export function useMessage(id: string | null): Message | null {
   // messages.get() returns the same object reference until mutated — stable snapshot.

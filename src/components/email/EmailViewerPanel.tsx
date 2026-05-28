@@ -58,6 +58,7 @@ import { getAppPreferences } from "@/lib/appPreferences";
 import { getAccountPreferences, type AccountPreferences } from "@/storage/tauri";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
+import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
 
 // ─── Shared email body renderer ──────────────────────────────────────────────
 // Uses contentDocument.write() + useLayoutEffect so height is measured
@@ -634,12 +635,19 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Sender chrome */}
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
-          <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="truncate font-sans text-body-strong text-text-primary">
+          <ContactHoverCard email={msg.fromAddr.email} name={msg.fromAddr.name ?? ""}>
+            <button
+              type="button"
+              className="flex shrink-0 cursor-default items-center gap-3 rounded-sm px-1 -mx-1 hover:bg-surface-2 transition-colors"
+            >
+              <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl} />
+              <span className="max-w-[160px] truncate font-sans text-body-strong text-text-primary">
                 {msg.fromAddr.name}
               </span>
+            </button>
+          </ContactHoverCard>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
               <span className="truncate font-mono text-mono-sm text-text-tertiary">
                 &lt;{msg.fromAddr.email}&gt;
               </span>
