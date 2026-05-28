@@ -418,7 +418,7 @@ export function CommandPalette() {
     all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => openSettingsPanel() });
     all.push({ id: "contacts", label: "Open Contacts", group: "Workspace", icon: Users, perform: () => openContactsPanel() });
     all.push({ id: "calendar", label: "Open Calendar", group: "Workspace", icon: CalendarIcon, perform: () => openCalendarPanel() });
-    all.push({ id: "new-event", label: "New Calendar Event", group: "Workspace", icon: Plus, perform: () => { openCalendarPanel(); openEventCreateModal(); } });
+    all.push({ id: "new-event", label: "New Calendar Event", group: "Workspace", icon: Plus, perform: () => openEventCreateModal() });
 
     // ── Workspaces ──────────────────────────────────────────────────
     all.push({

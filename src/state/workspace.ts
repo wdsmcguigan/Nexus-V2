@@ -191,7 +191,8 @@ interface WorkspaceState {
   setCalendarFocusDate: (d: string) => void;
   openCalendarPanel: () => void;
   eventCreateModalOpen: boolean;
-  openEventCreateModal: () => void;
+  eventCreateModalPrefill: { attendees?: string[]; title?: string; date?: string } | null;
+  openEventCreateModal: (prefill?: { attendees?: string[]; title?: string; date?: string }) => void;
   closeEventCreateModal: () => void;
 
   // Settings panel
@@ -768,8 +769,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   eventCreateModalOpen: false,
-  openEventCreateModal: () => set({ eventCreateModalOpen: true }),
-  closeEventCreateModal: () => set({ eventCreateModalOpen: false }),
+  eventCreateModalPrefill: null,
+  openEventCreateModal: (prefill) => set({ eventCreateModalOpen: true, eventCreateModalPrefill: prefill ?? null }),
+  closeEventCreateModal: () => set({ eventCreateModalOpen: false, eventCreateModalPrefill: null }),
 
   openSettingsPanel: () => {
     const api = getDockviewApi();

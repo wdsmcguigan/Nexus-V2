@@ -6,7 +6,6 @@ import { syncGoogleCalendar } from "@/storage/tauri";
 import { useAccounts } from "@/storage/useStore";
 import { MiniMonth } from "./MiniMonth";
 import { AgendaView } from "./AgendaView";
-import { EventCreateModal } from "./EventCreateModal";
 
 const NOW = Date.now();
 const START_TS = NOW - 14 * 86_400_000;
@@ -15,9 +14,7 @@ const END_TS = NOW + 90 * 86_400_000;
 export function CalendarPanel() {
   const focusDate = useWorkspace((s) => s.calendarFocusDate);
   const setFocusDate = useWorkspace((s) => s.setCalendarFocusDate);
-  const eventCreateModalOpen = useWorkspace((s) => s.eventCreateModalOpen);
   const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
-  const closeEventCreateModal = useWorkspace((s) => s.closeEventCreateModal);
   const events = useCalendarEvents(START_TS, END_TS);
   const accounts = useAccounts();
   const [syncing, setSyncing] = React.useState(false);
@@ -62,7 +59,7 @@ export function CalendarPanel() {
           </button>
           <button
             type="button"
-            onClick={openEventCreateModal}
+            onClick={() => openEventCreateModal({ date: focusDate })}
             className="rounded-xs p-1 text-text-tertiary hover:bg-surface-2 hover:text-text-primary transition-colors"
             title="New event"
           >
@@ -83,12 +80,6 @@ export function CalendarPanel() {
 
       {/* Agenda */}
       <AgendaView events={events} focusDate={focusDate} />
-
-      <EventCreateModal
-        open={eventCreateModalOpen}
-        onClose={closeEventCreateModal}
-        prefillDate={focusDate}
-      />
     </div>
   );
 }

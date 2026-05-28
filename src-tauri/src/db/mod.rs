@@ -52,6 +52,8 @@ impl VaultDb {
             .context("running EP10 column migrations")?;
         self.run_ep11_migrations()
             .context("running EP11 column migrations")?;
+        self.run_ep12_migrations()
+            .context("running EP12 column migrations")?;
         Ok(())
     }
 
@@ -168,6 +170,18 @@ impl VaultDb {
         let _ = self.conn.execute_batch(
             "INSERT INTO calendar_events_fts(calendar_events_fts) VALUES('rebuild');",
         );
+        Ok(())
+    }
+
+    /// Apply EP12 migrations (all remaining Google Calendar API fields).
+    fn run_ep12_migrations(&self) -> Result<()> {
+        for &sql in schema::EP12_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
         Ok(())
     }
 }

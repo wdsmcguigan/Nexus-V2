@@ -11,6 +11,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   prefillDate?: string;
+  prefillAttendees?: string[];
+  prefillTitle?: string;
 }
 
 function toLocalDatetimeValue(ts: number): string {
@@ -23,14 +25,14 @@ function localDatetimeToTs(value: string): number {
   return new Date(value).getTime();
 }
 
-export function EventCreateModal({ open, onClose, prefillDate }: Props) {
+export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees, prefillTitle }: Props) {
   const now = Date.now();
   const defaultStart = prefillDate
     ? new Date(prefillDate + "T09:00").getTime()
     : Math.ceil(now / 3_600_000) * 3_600_000;
   const defaultEnd = defaultStart + 3_600_000;
 
-  const [title, setTitle] = React.useState("");
+  const [title, setTitle] = React.useState(prefillTitle ?? "");
   const [allDay, setAllDay] = React.useState(false);
   const [startVal, setStartVal] = React.useState(toLocalDatetimeValue(defaultStart));
   const [endVal, setEndVal] = React.useState(toLocalDatetimeValue(defaultEnd));
@@ -39,8 +41,26 @@ export function EventCreateModal({ open, onClose, prefillDate }: Props) {
   const [location, setLocation] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [attendeeInput, setAttendeeInput] = React.useState("");
-  const [attendees, setAttendees] = React.useState<string[]>([]);
+  const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
   const [submitting, setSubmitting] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const ts = prefillDate
+      ? new Date(prefillDate + "T09:00").getTime()
+      : Math.ceil(Date.now() / 3_600_000) * 3_600_000;
+    setTitle(prefillTitle ?? "");
+    setAttendees(prefillAttendees ?? []);
+    setAllDay(false);
+    setStartVal(toLocalDatetimeValue(ts));
+    setEndVal(toLocalDatetimeValue(ts + 3_600_000));
+    setStartDate(prefillDate ?? new Date().toISOString().slice(0, 10));
+    setEndDate(prefillDate ?? new Date().toISOString().slice(0, 10));
+    setLocation("");
+    setDescription("");
+    setAttendeeInput("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, prefillTitle, prefillAttendees, prefillDate]);
 
   const gmailAccount = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
 

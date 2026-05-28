@@ -1,6 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/data/types";
+import { eventColor } from "@/lib/calendarColors";
 import { EventHoverCard } from "./EventHoverCard";
 import { EventDetailPopover } from "./EventDetailPopover";
 
@@ -46,10 +47,10 @@ function EventRow({ event }: EventRowProps) {
               : "hover:bg-surface-2",
           )}
         >
-          <span className={cn(
-            "mt-0.5 shrink-0 text-caption",
-            event.allDay ? "text-text-muted" : "text-accent",
-          )}>
+          <span
+            className="mt-0.5 shrink-0 text-caption text-text-muted"
+            style={event.allDay ? undefined : { color: eventColor(event.colorId) }}
+          >
             {event.allDay ? "○" : "●"}
           </span>
           <div className="min-w-0 flex-1">

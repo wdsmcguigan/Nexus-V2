@@ -14,6 +14,7 @@ import {
   X,
   ChevronDown,
   FileText,
+  CalendarDays,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -276,6 +277,7 @@ export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
   const composerContext = useWorkspace((s) => s.composerContext);
   const archive = useWorkspace((s) => s.archive);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
@@ -635,6 +637,13 @@ export function EmailComposerPanel() {
           <ToolbarBtn icon={ListOrdered} label="Numbered list" active={editor?.isActive("orderedList")} onClick={() => editor?.chain().focus().toggleOrderedList().run()} />
           <ToolbarBtn icon={Quote} label="Blockquote" active={editor?.isActive("blockquote")} onClick={() => editor?.chain().focus().toggleBlockquote().run()} />
           <ToolbarBtn icon={Code} label="Inline code" active={editor?.isActive("code")} onClick={() => editor?.chain().focus().toggleCode().run()} />
+          <span className="mx-1 h-4 w-px bg-border-default" />
+          <ToolbarBtn
+            icon={CalendarDays}
+            label="Create calendar event from this email"
+            active={false}
+            onClick={() => openEventCreateModal({ attendees: [...recipients, ...ccRecipients] })}
+          />
           {templates.length > 0 && (
             <>
               <span className="mx-1 h-4 w-px bg-border-default" />

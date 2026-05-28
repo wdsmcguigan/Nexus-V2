@@ -2,6 +2,7 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/data/types";
+import { eventColor } from "@/lib/calendarColors";
 
 interface Props {
   focusDate: string;
@@ -33,16 +34,16 @@ export function MiniMonth({ focusDate, events, onSelectDate }: Props) {
     setDisplayMonth(fm);
   }, [fy, fm]);
 
-  // Build event date set for quick lookup
+  // Build event date map: date -> first event's colorId for dot coloring
   const eventDates = React.useMemo(() => {
-    const set = new Set<string>();
+    const map = new Map<string, string | undefined>();
     for (const e of events) {
       if (e.status === "cancelled") continue;
       const d = new Date(e.startTs).toISOString().slice(0, 10);
       const dm = new Date(d + "T00:00:00").getMonth();
-      if (dm === displayMonth) set.add(d);
+      if (dm === displayMonth && !map.has(d)) map.set(d, e.colorId);
     }
-    return set;
+    return map;
   }, [events, displayMonth]);
 
   // First weekday of this month (0=Mon … 6=Sun ISO week)
@@ -103,6 +104,7 @@ export function MiniMonth({ focusDate, events, onSelectDate }: Props) {
           const isToday = cell.iso === today;
           const isFocus = cell.iso === focusDate;
           const hasEvent = eventDates.has(cell.iso);
+          const dotColorId = eventDates.get(cell.iso);
           return (
             <button
               key={cell.iso}
@@ -119,7 +121,10 @@ export function MiniMonth({ focusDate, events, onSelectDate }: Props) {
             >
               {cell.d}
               {hasEvent && !isFocus && (
-                <span className="absolute bottom-0 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full bg-accent opacity-60" />
+                <span
+                  className="absolute bottom-0 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full opacity-60"
+                  style={{ backgroundColor: eventColor(dotColorId) }}
+                />
               )}
             </button>
           );

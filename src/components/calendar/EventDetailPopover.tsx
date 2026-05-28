@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { MapPin, Users, ExternalLink, Clock, Pencil, Mail } from "lucide-react";
+import { MapPin, Users, ExternalLink, Clock, Pencil, Mail, Video, Paperclip, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/data/types";
 import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
@@ -47,6 +47,8 @@ export function EventDetailPopover({ event, children }: Props) {
     }
   }
 
+  const isPrivate = event.visibility === "private" || event.visibility === "confidential";
+
   return (
     <>
       <Popover.Root>
@@ -64,8 +66,9 @@ export function EventDetailPopover({ event, children }: Props) {
           >
             {/* Title row */}
             <div className="flex items-start justify-between gap-2">
-              <div className="font-sans text-body-strong text-text-primary leading-snug">
-                {event.title}
+              <div className="flex items-start gap-1.5 font-sans text-body-strong text-text-primary leading-snug min-w-0">
+                {isPrivate && <span title="Private"><Lock size={11} className="mt-0.5 shrink-0 text-text-muted" /></span>}
+                <span className="truncate">{event.title}</span>
               </div>
               {event.externalId && (
                 <button
@@ -85,6 +88,19 @@ export function EventDetailPopover({ event, children }: Props) {
               <span>{formatDateRange(event)}</span>
             </div>
 
+            {/* Join meeting button */}
+            {event.conferenceUrl && (
+              <a
+                href={event.conferenceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1.5 inline-flex items-center gap-1.5 text-small font-medium text-accent hover:underline"
+              >
+                <Video size={12} />
+                Join meeting
+              </a>
+            )}
+
             {/* Location */}
             {event.location && (
               <div className="mt-1 flex items-start gap-1.5 text-small text-text-secondary">
@@ -98,6 +114,24 @@ export function EventDetailPopover({ event, children }: Props) {
               <p className="mt-1.5 text-small text-text-tertiary line-clamp-3">
                 {event.description}
               </p>
+            )}
+
+            {/* Drive attachments */}
+            {!!event.attachments?.length && (
+              <div className="mt-1.5 space-y-0.5">
+                {event.attachments.map((att) => (
+                  <a
+                    key={att.fileId ?? att.fileUrl}
+                    href={att.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-caption text-text-secondary hover:text-accent transition-colors"
+                  >
+                    <Paperclip size={11} className="shrink-0 text-text-tertiary" />
+                    <span className="truncate">{att.title}</span>
+                  </a>
+                ))}
+              </div>
             )}
 
             {/* Attendees */}
@@ -132,6 +166,13 @@ export function EventDetailPopover({ event, children }: Props) {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Creator (when different from organizer) */}
+            {event.creatorEmail && event.creatorEmail !== event.organizerEmail && (
+              <div className="mt-1 text-caption text-text-muted">
+                Created by {event.creatorEmail}
               </div>
             )}
 

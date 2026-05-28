@@ -332,6 +332,19 @@ pub const EP11_ALTER_SQL: &[&str] = &[
     "ALTER TABLE calendar_events ADD COLUMN source_message_id TEXT",
 ];
 
+/// EP12 column migrations — capture all remaining Google Calendar API fields.
+pub const EP12_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN conference_url TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN color_id TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN ical_uid TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN recurring_event_id TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN creator_email TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN visibility TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN transparency TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN attachments_json TEXT",
+];
+
 /// EP11 idempotent DDL — FTS5 index for calendar event search.
 pub const EP11_IDEMPOTENT_SQL: &str = r#"
 CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(

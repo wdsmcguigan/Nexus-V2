@@ -352,6 +352,19 @@ export interface CalendarAttendee {
   organizer?: boolean;
 }
 
+export interface CalendarAttachment {
+  fileUrl: string;
+  title: string;
+  mimeType: string;
+  iconLink?: string;
+  fileId?: string;
+}
+
+export interface CalendarReminder {
+  method: "email" | "popup";
+  minutes: number;
+}
+
 export interface CalendarEvent {
   id: string;
   vaultId: string;
@@ -371,6 +384,16 @@ export interface CalendarEvent {
   htmlLink?: string;
   notes?: string;
   sourceMessageId?: string;
+  // EP12 — full Google Calendar API field capture
+  conferenceUrl?: string;
+  colorId?: string;
+  iCalUID?: string;
+  recurringEventId?: string;
+  creatorEmail?: string;
+  visibility?: "default" | "public" | "private" | "confidential";
+  transparency?: "opaque" | "transparent";
+  reminders?: CalendarReminder[];
+  attachments?: CalendarAttachment[];
   createdAt: number;
   updatedAt: number;
 }

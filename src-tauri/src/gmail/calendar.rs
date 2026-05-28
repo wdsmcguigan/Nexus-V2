@@ -109,10 +109,40 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
     let description = item["description"].as_str().map(|s| s.to_owned());
     let location = item["location"].as_str().map(|s| s.to_owned());
 
+    // Google Meet / conference link — first video entryPoint URI
+    let conference_url = item["conferenceData"]["entryPoints"]
+        .as_array()
+        .and_then(|eps| eps.iter().find(|e| e["entryPointType"].as_str() == Some("video")))
+        .and_then(|ep| ep["uri"].as_str())
+        .map(|s| s.to_owned());
+
+    let color_id = item["colorId"].as_str().map(|s| s.to_owned());
+    let ical_uid = item["iCalUID"].as_str().map(|s| s.to_owned());
+    let recurring_event_id = item["recurringEventId"].as_str().map(|s| s.to_owned());
+    let creator_email = item["creator"]["email"].as_str().map(|s| s.to_owned());
+    let visibility = item["visibility"].as_str().map(|s| s.to_owned());
+    let transparency = item["transparency"].as_str().map(|s| s.to_owned());
+
+    // Reminder overrides (array of {method, minutes})
+    let reminders = item["reminders"]["overrides"].clone();
+
+    // Drive file attachments (array of {fileUrl, title, mimeType, ...})
+    let attachments = item["attachments"].clone();
+
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as i64;
+
+    // Use Google's server-side timestamps; fall back to now only if absent
+    let created_at = item["created"].as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp_millis())
+        .unwrap_or(now);
+    let updated_at = item["updated"].as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.timestamp_millis())
+        .unwrap_or(now);
 
     Some(serde_json::json!({
         "id": id,
@@ -131,8 +161,17 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
         "organizerEmail": organizer_email,
         "attendees": attendees,
         "htmlLink": html_link,
-        "createdAt": now,
-        "updatedAt": now,
+        "conferenceUrl": conference_url,
+        "colorId": color_id,
+        "iCalUID": ical_uid,
+        "recurringEventId": recurring_event_id,
+        "creatorEmail": creator_email,
+        "visibility": visibility,
+        "transparency": transparency,
+        "reminders": reminders,
+        "attachments": attachments,
+        "createdAt": created_at,
+        "updatedAt": updated_at,
     }))
 }
 

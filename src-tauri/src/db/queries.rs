@@ -2515,12 +2515,17 @@ impl VaultDb {
             "SELECT id, account_id, calendar_id, external_id, title, description, location,
                     start_ts, end_ts, all_day, rrule, status, organizer_email,
                     attendees_json, html_link, created_at, updated_at,
-                    notes, source_message_id
+                    notes, source_message_id,
+                    conference_url, color_id, ical_uid, recurring_event_id,
+                    creator_email, visibility, transparency, reminders_json, attachments_json
              FROM calendar_events
              WHERE vault_id = ?1 AND end_ts >= ?2 AND start_ts <= ?3
              ORDER BY start_ts ASC",
         )?;
         stmt.query_map(params![vault_id, start_ts, end_ts], |r| {
+            let parse_json = |s: Option<String>| -> JsonValue {
+                s.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(JsonValue::Null)
+            };
             Ok(serde_json::json!({
                 "id": r.get::<_, String>(0)?,
                 "vaultId": vault_id,
@@ -2544,6 +2549,15 @@ impl VaultDb {
                 "updatedAt": r.get::<_, i64>(16)?,
                 "notes": r.get::<_, Option<String>>(17)?,
                 "sourceMessageId": r.get::<_, Option<String>>(18)?,
+                "conferenceUrl": r.get::<_, Option<String>>(19)?,
+                "colorId": r.get::<_, Option<String>>(20)?,
+                "iCalUID": r.get::<_, Option<String>>(21)?,
+                "recurringEventId": r.get::<_, Option<String>>(22)?,
+                "creatorEmail": r.get::<_, Option<String>>(23)?,
+                "visibility": r.get::<_, Option<String>>(24)?,
+                "transparency": r.get::<_, Option<String>>(25)?,
+                "reminders": parse_json(r.get::<_, Option<String>>(26)?),
+                "attachments": parse_json(r.get::<_, Option<String>>(27)?),
             }))
         })?.map(|r| r.context("loading calendar_events row")).collect()
     }
@@ -2554,18 +2568,35 @@ impl VaultDb {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as i64;
+        let attachments_json = match &event["attachments"] {
+            JsonValue::Null | JsonValue::Array(_) if event["attachments"].is_array() =>
+                Some(event["attachments"].to_string()),
+            _ => None,
+        };
+        let reminders_json = match &event["reminders"] {
+            JsonValue::Array(_) => Some(event["reminders"].to_string()),
+            _ => None,
+        };
         self.conn.execute(
             "INSERT INTO calendar_events
                (id, vault_id, account_id, calendar_id, external_id, title, description,
                 location, start_ts, end_ts, all_day, rrule, status, organizer_email,
-                attendees_json, html_link, created_at, updated_at, notes, source_message_id)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
+                attendees_json, html_link, created_at, updated_at, notes, source_message_id,
+                conference_url, color_id, ical_uid, recurring_event_id, creator_email,
+                visibility, transparency, reminders_json, attachments_json)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
+                     ?21,?22,?23,?24,?25,?26,?27,?28,?29)
              ON CONFLICT(id) DO UPDATE SET
                title=excluded.title, description=excluded.description, location=excluded.location,
                start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
                rrule=excluded.rrule, status=excluded.status, organizer_email=excluded.organizer_email,
                attendees_json=excluded.attendees_json, html_link=excluded.html_link,
                source_message_id=COALESCE(excluded.source_message_id, calendar_events.source_message_id),
+               conference_url=excluded.conference_url, color_id=excluded.color_id,
+               ical_uid=excluded.ical_uid, recurring_event_id=excluded.recurring_event_id,
+               creator_email=excluded.creator_email, visibility=excluded.visibility,
+               transparency=excluded.transparency, reminders_json=excluded.reminders_json,
+               attachments_json=excluded.attachments_json,
                updated_at=excluded.updated_at",
             params![
                 id,
@@ -2585,9 +2616,18 @@ impl VaultDb {
                 event["attendees"].to_string(),
                 event["htmlLink"].as_str(),
                 event["createdAt"].as_i64().unwrap_or(now),
-                now,
+                event["updatedAt"].as_i64().unwrap_or(now),
                 event["notes"].as_str(),
                 event["sourceMessageId"].as_str(),
+                event["conferenceUrl"].as_str(),
+                event["colorId"].as_str(),
+                event["iCalUID"].as_str(),
+                event["recurringEventId"].as_str(),
+                event["creatorEmail"].as_str(),
+                event["visibility"].as_str(),
+                event["transparency"].as_str(),
+                reminders_json,
+                attachments_json,
             ],
         )?;
         Ok(())

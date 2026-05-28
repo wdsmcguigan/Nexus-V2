@@ -18,6 +18,7 @@ import { HudStrip } from "@/components/hud/HudStrip";
 import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
+import { EventCreateModal } from "@/components/calendar/EventCreateModal";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
@@ -168,6 +169,10 @@ function initLayout(event: DockviewReadyEvent) {
 export function Workspace() {
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+
+  const eventCreateModalOpen = useWorkspace((s) => s.eventCreateModalOpen);
+  const eventCreateModalPrefill = useWorkspace((s) => s.eventCreateModalPrefill);
+  const closeEventCreateModal = useWorkspace((s) => s.closeEventCreateModal);
   // Incrementing this forces re-reads of the module-level undo/redo stacks.
   const [, setStackVersion] = React.useState(0);
   const bumpStack = React.useCallback(() => setStackVersion((v) => v + 1), []);
@@ -312,6 +317,13 @@ export function Workspace() {
 
         <StatusBar />
         <CommandPalette />
+        <EventCreateModal
+          open={eventCreateModalOpen}
+          onClose={closeEventCreateModal}
+          prefillDate={eventCreateModalPrefill?.date}
+          prefillAttendees={eventCreateModalPrefill?.attendees}
+          prefillTitle={eventCreateModalPrefill?.title}
+        />
         <ShortcutHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
         <UndoHistoryModal
           open={historyOpen}
