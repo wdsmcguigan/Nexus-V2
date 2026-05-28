@@ -451,10 +451,10 @@ cargo build -p nexus-relay --release
 > | Gmail | ✅ Full (OAuth + History API + calendar + contacts) |
 > | IMAP | ✅ Sync + SMTP send + autodiscovery |
 > | Outlook | ✅ OAuth → IMAP plumbing underneath |
-> | IMAP IDLE | ⚠️ Misleading name — `providers/imap_idle.rs:start_idle_watcher` is a 30-second poller, not real IDLE |
-> | JMAP | ❌ Stub only — every method returns `Err("JMAP coming in EP7")` |
+> | IMAP IDLE | ✅ Real IDLE via `async-imap` `Session::idle()` (RFC 2177, 28-minute re-arm); 30s NOOP/EXAMINE fallback for non-IDLE servers |
+> | JMAP | ✅ RFC 8620/8621 implementation with bearer-token auth (OAuth2 + PKCE is a follow-up — `docs/known-gaps.md` item 29) |
 >
-> See `docs/known-gaps.md` and `docs/epic-6-checklist.md`.
+> See `docs/epic-6-checklist.md`.
 
 ### IMAP autodiscovery
 
@@ -485,11 +485,10 @@ After OAuth completes, the account uses the IMAP/SMTP sync path with tokens stor
 
 Every provider account syncs via `sync_account_now(accountId)`. The Rust side dispatches by `provider_type` in the `accounts` table:
 - `"gmail"` → `GmailSyncer` (History API)
-- `"imap"` / `"outlook"` → `ImapProvider` (polling-based "IDLE watcher" — see warning below)
+- `"imap"` / `"outlook"` → `ImapProvider` (sync) + `imap_idle::start_idle_watcher` (push)
+- `"jmap"` → `JmapProvider` (RFC 8620/8621; uses `Email/changes` + `Mailbox/changes` for incremental)
 
-Background polling runs every 60s and reads `client_mode` fresh on each tick via `read_client_mode(vault_path)`.
-
-> **Naming caveat**: `providers/imap_idle.rs` declares a function `start_idle_watcher` but the implementation is a 30-second polling loop with exponential-backoff reconnect — not real IMAP IDLE. See `docs/known-gaps.md` item 3.
+Background Gmail polling runs every 60s and reads `client_mode` fresh on each tick via `read_client_mode(vault_path)`. For IMAP, real-time push is handled by `providers/imap_idle.rs`: `start_idle_watcher` opens a long-lived connection, uses `async-imap` `Session::idle()` with a 28-minute re-arm (RFC 2177), and emits `vault:hydrate-needed` on every server-pushed change. Servers without the `IDLE` capability fall back to a 30-second NOOP/EXAMINE poll on the same connection. The watcher is spawned in `add_imap_account` after the first sync and re-spawned at vault init for every existing IMAP account via `start_imap_watchers_for_existing_accounts`.
 
 ### Inbound provider sync (Gmail incremental example)
 

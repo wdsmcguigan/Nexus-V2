@@ -648,12 +648,14 @@ the app **requires** adding a kind here.
 **Custom fields**
 - `CREATE_CUSTOM_FIELD` / `UPDATE_CUSTOM_FIELD` / `DELETE_CUSTOM_FIELD`
 - `SET_CUSTOM_FIELD_VALUE` / `CLEAR_CUSTOM_FIELD_VALUE`
+- `REORDER_CUSTOM_FIELD_DEFS` — Reorder field definitions by position (dnd-kit drag in `SET-CUSTOM-FIELDS`)
+- `REORDER_CUSTOM_FIELD_OPTIONS` — Reorder a select/multi-select field's options
 
 **Automation rules**
 - `CREATE_RULE` — Create a new automation rule
 - `UPDATE_RULE` — Update an existing rule's conditions/actions/enabled state
 - `DELETE_RULE` — Delete a rule by id
-- `REORDER_RULES` — Reorder rules by position. **🟡 Unimplemented today** — defined in `MutationKind` but has no handler in `state/mutations.ts` or the Rust side; calling it silently no-ops. See `docs/known-gaps.md` item 1.
+- `REORDER_RULES` — Reorder rules by position; handler wired in both `state/mutations.ts` and `src-tauri/src/db/queries.rs` (updates `rules.position`).
 
 **Email templates**
 - `CREATE_TEMPLATE` — Create a new email template (`TMPL`)

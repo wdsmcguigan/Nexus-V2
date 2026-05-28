@@ -35,7 +35,7 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 | # | Item | Where | What's wrong | Definition of done | Effort |
 |---|---|---|---|---|---|
-| 9 | **EP-8 iOS parity** | `/ios/` (29 Swift files) | EP-8 is "in progress". Desktop has 56 IPC commands and 15 UI feature areas; iOS has 15 UI screens but no claim of feature parity has been verified. `MutationEngine.swift` exists but coverage vs `src/state/mutations.ts:applyMutation()` is unmeasured. | Produce a parity audit: list every desktop feature and which iOS screen (if any) covers it. Currently captured at a high level in `docs/epic-8-checklist.md`. | L |
+| 9 | **EP-8 iOS parity** | `/ios/` (29 Swift files) | EP-8 is "in progress". Desktop has 57 IPC commands and 15 UI feature areas; iOS has 15 UI screens but no claim of feature parity has been verified. `MutationEngine.swift` exists but coverage vs `src/state/mutations.ts:applyMutation()` is unmeasured. | Produce a parity audit: list every desktop feature and which iOS screen (if any) covers it. Currently captured at a high level in `docs/epic-8-checklist.md`. | L |
 
 ---
 
@@ -56,8 +56,8 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 | # | Item | Fix |
 |---|---|---|
-| 15 | `CLAUDE.md` said "44+ IPC commands" | Updated to **56** (verified against `src-tauri/src/lib.rs:invoke_handler!`). |
-| 16 | `CLAUDE.md` said "MutationKind enum (45+ kinds)" | Updated to **70** (verified against `src/data/types.ts` enum block). |
+| 15 | `CLAUDE.md` said "44+ IPC commands" | Updated to **57** (verified against `src-tauri/src/lib.rs:invoke_handler!`). |
+| 16 | `CLAUDE.md` said "MutationKind enum (45+ kinds)" | Updated to **72** (verified against `src/data/types.ts` enum block). |
 | 17 | `CLAUDE.md` claimed EP-11 IPC `get_calendar_events` and `delete_calendar_event` | Neither exists. Hydration happens via `load_vault_data`; deletion uses the `DELETE_CALENDAR_EVENT` mutation kind. CLAUDE.md updated. |
 | 18 | `src/data/types.ts:495` tagged calendar mutations as `// Calendar ops (EP-10)` | Re-tagged to EP-11 (EP-10 is conflict UI). |
 | 19 | Missing `epic-6-checklist.md` | Created — with explicit JMAP/IDLE gap callouts. |

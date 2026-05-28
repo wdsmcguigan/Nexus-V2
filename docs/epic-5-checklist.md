@@ -162,16 +162,16 @@
 **→ EP-8 (Conflict resolution UI):**
 - Visual merge UI for concurrent edits detected by Lamport clock comparison
 
-**→ Cosmetic/UX deferred:**
-- CFD option drag-reorder and CFD definition drag-reorder (deferred from EP-2)
-- Native date picker in `FlagPicker` (currently `<input type="date">`)
+**→ Cosmetic/UX deferred (now shipped post-EP-5):**
+- CFD option drag-reorder and CFD definition drag-reorder — ✅ shipped via dnd-kit (`REORDER_CUSTOM_FIELD_DEFS` / `REORDER_CUSTOM_FIELD_OPTIONS`).
+- Native date picker in `FlagPicker` — ✅ shipped via `react-day-picker` (`src/components/ui/DatePickerField.tsx`).
 
 ---
 
 ## Decisions log
 
-**Self-hosted relay only for EP-5:**
-The relay binary is provider-agnostic. A Nexus-hosted instance is the identical binary deployed on Nexus infrastructure — no additional code needed, purely an ops/infra concern. The UI shows a "coming soon" stub for the Nexus-hosted mode to communicate the roadmap without blocking EP-5 delivery.
+**Self-hosted relay only:**
+The relay binary is provider-agnostic. A Nexus-hosted instance is the identical binary deployed on Nexus infrastructure — no additional code needed, purely an ops/infra concern. (The "Nexus Relay coming soon" UI stub was removed post-EP-5; the picker now shows the Self-Hosted option only.)
 
 **Embedded relay shares axum code with standalone binary:**
 `relay::server::start()` is called from Tauri for the embedded case and from `relay-server/src/main.rs` for the standalone binary. This eliminates duplication and guarantees protocol parity: any relay server, whether self-hosted on a VPS or run embedded on the user's Mac, runs the exact same handler logic.

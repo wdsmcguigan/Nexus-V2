@@ -51,8 +51,8 @@ Nexus-V2/
 │   │   └── useStore.ts         # React hooks over the in-memory store
 │   └── components/             # UI components (see docs/developer-guide.md)
 ├── src-tauri/src/              # Rust backend (28 .rs files, ~10.4K lines)
-│   ├── lib.rs                  # AppState, plugin init, invoke_handler! registration (56 commands)
-│   ├── commands.rs             # 56 IPC command implementations (~2.2K lines)
+│   ├── lib.rs                  # AppState, plugin init, invoke_handler! registration (57 commands)
+│   ├── commands.rs             # 57 IPC command implementations (~2.3K lines)
 │   ├── crypto.rs               # XChaCha20-Poly1305 + BLAKE3 + enrollment code gen
 │   ├── smtp.rs                 # SMTP send (used by IMAP/Outlook outbound)
 │   ├── db/
@@ -119,7 +119,7 @@ sequenceDiagram
 
 ### IPC commands
 
-All **56 commands** are registered in `src-tauri/src/lib.rs:invoke_handler!` (lines 36-102, grouped by epic comments) and implemented in `src-tauri/src/commands.rs`. Every command has a typed wrapper in `src/storage/tauri.ts`.
+All **57 commands** are registered in `src-tauri/src/lib.rs:invoke_handler!` (lines 36-103, grouped by epic comments) and implemented in `src-tauri/src/commands.rs`. Every command has a typed wrapper in `src/storage/tauri.ts`.
 
 For the full inventory grouped by feature area, see [`docs/ipc-api-reference.md`](docs/ipc-api-reference.md). Highlights by epic:
 
@@ -255,7 +255,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | What | Where |
 |------|-------|
 | All data types (Vault, Message, Label, Mutation, …) | `src/data/types.ts` |
-| MutationKind enum (70 kinds) | `src/data/types.ts` → `MutationKind` |
+| MutationKind enum (72 kinds) | `src/data/types.ts` → `MutationKind` |
 | IPC command reference (all 56) | `docs/ipc-api-reference.md` |
 | Database schema reference (30 tables + ERD) | `docs/database-reference.md` |
 | Security model (vault + relay + enrollment) | `docs/security-model.md` |

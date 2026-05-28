@@ -38,7 +38,7 @@ This is acceptable for most operations (statuses, stars, reads, archives) — lo
 | **Free-text — needs special handling** | `SET_NOTE`, `UPDATE_CALENDAR_EVENT_NOTES`, `SET_CUSTOM_FIELD_VALUE` (text-typed) | Same as above, plus: optionally apply operational transform (OT) or CRDT (Yjs) for inline merge. |
 | **Rename ops — needs UI** | `RENAME_FOLDER`, `RENAME_LABEL`, `RENAME_STATUS`, `RENAME_TAG_GLOBAL`, `RENAME_VIEW` | Last-writer-wins acceptable since the user can re-rename, BUT show a chip for at least 24 hours so they know the name flipped. |
 | **Delete vs concurrent update** | `DELETE_*` racing `UPDATE_*` | Delete wins (tombstone). UI surfaces "deleted by other device" notice. |
-| **Position ops — undefined today** | `REORDER_LABELS`, `REORDER_STATUSES`, `REORDER_RULES` (the last has no handler at all — see `docs/known-gaps.md` item 1) | Order array LWW; visible disruption is mild. |
+| **Position ops — undefined today** | `REORDER_LABELS`, `REORDER_STATUSES`, `REORDER_RULES`, `REORDER_CUSTOM_FIELD_DEFS`, `REORDER_CUSTOM_FIELD_OPTIONS` | Order array LWW; visible disruption is mild. |
 
 ### Schema additions
 
@@ -113,6 +113,6 @@ When this ships:
 
 ## Related
 
-- `docs/known-gaps.md` items 1 (REORDER_RULES — pre-requisite), 11 (this), 13 (sync state UI)
+- `docs/known-gaps.md` items 11 (this), 13 (sync state UI)
 - `docs/architecture.md` §Sync engine
 - `docs/glossary.md` §5 `WF-CONFLICT-RESOLVE`

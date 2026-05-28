@@ -74,7 +74,7 @@ graph LR
 
     subgraph Backend["src-tauri/src/ — Rust (28 files)"]
         AppState["AppState<br/>(Mutex<VaultDb>, client_mode, …)"]
-        Commands["commands.rs<br/>(56 IPC commands)"]
+        Commands["commands.rs<br/>(57 IPC commands)"]
         DB["db/queries.rs<br/>(~89 query helpers)"]
         GmailWorker["gmail/sync.rs<br/>(30s tick)"]
         IMAPWorker["providers/imap.rs<br/>+ imap_idle.rs (polling)"]

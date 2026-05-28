@@ -108,7 +108,7 @@ erDiagram
 
 | Table | Purpose |
 |---|---|
-| `rules` | Automation rules. `conditions_json` + `condition_logic` (`AND`/`OR`) + `actions_json`. `position` for ordering — **but reordering has no handler today** (see `docs/known-gaps.md` item 1). |
+| `rules` | Automation rules. `conditions_json` + `condition_logic` (`AND`/`OR`) + `actions_json`. `position` for ordering (updated by the `REORDER_RULES` mutation). |
 | `templates` | Email templates (subject + body_html). |
 
 ### Settings / personal
@@ -203,7 +203,9 @@ Which `MutationKind` writes to which tables (helpful when adding new mutations):
 | `UPSERT_CONTACT`, `UPDATE_CONTACT`, `DELETE_CONTACT` | `contacts`, `contact_emails`, `contact_phones` |
 | `CREATE_CONTACT_GROUP`, `UPDATE_CONTACT_GROUP`, `DELETE_CONTACT_GROUP`, `ADD_CONTACT_TO_GROUP`, `REMOVE_CONTACT_FROM_GROUP` | `contact_groups`, `contact_group_members` |
 | `CREATE_RULE`, `UPDATE_RULE`, `DELETE_RULE` | `rules` |
-| `REORDER_RULES` | **Nothing today — no handler.** See `docs/known-gaps.md` item 1. |
+| `REORDER_RULES` | `rules` (updates `position`) |
+| `REORDER_CUSTOM_FIELD_DEFS` | `custom_field_defs` (updates `position`) |
+| `REORDER_CUSTOM_FIELD_OPTIONS` | `custom_field_options` (updates `position`) |
 | `CREATE_TEMPLATE`, `UPDATE_TEMPLATE`, `DELETE_TEMPLATE` | `templates` |
 | `UPSERT_CALENDAR_EVENT`, `UPDATE_CALENDAR_EVENT`, `UPDATE_CALENDAR_EVENT_NOTES`, `DELETE_CALENDAR_EVENT` | `calendar_events` |
 | `SAVE_EVENT_TEMPLATE`, `DELETE_EVENT_TEMPLATE` | `event_templates` |
