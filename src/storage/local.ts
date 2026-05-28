@@ -12,6 +12,7 @@
 import type {
   Account,
   Contact,
+  ContactGroup,
   CustomFieldDef,
   CustomFieldValue,
   Folder,
@@ -40,6 +41,7 @@ interface StorageSnapshot {
   tagUsage: TagUsage[];
   mutations: Mutation[];
   contacts?: Contact[];
+  contactGroups?: ContactGroup[];
   rules?: Rule[];
   templates?: Template[];
 }
@@ -71,6 +73,9 @@ export class LocalStore {
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
   contacts = new Map<string, Contact>();
+  contactGroups = new Map<string, ContactGroup>();
+  /** contactId → Set<groupId> */
+  groupsByContact = new Map<string, Set<string>>();
   rules = new Map<string, Rule>();
   templates = new Map<string, Template>();
   /** email address → contactId (O(1) lookup from inspector) */
@@ -139,6 +144,8 @@ export class LocalStore {
     this.messagesByThread.clear();
     this.messagesByCustomField.clear();
     this.contacts.clear();
+    this.contactGroups.clear();
+    this.groupsByContact.clear();
     this.emailIndex.clear();
     this.messagesByContact.clear();
 
@@ -153,6 +160,7 @@ export class LocalStore {
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
+    for (const g of (snap.contactGroups ?? [])) this.contactGroups.set(g.id, g);
 
     // Load explicit contacts from snapshot
     for (const c of (snap.contacts ?? [])) {
@@ -171,6 +179,10 @@ export class LocalStore {
           emails: [email],
           phones: [],
           tags: [],
+          socialProfiles: [],
+          addresses: [],
+          source: "manual",
+          importance: "normal",
           createdAt: msg.receivedAt,
           updatedAt: msg.receivedAt,
         };
@@ -203,6 +215,7 @@ export class LocalStore {
       savedViews: Array.from(this.savedViews.values()),
       mutations: this.mutations,
       contacts: Array.from(this.contacts.values()),
+      contactGroups: Array.from(this.contactGroups.values()),
     };
   }
 
@@ -550,6 +563,47 @@ export class LocalStore {
     for (const e of contact.emails) {
       this.emailIndex.set(e, contact.id);
     }
+  }
+
+  // ── ContactGroup CRUD (EP-9) ─────────────────────────────────────
+
+  putContactGroup(group: ContactGroup): void {
+    this.contactGroups.set(group.id, group);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteContactGroup(id: string): void {
+    this.contactGroups.delete(id);
+    // Remove group membership entries
+    for (const [contactId, groups] of this.groupsByContact) {
+      groups.delete(id);
+      if (groups.size === 0) this.groupsByContact.delete(contactId);
+    }
+    this._notify();
+    this._schedulePersist();
+  }
+
+  addContactToGroup(groupId: string, contactId: string): void {
+    let groups = this.groupsByContact.get(contactId);
+    if (!groups) { groups = new Set(); this.groupsByContact.set(contactId, groups); }
+    groups.add(groupId);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  removeContactFromGroup(groupId: string, contactId: string): void {
+    this.groupsByContact.get(contactId)?.delete(groupId);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  getContactGroups(): ContactGroup[] {
+    return Array.from(this.contactGroups.values()).sort((a, b) => a.position - b.position);
+  }
+
+  getGroupsForContact(contactId: string): string[] {
+    return Array.from(this.groupsByContact.get(contactId) ?? []);
   }
 
   // ── SavedView CRUD (EP-1) ────────────────────────────────────────

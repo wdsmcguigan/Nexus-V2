@@ -13,6 +13,7 @@
 
 import {
   type Contact,
+  type ContactGroup,
   type CustomFieldDef,
   type CustomFieldValue,
   type FlagState,
@@ -713,6 +714,27 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.deleteContact(contactId);
       break;
     }
+    case "CREATE_CONTACT_GROUP":
+    case "UPDATE_CONTACT_GROUP": {
+      const { group } = m.payload as { group: ContactGroup };
+      store.putContactGroup(group);
+      break;
+    }
+    case "DELETE_CONTACT_GROUP": {
+      const { groupId } = m.payload as { groupId: string };
+      store.deleteContactGroup(groupId);
+      break;
+    }
+    case "ADD_CONTACT_TO_GROUP": {
+      const { groupId, contactId } = m.payload as { groupId: string; contactId: string };
+      store.addContactToGroup(groupId, contactId);
+      break;
+    }
+    case "REMOVE_CONTACT_FROM_GROUP": {
+      const { groupId, contactId } = m.payload as { groupId: string; contactId: string };
+      store.removeContactFromGroup(groupId, contactId);
+      break;
+    }
 
     // ── Rule ops ─────────────────────────────────────────────────
     case "CREATE_RULE":
@@ -955,7 +977,7 @@ export function upsertContact(
 
 export function updateContact(
   id: string,
-  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags" | "alwaysShowImages">>,
+  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags" | "alwaysShowImages" | "birthday" | "socialProfiles" | "addresses" | "importance">>,
   store: LocalStore = _defaultStore,
 ): void {
   const existing = store.contacts.get(id);

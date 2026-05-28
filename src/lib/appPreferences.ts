@@ -14,6 +14,8 @@ export interface AppPreferences {
   buttonLabels: "icons" | "text";
   /** Google Cloud Translate API key for the message Translate action. */
   translateApiKey: string;
+  /** Per-account toggle for Google Contacts sync. Key is account ID. */
+  contactsSyncEnabled: Record<string, boolean>;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -22,6 +24,7 @@ const DEFAULTS: AppPreferences = {
   markReadAfterMs: 1000,
   buttonLabels: "icons",
   translateApiKey: "",
+  contactsSyncEnabled: {},
 };
 
 const STORAGE_KEY = "nexus_app_prefs_v1";

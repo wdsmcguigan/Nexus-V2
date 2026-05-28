@@ -46,6 +46,8 @@ impl VaultDb {
             .context("running EP7 column migrations")?;
         self.run_ep8_migrations()
             .context("running EP8 column migrations")?;
+        self.run_ep9_migrations()
+            .context("running EP9 column migrations")?;
         Ok(())
     }
 
@@ -117,6 +119,21 @@ impl VaultDb {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Apply EP9 migrations (CRM fields on contacts; contact_groups, contacts_sync, calendar tables).
+    fn run_ep9_migrations(&self) -> Result<()> {
+        for &sql in schema::EP9_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP9_IDEMPOTENT_SQL)
+            .context("EP9 idempotent DDL")?;
         Ok(())
     }
 }

@@ -91,8 +91,23 @@ export interface Contact {
   tags: string[];
   photoUrl?: string;
   alwaysShowImages?: boolean;
+  birthday?: string; // ISO "YYYY-MM-DD" or "--MM-DD" (no year)
+  socialProfiles: Array<{ platform: string; username: string }>;
+  addresses: Array<{ label: string; street: string; city: string; state: string; country: string; zip: string }>;
+  source: "google" | "apple" | "manual";
+  externalId?: string;
+  importance: "vip" | "normal";
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ContactGroup {
+  id: string;
+  vaultId: string;
+  name: string;
+  color?: string;
+  position: number;
+  createdAt: number;
 }
 
 // ─── FLD — Folder ────────────────────────────────────────────────────────────
@@ -405,6 +420,11 @@ export type MutationKind =
   | "UPSERT_CONTACT"
   | "UPDATE_CONTACT"
   | "DELETE_CONTACT"
+  | "CREATE_CONTACT_GROUP"
+  | "UPDATE_CONTACT_GROUP"
+  | "DELETE_CONTACT_GROUP"
+  | "ADD_CONTACT_TO_GROUP"
+  | "REMOVE_CONTACT_FROM_GROUP"
   // Rule ops (EP-7)
   | "CREATE_RULE"
   | "UPDATE_RULE"

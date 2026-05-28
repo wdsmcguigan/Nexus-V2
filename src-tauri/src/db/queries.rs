@@ -23,6 +23,7 @@ pub struct HydratePayload {
     pub tag_usage: Vec<JsonValue>,
     pub mutations: Vec<JsonValue>,
     pub contacts: Vec<JsonValue>,
+    pub contact_groups: Vec<JsonValue>,
     pub saved_views: Vec<JsonValue>,
     pub rules: Vec<JsonValue>,
     pub templates: Vec<JsonValue>,
@@ -42,6 +43,7 @@ impl VaultDb {
             tag_usage: self.load_tag_usage(vault_id)?,
             mutations: vec![],
             contacts: self.load_contacts(vault_id)?,
+            contact_groups: self.load_contact_groups(vault_id)?,
             saved_views: self.load_saved_views(vault_id)?,
             rules: self.get_rules(vault_id)?,
             templates: self.get_templates(vault_id)?,
@@ -487,21 +489,46 @@ impl VaultDb {
 
     pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url, always_show_images
+            "SELECT id, name, company, title, website, location, notes, tags_json,
+                    created_at, updated_at, photo_url, always_show_images,
+                    birthday, social_json, addresses_json, source, external_id, importance
              FROM contacts WHERE vault_id = ?1 ORDER BY name"
         )?;
-        let contacts: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, i64, i64, Option<String>, bool)> =
-            stmt.query_map(params![vault_id], |r| Ok((
-                r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
-                r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?,
-                r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?
-            )))?.filter_map(|r| r.ok()).collect();
+        let rows: Vec<_> = stmt.query_map(params![vault_id], |r| Ok((
+            r.get::<_, String>(0)?,       // id
+            r.get::<_, String>(1)?,       // name
+            r.get::<_, Option<String>>(2)?,  // company
+            r.get::<_, Option<String>>(3)?,  // title
+            r.get::<_, Option<String>>(4)?,  // website
+            r.get::<_, Option<String>>(5)?,  // location
+            r.get::<_, Option<String>>(6)?,  // notes
+            r.get::<_, String>(7)?,       // tags_json
+            r.get::<_, i64>(8)?,          // created_at
+            r.get::<_, i64>(9)?,          // updated_at
+            r.get::<_, Option<String>>(10)?, // photo_url
+            r.get::<_, bool>(11)?,        // always_show_images
+            r.get::<_, Option<String>>(12)?, // birthday
+            r.get::<_, Option<String>>(13)?, // social_json
+            r.get::<_, Option<String>>(14)?, // addresses_json
+            r.get::<_, Option<String>>(15)?, // source
+            r.get::<_, Option<String>>(16)?, // external_id
+            r.get::<_, Option<String>>(17)?, // importance
+        )))?.filter_map(|r| r.ok()).collect();
 
         let mut result = Vec::new();
-        for (id, name, company, title, website, location, notes, tags_json, created_at, updated_at, photo_url, always_show_images) in contacts {
+        for (id, name, company, title, website, location, notes, tags_json,
+             created_at, updated_at, photo_url, always_show_images,
+             birthday, social_json, addresses_json, source, external_id, importance) in rows
+        {
             let emails = self.load_contact_emails(&id)?;
             let phones = self.load_contact_phones(&id)?;
             let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or(serde_json::json!([]));
+            let social: serde_json::Value = social_json.as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!([]));
+            let addresses: serde_json::Value = addresses_json.as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!([]));
             result.push(serde_json::json!({
                 "id": id,
                 "vaultId": vault_id,
@@ -516,6 +543,12 @@ impl VaultDb {
                 "tags": tags,
                 "photoUrl": photo_url,
                 "alwaysShowImages": always_show_images,
+                "birthday": birthday,
+                "socialProfiles": social,
+                "addresses": addresses,
+                "source": source.unwrap_or_else(|| "manual".to_string()),
+                "externalId": external_id,
+                "importance": importance.unwrap_or_else(|| "normal".to_string()),
                 "createdAt": created_at,
                 "updatedAt": updated_at
             }));
@@ -550,20 +583,38 @@ impl VaultDb {
         let tags = contact["tags"].to_string();
         let photo_url = contact["photoUrl"].as_str();
         let always_show_images = contact["alwaysShowImages"].as_bool().unwrap_or(false) as i64;
+        let birthday = contact["birthday"].as_str();
+        let social = contact["socialProfiles"].to_string();
+        let addresses = contact["addresses"].to_string();
+        let source = contact["source"].as_str().unwrap_or("manual");
+        let external_id = contact["externalId"].as_str();
+        let importance = contact["importance"].as_str().unwrap_or("normal");
         let created_at = contact["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         let updated_at = contact["updatedAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         self.conn.execute(
-            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes, tags_json, photo_url, always_show_images, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes,
+                                   tags_json, photo_url, always_show_images,
+                                   birthday, social_json, addresses_json, source, external_id, importance,
+                                   created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, company=excluded.company, title=excluded.title,
                website=excluded.website, location=excluded.location, notes=excluded.notes,
                tags_json=excluded.tags_json,
                photo_url=COALESCE(excluded.photo_url, photo_url),
                always_show_images=excluded.always_show_images,
+               birthday=excluded.birthday,
+               social_json=excluded.social_json,
+               addresses_json=excluded.addresses_json,
+               source=excluded.source,
+               external_id=COALESCE(excluded.external_id, external_id),
+               importance=excluded.importance,
                updated_at=excluded.updated_at",
-            params![id, vault_id, name, company, title, website, location, notes, tags, photo_url, always_show_images, created_at, updated_at],
+            params![id, vault_id, name, company, title, website, location, notes,
+                    tags, photo_url, always_show_images,
+                    birthday, social, addresses, source, external_id, importance,
+                    created_at, updated_at],
         )?;
 
         // Rebuild email list
@@ -611,6 +662,79 @@ impl VaultDb {
                 params![photo_url, vault_id, email],
             )?;
         }
+        Ok(())
+    }
+
+    pub fn load_contact_groups(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, color, position, created_at FROM contact_groups WHERE vault_id = ?1 ORDER BY position"
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "name": r.get::<_, String>(1)?,
+                "color": r.get::<_, Option<String>>(2)?,
+                "position": r.get::<_, i64>(3)?,
+                "createdAt": r.get::<_, i64>(4)?
+            }))
+        })?;
+        rows.map(|r| r.context("loading contact group")).collect()
+    }
+
+    pub fn upsert_contact_group(&self, vault_id: &str, group: &JsonValue) -> Result<()> {
+        let id = group["id"].as_str().unwrap_or_default();
+        let name = group["name"].as_str().unwrap_or_default();
+        let color = group["color"].as_str();
+        let position = group["position"].as_i64().unwrap_or(0);
+        let created_at = group["createdAt"].as_i64()
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        self.conn.execute(
+            "INSERT INTO contact_groups (id, vault_id, name, color, position, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, position=excluded.position",
+            params![id, vault_id, name, color, position, created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_contact_group(&self, group_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM contact_groups WHERE id = ?1", params![group_id])?;
+        Ok(())
+    }
+
+    pub fn add_contact_to_group(&self, group_id: &str, contact_id: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO contact_group_members (group_id, contact_id) VALUES (?1, ?2)",
+            params![group_id, contact_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_contact_from_group(&self, group_id: &str, contact_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM contact_group_members WHERE group_id = ?1 AND contact_id = ?2",
+            params![group_id, contact_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_contacts_sync(&self, account_id: &str) -> Result<Option<(Option<String>, Option<i64>)>> {
+        let row: Option<(Option<String>, Option<i64>)> = self.conn.query_row(
+            "SELECT sync_token, last_synced_at FROM contacts_sync WHERE account_id = ?1",
+            params![account_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        Ok(row)
+    }
+
+    pub fn upsert_contacts_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO contacts_sync (account_id, sync_token, last_synced_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(account_id) DO UPDATE SET sync_token=excluded.sync_token, last_synced_at=excluded.last_synced_at",
+            params![account_id, sync_token, last_synced_at],
+        )?;
         Ok(())
     }
 
@@ -1546,6 +1670,25 @@ impl VaultDb {
                     "DELETE FROM contacts WHERE id = ?1",
                     params![contact_id],
                 )?;
+            }
+            "CREATE_CONTACT_GROUP" | "UPDATE_CONTACT_GROUP" => {
+                let group = &p["group"];
+                let vault_id = group["vaultId"].as_str().unwrap_or("local");
+                self.upsert_contact_group(vault_id, group)?;
+            }
+            "DELETE_CONTACT_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                self.delete_contact_group(group_id)?;
+            }
+            "ADD_CONTACT_TO_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                let contact_id = p["contactId"].as_str().unwrap_or_default();
+                self.add_contact_to_group(group_id, contact_id)?;
+            }
+            "REMOVE_CONTACT_FROM_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                let contact_id = p["contactId"].as_str().unwrap_or_default();
+                self.remove_contact_from_group(group_id, contact_id)?;
             }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {

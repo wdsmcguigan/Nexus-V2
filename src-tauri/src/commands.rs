@@ -1943,3 +1943,62 @@ pub async fn delete_vacation_responder(
     let db = guard.as_ref().ok_or("Vault not open")?;
     db.delete_vacation_responder(&account_id).map_err(|e| e.to_string())
 }
+
+/// Sync full Google Contacts for the given account via the People API.
+/// Uses delta sync tokens for efficiency on subsequent calls.
+/// Returns the number of contacts upserted.
+#[tauri::command]
+pub async fn sync_google_contacts(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<u32, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+
+    // Load existing sync token (delta sync)
+    let sync_token: Option<String> = {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.get_contacts_sync(&account_id)
+            .map_err(|e| e.to_string())?
+            .and_then(|(token, _)| token)
+    };
+
+    let http = reqwest::Client::new();
+    let (contacts, next_sync_token) = crate::gmail::contacts::fetch_google_contacts(
+        &http,
+        &access_token,
+        &vault_id,
+        sync_token.as_deref(),
+    ).await.map_err(|e| e.to_string())?;
+
+    let count = contacts.len() as u32;
+    let now = chrono::Utc::now().timestamp_millis();
+
+    {
+        let db = crate::db::VaultDb::open(&vault_path, "nexus")
+            .map_err(|e| e.to_string())?;
+        for contact in &contacts {
+            db.upsert_contact(&vault_id, contact).map_err(|e| e.to_string())?;
+        }
+        db.upsert_contacts_sync(&account_id, next_sync_token.as_deref(), now)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    log::info!("sync_google_contacts: upserted {count} contacts for account {account_id}");
+    Ok(count)
+}

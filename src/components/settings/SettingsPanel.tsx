@@ -35,6 +35,7 @@ import {
   Keyboard,
   RotateCcw,
   X as XIcon,
+  Users,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -54,6 +55,7 @@ import {
   startRelayHosting,
   resetVault,
   setNotificationPref,
+  syncGoogleContacts,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -1047,6 +1049,69 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
   );
 }
 
+// ─── Contacts sync section (EP-9) ────────────────────────────────────────────
+
+function ContactsSyncSection({ accountId }: { accountId: string }) {
+  const prefs = getAppPreferences();
+  const enabled = prefs.contactsSyncEnabled[accountId] ?? true;
+  const [syncing, setSyncing] = React.useState(false);
+  const [lastCount, setLastCount] = React.useState<number | null>(null);
+
+  const handleSyncNow = async () => {
+    if (!isTauri()) return;
+    setSyncing(true);
+    try {
+      const n = await syncGoogleContacts(accountId);
+      setLastCount(n);
+    } catch (e) {
+      console.warn("sync_google_contacts error:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const toggleEnabled = () => {
+    saveAppPreferences({
+      contactsSyncEnabled: { ...prefs.contactsSyncEnabled, [accountId]: !enabled },
+    });
+  };
+
+  return (
+    <div className="border-t border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+        <Users size={11} />
+        Contacts
+      </div>
+      <div className="flex items-center justify-between">
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={toggleEnabled}
+            className="accent-accent"
+          />
+          Sync Google Contacts
+        </label>
+        {enabled && isTauri() && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={handleSyncNow}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <RefreshCw size={11} />
+            )}
+            {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ panelId }: { panelId: string }) {
@@ -1180,6 +1245,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                       <AccountRow accountId={acc.id} email={acc.email} />
                       <AccountPrefsSection accountId={acc.id} />
                       <VacationResponderSection accountId={acc.id} />
+                      <ContactsSyncSection accountId={acc.id} />
                     </div>
                   ))}
                 </div>

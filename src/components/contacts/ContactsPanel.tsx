@@ -7,10 +7,12 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ContactCard } from "@/components/contacts/ContactCard";
-import { useContacts, useContactMessageCount } from "@/storage/useStore";
+import { ContactGroupsSidebar } from "@/components/contacts/ContactGroupsSidebar";
+import { useContacts, useContactGroups, useContactMessageCount } from "@/storage/useStore";
 import { useWorkspace } from "@/state/workspace";
-import { upsertContact } from "@/state/mutations";
+import { upsertContact, recordMutation } from "@/state/mutations";
 import { localStore } from "@/storage/local";
+import type { Contact } from "@/data/types";
 import { pickPanelLink } from "@/design-system/tokens";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +106,7 @@ function ParticipantPlaceholderRow({
 
 export function ContactsPanel({ panelId }: { panelId?: string }) {
   const contacts = useContacts();
+  const groups = useContactGroups();
   const selectedContactId = useWorkspace((s) => s.selectedContactId);
   const setSelectedContactId = useWorkspace((s) => s.setSelectedContactId);
   const participantFilter = useWorkspace((s) => s.contactParticipantFilter);
@@ -111,8 +114,8 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
   const openContactMessages = useWorkspace((s) => s.openContactMessages);
 
   const [query, setQuery] = React.useState("");
+  const [selectedGroupId, setSelectedGroupId] = React.useState<string | null>(null);
 
-  // Build the effective list based on whether participant filter is active
   const isScoped = participantFilter !== null && participantFilter.length > 0;
 
   const scopedList = React.useMemo(() => {
@@ -121,21 +124,38 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
       const contact = localStore.lookupByEmail(email);
       return { email, contact };
     }).filter((entry, idx, arr) =>
-      // deduplicate by email
       arr.findIndex((x) => x.email === entry.email) === idx
     );
   }, [isScoped, participantFilter]);
 
-  const allContactsList = React.useMemo(() => {
-    if (!query.trim()) return contacts;
-    const q = query.toLowerCase();
-    return contacts.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.emails.some((e) => e.toLowerCase().includes(q)) ||
-        (c.company ?? "").toLowerCase().includes(q),
-    );
-  }, [contacts, query]);
+  const filteredContacts = React.useMemo(() => {
+    let list = contacts;
+
+    // Group filter
+    if (selectedGroupId === "__vip") {
+      list = list.filter((c) => c.importance === "vip");
+    } else if (selectedGroupId !== null) {
+      const memberIds = new Set(
+        Array.from(localStore.groupsByContact.entries())
+          .filter(([, gids]) => gids.has(selectedGroupId))
+          .map(([cid]) => cid)
+      );
+      list = list.filter((c) => memberIds.has(c.id));
+    }
+
+    // Search filter
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      list = list.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.emails.some((e) => e.toLowerCase().includes(q)) ||
+          (c.company ?? "").toLowerCase().includes(q),
+      );
+    }
+
+    return list;
+  }, [contacts, selectedGroupId, query]);
 
   const selectedContact = React.useMemo(
     () => contacts.find((c) => c.id === selectedContactId) ?? null,
@@ -144,18 +164,46 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
 
   const handleNewContact = () => {
     const id = `contact-new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const contact = {
+    const contact: Contact = {
       id,
       vaultId: localStore.vault?.id ?? "local",
       name: "New Contact",
       emails: [],
       phones: [],
       tags: [],
+      socialProfiles: [],
+      addresses: [],
+      source: "manual",
+      importance: "normal",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
     upsertContact(contact);
     setSelectedContactId(id);
+  };
+
+  const handleCreateGroup = (name: string) => {
+    const id = `grp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    recordMutation("CREATE_CONTACT_GROUP", {
+      group: {
+        id,
+        vaultId: localStore.vault?.id ?? "local",
+        name,
+        position: groups.length,
+        createdAt: Date.now(),
+      },
+    });
+  };
+
+  const handleRenameGroup = (id: string, name: string) => {
+    const g = localStore.contactGroups.get(id);
+    if (!g) return;
+    recordMutation("UPDATE_CONTACT_GROUP", { group: { ...g, name } });
+  };
+
+  const handleDeleteGroup = (id: string) => {
+    recordMutation("DELETE_CONTACT_GROUP", { groupId: id });
+    if (selectedGroupId === id) setSelectedGroupId(null);
   };
 
   const effectivePanelId = panelId ?? "contacts";
@@ -201,9 +249,20 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
       }
     >
       <div className="flex h-full min-h-0">
-        {/* Left column — contact list */}
-        <div className="flex w-64 shrink-0 flex-col border-r border-border-subtle">
+        {/* Column 1 — groups rail (hidden in scoped mode) */}
+        {!isScoped && (
+          <ContactGroupsSidebar
+            groups={groups}
+            selectedGroupId={selectedGroupId}
+            onSelectGroup={setSelectedGroupId}
+            onCreateGroup={handleCreateGroup}
+            onRenameGroup={handleRenameGroup}
+            onDeleteGroup={handleDeleteGroup}
+          />
+        )}
 
+        {/* Column 2 — contact list */}
+        <div className="flex w-64 shrink-0 flex-col border-r border-border-subtle">
           {/* Scoped mode banner */}
           {isScoped ? (
             <div className="flex items-center gap-1 border-b border-border-subtle bg-surface-2 px-2 py-1.5">
@@ -217,7 +276,6 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
               </button>
             </div>
           ) : (
-            /* Search (full mode only) */
             <div className="border-b border-border-subtle p-2">
               <div className="relative flex items-center">
                 <Search size={13} className="pointer-events-none absolute left-2 text-text-tertiary" />
@@ -237,10 +295,8 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
             </div>
           )}
 
-          {/* List */}
           <div className="flex-1 overflow-y-auto p-1">
             {isScoped ? (
-              // Participant-scoped list
               scopedList!.map(({ email, contact }) =>
                 contact ? (
                   <ContactRow
@@ -262,31 +318,28 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
                   />
                 )
               )
+            ) : filteredContacts.length === 0 ? (
+              <div className="py-6 text-center text-small text-text-tertiary">
+                {query ? `No results for "${query}"` : "No contacts in this group"}
+              </div>
             ) : (
-              // Full contact list
-              allContactsList.length === 0 ? (
-                <div className="py-6 text-center text-small text-text-tertiary">
-                  No results for &ldquo;{query}&rdquo;
-                </div>
-              ) : (
-                allContactsList.map((c) => (
-                  <ContactRow
-                    key={c.id}
-                    contactId={c.id}
-                    name={c.name}
-                    primaryEmail={(c.emails ?? [])[0] ?? ""}
-                    photoUrl={c.photoUrl}
-                    isSelected={c.id === selectedContactId}
-                    onSelect={() => setSelectedContactId(c.id)}
-                    onMessageCountClick={(mod) => openContactMessages(c.id, mod)}
-                  />
-                ))
-              )
+              filteredContacts.map((c) => (
+                <ContactRow
+                  key={c.id}
+                  contactId={c.id}
+                  name={c.name}
+                  primaryEmail={(c.emails ?? [])[0] ?? ""}
+                  photoUrl={c.photoUrl}
+                  isSelected={c.id === selectedContactId}
+                  onSelect={() => setSelectedContactId(c.id)}
+                  onMessageCountClick={(mod) => openContactMessages(c.id, mod)}
+                />
+              ))
             )}
           </div>
         </div>
 
-        {/* Right column — detail */}
+        {/* Column 3 — detail */}
         <div className="flex-1 overflow-y-auto">
           {selectedContact ? (
             <ContactCard

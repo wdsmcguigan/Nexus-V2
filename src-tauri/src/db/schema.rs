@@ -257,6 +257,69 @@ pub const EP8_ALTER_SQL: &[&str] = &[
     "ALTER TABLE contacts ADD COLUMN always_show_images INTEGER NOT NULL DEFAULT 0",
 ];
 
+/// EP9 ALTER TABLE statements — CRM fields on contacts.
+pub const EP9_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE contacts ADD COLUMN birthday TEXT",
+    "ALTER TABLE contacts ADD COLUMN social_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE contacts ADD COLUMN addresses_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE contacts ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE contacts ADD COLUMN external_id TEXT",
+    "ALTER TABLE contacts ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal'",
+];
+
+/// EP9 idempotent DDL — contact groups, sync state tables, calendar schema reservation.
+pub const EP9_IDEMPOTENT_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS contact_groups (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contact_groups_vault ON contact_groups(vault_id);
+
+CREATE TABLE IF NOT EXISTS contact_group_members (
+    group_id TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, contact_id)
+);
+
+CREATE TABLE IF NOT EXISTS contacts_sync (
+    account_id TEXT PRIMARY KEY,
+    sync_token TEXT,
+    last_synced_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL DEFAULT 'primary',
+    external_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    location TEXT,
+    start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    all_day INTEGER NOT NULL DEFAULT 0,
+    rrule TEXT,
+    status TEXT NOT NULL DEFAULT 'confirmed',
+    organizer_email TEXT,
+    attendees_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_vault ON calendar_events(vault_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_range ON calendar_events(vault_id, start_ts, end_ts);
+
+CREATE TABLE IF NOT EXISTS calendar_sync (
+    account_id TEXT PRIMARY KEY,
+    sync_token TEXT,
+    last_synced_at INTEGER
+);
+"#;
+
 /// EP7 (Stage 4) idempotent DDL — vacation responder table.
 pub const EP7_STAGE4_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS vacation_responders (

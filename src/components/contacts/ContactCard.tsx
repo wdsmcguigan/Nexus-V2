@@ -12,6 +12,9 @@ import {
   X,
   Plus,
   ExternalLink,
+  Star,
+  Cake,
+  Link2,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -163,6 +166,10 @@ function NoContactCard({
       emails: [email],
       phones: [],
       tags: [],
+      socialProfiles: [],
+      addresses: [],
+      source: "manual",
+      importance: "normal",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -421,6 +428,36 @@ function FoundContactCard({
         />
       </FieldSection>
 
+      {/* Birthday */}
+      <FieldSection icon={<Cake size={14} />} label="Birthday">
+        <EditableField
+          value={contact.birthday ?? ""}
+          placeholder="YYYY-MM-DD"
+          onSave={(v) => save({ birthday: v || undefined })}
+        />
+      </FieldSection>
+
+      {/* Social profiles */}
+      {(contact.socialProfiles ?? []).length > 0 && (
+        <FieldSection icon={<Link2 size={14} />} label="Social">
+          <div className="flex flex-col gap-1">
+            {(contact.socialProfiles ?? []).map((sp, i) => (
+              <div key={i} className="flex items-center gap-1 text-small text-text-secondary">
+                <span className="text-text-tertiary capitalize">{sp.platform}:</span>
+                <a
+                  href={sp.username.startsWith("http") ? sp.username : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate hover:text-accent hover:underline"
+                >
+                  {sp.username}
+                </a>
+              </div>
+            ))}
+          </div>
+        </FieldSection>
+      )}
+
       {/* Tags */}
       <FieldSection icon={<Tag size={14} />} label="Tags">
         <div className="flex flex-wrap gap-1">
@@ -447,6 +484,23 @@ function FoundContactCard({
           />
         </div>
       </FieldSection>
+
+      {/* VIP toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => save({ importance: contact.importance === "vip" ? "normal" : "vip" })}
+          className={cn(
+            "flex items-center gap-1.5 rounded-sm px-2 py-1 text-small transition-colors",
+            contact.importance === "vip"
+              ? "bg-amber-400/20 text-amber-500"
+              : "text-text-tertiary hover:bg-surface-3 hover:text-text-secondary",
+          )}
+        >
+          <Star size={12} className={contact.importance === "vip" ? "fill-amber-500" : ""} />
+          {contact.importance === "vip" ? "VIP contact" : "Mark as VIP"}
+        </button>
+      </div>
 
       {/* Notes */}
       <div className="flex flex-col gap-1">

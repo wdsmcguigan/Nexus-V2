@@ -38,6 +38,7 @@ export interface HydratePayload {
   tagUsage: unknown[];
   mutations: unknown[];
   contacts: unknown[];
+  contactGroups: unknown[];
   savedViews: unknown[];
   rules: unknown[];
   templates: unknown[];
@@ -377,6 +378,10 @@ export async function deleteTemplate(id: string, vaultId: string): Promise<void>
 /** Returns "posted" if RFC 8058 one-click POST succeeded, or a URL to open in the browser. */
 export async function sendUnsubscribe(messageId: string): Promise<string> {
   return invoke<string>("send_unsubscribe", { messageId });
+}
+
+export async function syncGoogleContacts(accountId: string): Promise<number> {
+  return invoke<number>("sync_google_contacts", { accountId });
 }
 
 function encodeRfc2047(text: string): string {

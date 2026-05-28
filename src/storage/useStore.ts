@@ -12,7 +12,7 @@ import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
 import { isTauri, getMessagesForLabel } from "@/storage/tauri";
-import type { Contact, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
+import type { Contact, ContactGroup, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -191,6 +191,12 @@ export function useContacts(): Contact[] {
   return Array.from(localStore.contacts.values()).sort((a, b) =>
     a.name.localeCompare(b.name)
   );
+}
+
+export function useContactGroups(): ContactGroup[] {
+  const v = useStoreVersion();
+  void v;
+  return localStore.getContactGroups();
 }
 
 export function useContactByEmail(email: string): Contact | null {

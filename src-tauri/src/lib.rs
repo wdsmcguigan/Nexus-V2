@@ -91,6 +91,8 @@ pub fn run() {
             commands::get_vacation_responder,
             commands::save_vacation_responder,
             commands::delete_vacation_responder,
+            // EP9 contacts sync
+            commands::sync_google_contacts,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously.
