@@ -8,7 +8,7 @@ expanded contacts and crm -
 chromium browser?? 
 clock/alarm/task timer/world time/ converter
 zoom/meet/teams teleconferencing panel?
-
+sms/WhatsApp/imessage
 integrations Apple, Google, Microsoft, asana, slack, discord, etc
 
 other features
