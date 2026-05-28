@@ -1,6 +1,6 @@
 # Epic 6 — Multi-Provider Support
 
-**Status: ✅ Shipped (partial)** — Gmail, IMAP, and Outlook are usable; JMAP and real IMAP IDLE are deferred. See `docs/known-gaps.md` items 2 + 3 for the explicit gaps.
+**Status: ✅ Shipped** — Gmail, IMAP (with real IDLE), Outlook, and JMAP (bearer-token auth) are all usable.
 
 This checklist was reconstructed retroactively from code on 2026-05-28. Compare entries here against the actual files cited; if they diverge, the code wins.
 
@@ -21,29 +21,31 @@ Allow Nexus to connect to any IMAP-speaking provider (Fastmail, iCloud, ProtonMa
 | **Gmail** (OAuth) | ✅ Full — OAuth, History API sync, attachments, send, calendar, contacts | `src-tauri/src/gmail/` (9 files) |
 | **IMAP** (password) | ✅ Full — autodiscovery, sync, attachments, SMTP send | `src-tauri/src/providers/imap.rs` (16.6 KB), `src-tauri/src/providers/autodiscovery.rs` (8.7 KB), `src-tauri/src/smtp.rs` |
 | **Outlook** (OAuth) | ✅ Full — Microsoft v2.0 OAuth → IMAP scopes → IMAP plumbing underneath | `src-tauri/src/providers/outlook_oauth.rs` (4.3 KB) |
-| **JMAP** | ❌ **Stub only** — every method returns `Err(anyhow!("JMAP coming in EP7"))` | `src-tauri/src/providers/jmap.rs` (46 lines) |
+| **JMAP** (bearer token) | ✅ Shipped — RFC 8620/8621: session discovery, `Mailbox/get`, `Email/{query,get,changes}`, `Email/set` mutation translation | `src-tauri/src/providers/jmap.rs`, `src-tauri/src/providers/jmap_types.rs` |
 
 ### Provider abstraction
 
 - `src-tauri/src/providers/mod.rs` defines the `MailProvider` trait: `fetch_labels`, `fetch_initial`, `fetch_incremental`, `fetch_message_body`, `apply_mutation`.
-- All four providers above implement the trait. Gmail and IMAP/Outlook implementations are real; JMAP is a placeholder.
+- All four providers above implement the trait against real backends.
 
-### IPC commands (5)
+### IPC commands (6)
 
 | Command | Purpose |
 |---|---|
 | `discover_imap_settings(email)` | Mozilla autoconfig + DNS SRV discovery for IMAP/SMTP settings. |
 | `test_imap_connection(host, port, security, username, password)` | Validates creds before saving. |
-| `add_imap_account(ImapAccountInput)` | Persists creds, schedules first sync. |
-| `sync_account_now(accountId)` | Manual sync for IMAP and Outlook (Gmail uses `sync_gmail_now`). |
+| `add_imap_account(ImapAccountInput)` | Persists creds, schedules first sync, spawns IDLE watcher. |
+| `add_jmap_account({email, displayName, sessionUrl, token})` | Discovers JMAP session, persists encrypted token, schedules first sync. |
+| `sync_account_now(accountId)` | Manual sync for IMAP, Outlook, and JMAP (Gmail uses `sync_gmail_now`). |
 | `start_outlook_oauth()` | Microsoft v2.0 OAuth flow → IMAP-style storage. |
 
-All five are registered in `src-tauri/src/lib.rs:invoke_handler!` and wrapped in `src/storage/tauri.ts`.
+All six are registered in `src-tauri/src/lib.rs:invoke_handler!` and wrapped in `src/storage/tauri.ts`.
 
 ### UI
 
-- `src/components/onboarding/AddAccountModal.tsx` — provider chooser with Gmail / Outlook / IMAP / JMAP (latter disabled).
+- `src/components/onboarding/AddAccountModal.tsx` — provider chooser with Gmail / Outlook / IMAP / JMAP, plus dedicated flow components per provider.
 - IMAP-specific form for host/port/security/username/password.
+- JMAP-specific form for email, session URL, and bearer token (with show/hide).
 - "Test connection" button calls `test_imap_connection`.
 
 ### Schema additions (ALTER blocks in `src-tauri/src/db/schema.rs`)
@@ -60,15 +62,12 @@ Plus the EP6 idempotent block defining `rules`, `templates`, and FTS5 sync trigg
 
 ---
 
-## What did **not** ship (still partial)
+## Follow-ups
 
 | # | Item | Severity | File |
 |---|---|---|---|
-| 1 | **JMAP provider** | 🟡 Stubbed | `providers/jmap.rs` |
-| 2 | **Real IMAP IDLE** | 🟡 Stubbed | `providers/imap_idle.rs` — function is `start_idle_watcher` but body is a 30s polling loop. The UI does not surface "real-time" claims so this is mostly an internal misnomer, but anyone implementing push notifications based on the file name will be misled. |
-| 3 | **CalDAV / CardDAV** | 🟠 Out of scope | Not started |
-
-See `docs/known-gaps.md` for the canonical status of each.
+| 1 | **JMAP OAuth2 flow** | 🟠 Planned | Today JMAP onboarding uses a bearer token the user pastes; OAuth2 with PKCE would mirror Outlook/Gmail. |
+| 2 | **CalDAV / CardDAV** | 🟠 Out of scope | Not started |
 
 ---
 

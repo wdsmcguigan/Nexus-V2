@@ -75,22 +75,22 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 | Sync loop | 30s background sync: push then pull |
 | Enrollment | 6-digit code, 10-minute expiry, max 10 attempts |
 | IPC | 6 commands: `get_relay_status`, `set_relay_url`, `get_vault_key_hex`, `start_enrollment_session`, `complete_enrollment`, `start_relay_hosting` |
-| UI | Relay settings: mode picker (Nexus-hosted "coming soon" stub + Self-Hosted active), URL input + status, enrollment code + countdown, vault key export |
+| UI | Relay settings: Self-Hosted mode, URL input + status, enrollment code + countdown, vault key export |
 | Docs | CLAUDE.md, README.md, `docs/relay.md`, `docs/developer-guide.md`, `docs/user-guide.md` |
 | Bug fixes | ~32 missing Rust mutation handlers; SAVE_VIEW family store replay; BCC/CC wiring in composer |
 
-### EP-6 — Multi-provider mail support — **shipped (partial)**
+### EP-6 — Multi-provider mail support — **shipped**
 
-> See `docs/epic-6-checklist.md` for the full checklist, and `docs/known-gaps.md` items 2 + 3 for the explicit gaps.
+> See `docs/epic-6-checklist.md` for the full checklist.
 
 | Area | What shipped |
 |------|-------------|
-| IMAP | `ImapProvider`: folder sync, flag sync, message fetch. **IMAP IDLE is polling-only** despite the file name `imap_idle.rs` — see `docs/known-gaps.md` item 3. |
+| IMAP | `ImapProvider`: folder sync, flag sync, message fetch. Real IMAP IDLE via `async-imap` `Session::idle()` (RFC 2177, 28-minute re-arm); 30s NOOP/EXAMINE polling is the documented fallback for servers without IDLE. |
 | SMTP | SMTP outbound send (with TLS, STARTTLS, plain) |
 | Outlook | Microsoft OAuth 2.0 flow; Outlook/Exchange account support (rides on IMAP plumbing) |
 | Autodiscovery | Mozilla autoconfig + DNS SRV (`providers/autodiscovery.rs`) |
-| JMAP | **🟡 Stub only** — every method returns `Err("JMAP coming in EP7")`. AddAccountModal card correctly disabled. See `docs/known-gaps.md` item 2. |
-| IPC | `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `start_outlook_oauth`, `sync_account_now` |
+| JMAP | RFC 8620/8621 implementation with bearer-token auth: session discovery, `Mailbox/get`, `Email/{query,get,changes}`, mutation translation via `Email/set`. OAuth2 is a follow-up. |
+| IPC | `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `add_jmap_account`, `start_outlook_oauth`, `sync_account_now` |
 
 ### EP-7 — Native FTS5, rules engine & quick wins
 
@@ -123,11 +123,7 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 > **Canonical register has moved.** See `docs/known-gaps.md` for the up-to-date list of everything broken, stubbed, partial, or planned-but-not-shipped. The summary below is preserved for context only.
 
 Highlights:
-- **Multi-provider (EP-6) shipped partial** — Gmail / IMAP / Outlook usable; JMAP is a stub; IMAP IDLE is polling-only (misnamed).
-- **`REORDER_RULES` mutation** is defined but has no handler anywhere.
-- **CFD drag-reorder** (option-level and definition-level) — UI grip rendered, dnd-kit not wired.
-- **Native date picker** in FlagPicker — uses raw HTML inputs.
-- **Hosted "Nexus Relay"** option — UI stub only; no infra.
+- **EP-8 iOS parity audit** — desktop/iOS feature coverage is not yet measured.
 - **Conflict resolution UI** — planned EP-9; design draft at `docs/conflict-resolution-design.md`.
 - **Encrypted FTS hardening** — planned EP-10.
 - **Android shell** — after iOS parity.

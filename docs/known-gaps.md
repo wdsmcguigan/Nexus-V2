@@ -25,9 +25,7 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 ## 🔴 Broken or incorrect
 
-| # | Item | Where | Symptom | Definition of done | Effort |
-|---|---|---|---|---|---|
-| 1 | `REORDER_RULES` mutation has no handler | Defined: `src/data/types.ts:490`. Missing: case in `src/state/mutations.ts:applyMutation()`; no helper in `mutations.ts`; no Rust-side handling in `commands.rs` / `queries.rs`. | Saving a reordered rule list does nothing — optimistic update no-ops and no row lands in `mutations` table. | Add case to `applyMutation()` switch that reorders `store.rules` by `payload.orderedIds`; add helper `reorderRulesMutation(orderedIds)`; mirror the pattern of `REORDER_LABELS` (line 389) and `REORDER_STATUSES` (line 479). Add `rules.position` column persistence in `queries.rs` if not already there. | S |
+_(none — all entries closed.)_
 
 ---
 
@@ -35,13 +33,6 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 | # | Item | Where | What's wrong | Definition of done | Effort |
 |---|---|---|---|---|---|
-| 2 | **JMAP provider** | `src-tauri/src/providers/jmap.rs` (entire 46-line file) | Every `MailProvider` method returns `Err(anyhow!("JMAP coming in EP7"))`. The `AddAccountModal` already marks the JMAP card `disabled`. The reference list in `docs/architecture.md` mentions JMAP as a target without flagging it as unimplemented. | Either implement JMAP (Fastmail-style: discover via `.well-known/jmap`, OAuth flow, real `fetch_initial`/`fetch_incremental`, mutation translation) or formally remove the stub and the UI card. | L |
-| 3 | **IMAP IDLE** | `src-tauri/src/providers/imap_idle.rs:7-30` | Function is named `start_idle_watcher` but the body is a 30-second polling loop with exponential-backoff reconnect. No `IDLE` command is issued; no server-pushed updates. Comment line 7 ("Falls back to 30-second polling if server doesn't support IDLE") is misleading — there is no IDLE path to fall back from. | Implement real IDLE via `async-imap` `idle()` futures, with the existing polling loop as the documented fallback only. Or: rename the file/function to `imap_poller.rs` / `start_poll_watcher` and update docs to admit polling is the only mode. | M |
-| 4 | **Hosted "Nexus Relay"** option | UI stub at `src/components/settings/SettingsPanel.tsx:440-460` | Visible "Nexus Relay — coming soon" card with `opacity-50 cursor-not-allowed`. The `nexus-relay` binary is already provider-agnostic; this is infra/ops work, not client code. | Stand up the hosted infrastructure and wire the card to a real provisioning flow (or remove the card). | M (infra) |
-| 5 | **CFD option drag-reorder** | `src/components/settings/CustomFieldsSettings.tsx` | `GripVertical` icon is rendered on option rows but no `dnd-kit` handlers are attached — drag does nothing. Listed as deferred in EP-2. | Wire `dnd-kit` `useSortable` on option rows and persist via a new `REORDER_CUSTOM_FIELD_OPTIONS` mutation. | S |
-| 6 | **CFD definition drag-reorder** | `src/components/settings/CustomFieldsSettings.tsx` | Same as above at field-definition level. | Same as above with `REORDER_CUSTOM_FIELD_DEFS`. | S |
-| 7 | **Native date picker** in `FlagPicker` | `src/components/inspector/FlagPicker.tsx` | Uses raw `<input type="date">` / `<input type="datetime-local">` — appearance is browser-default, not styled to design system. | Replace with `react-day-picker` (already pattern-fit) styled with `docs/UI-DESIGN-SYSTEM-SPEC.md` tokens. Cosmetic only — no data model change. | S |
-| 8 | **EP-6 marked "shipped"** | `docs/architecture.md` phasing table; `docs/roadmap.md` | Should be "shipped — partial" because JMAP and IDLE gaps (items 2 + 3) are real. | Update the phasing tag to "Shipped (partial — IDLE polls, JMAP stub)". (Fixed in this pass.) | — (done) |
 | 9 | **EP-8 iOS parity** | `/ios/` (29 Swift files) | EP-8 is "in progress". Desktop has 56 IPC commands and 15 UI feature areas; iOS has 15 UI screens but no claim of feature parity has been verified. `MutationEngine.swift` exists but coverage vs `src/state/mutations.ts:applyMutation()` is unmeasured. | Produce a parity audit: list every desktop feature and which iOS screen (if any) covers it. Currently captured at a high level in `docs/epic-8-checklist.md`. | L |
 
 ---

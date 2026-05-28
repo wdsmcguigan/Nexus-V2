@@ -223,6 +223,20 @@ export async function startOutlookOAuth(): Promise<OAuthResult> {
   return invoke<OAuthResult>("start_outlook_oauth");
 }
 
+export async function addJmapAccount(params: {
+  email: string;
+  displayName?: string;
+  sessionUrl: string;
+  token: string;
+}): Promise<OAuthResult> {
+  return invoke<OAuthResult>("add_jmap_account", {
+    email: params.email,
+    displayName: params.displayName ?? null,
+    sessionUrl: params.sessionUrl,
+    token: params.token,
+  });
+}
+
 export async function disconnectAccount(
   accountId: string,
   dataAction: "keep" | "delete_messages" | "delete_all",

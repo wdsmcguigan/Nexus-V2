@@ -8,7 +8,7 @@ Quick orientation for AI coding agents and new contributors. Read this first; di
 
 Nexus is a **local-first, privacy-focused email client for macOS** built with Tauri 2 (Rust backend) and React 18 (TypeScript frontend). All mail data lives in a local SQLite vault encrypted with SQLCipher. Cross-device sync is optional and E2EE via a self-hosted relay server.
 
-Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (custom fields + notes — UI shipped; CFD drag-reorder deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay — self-hosted only; hosted "Nexus Relay" still a UI stub), EP-6 (multi-provider — **shipped partial**: Gmail full, IMAP + Outlook OAuth shipped, IMAP IDLE is polling-only stub, JMAP not implemented), EP-7 (FTS5 + rules engine + quick wins), EP-8 (iOS Swift app — **in progress**; 29 Swift files, shares vault format via relay sync, parity with desktop not yet verified), EP-9 (Google contacts sync), EP-10 (Google calendar sync — backend foundation), plus inter-epic improvements (ContactHoverCard, vCard import/export, tag sidebar navigation, 21-color label palette, email row right-click context menu, undo/redo with history modal), EP-11 (calendar foundation: Google Calendar sync, agenda view, event CRUD, per-calendar toggles), EP-12 (calendar field completeness: conference URLs, Drive attachments, per-event colors, Compose→Event flow), EP-13 (calendar event templates, week/month time-grid views, drag-to-reschedule).
+Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (custom fields + notes), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay — self-hosted only), EP-6 (multi-provider — Gmail, IMAP with real IDLE, Outlook OAuth, JMAP), EP-7 (FTS5 + rules engine + quick wins), EP-8 (iOS Swift app — **in progress**; 29 Swift files, shares vault format via relay sync, parity with desktop not yet verified), EP-9 (Google contacts sync), EP-10 (Google calendar sync — backend foundation), plus inter-epic improvements (ContactHoverCard, vCard import/export, tag sidebar navigation, 21-color label palette, email row right-click context menu, undo/redo with history modal), EP-11 (calendar foundation: Google Calendar sync, agenda view, event CRUD, per-calendar toggles), EP-12 (calendar field completeness: conference URLs, Drive attachments, per-event colors, Compose→Event flow), EP-13 (calendar event templates, week/month time-grid views, drag-to-reschedule).
 
 > **For what's broken/unfinished, see `docs/known-gaps.md`** — single canonical register of stubs, partial implementations, and planned gaps. Read it before assuming a feature is "done".
 
@@ -60,8 +60,8 @@ Nexus-V2/
 │   │   ├── queries.rs          # ~89 query helpers (SELECT/INSERT/UPDATE) — see OptionalExt note below
 │   │   └── mod.rs              # VaultDb struct + ALTER_SQL-style migration runner
 │   ├── gmail/                  # 9 files: OAuth, History API sync, mutations, calendar, contacts
-│   ├── providers/              # EP-6 multi-provider: imap.rs, imap_idle.rs (polling stub),
-│   │                           #   outlook_oauth.rs, autodiscovery.rs, jmap.rs (stub only)
+│   ├── providers/              # EP-6 multi-provider: imap.rs, imap_idle.rs (real IDLE + poll fallback),
+│   │                           #   outlook_oauth.rs, autodiscovery.rs, jmap.rs + jmap_types.rs
 │   ├── relay/                  # E2EE relay client + embedded server
 │   └── watcher/                # Background file-system watcher (notify crate)
 ├── relay-server/               # Standalone nexus-relay binary
@@ -123,7 +123,7 @@ All **56 commands** are registered in `src-tauri/src/lib.rs:invoke_handler!` (li
 
 For the full inventory grouped by feature area, see [`docs/ipc-api-reference.md`](docs/ipc-api-reference.md). Highlights by epic:
 
-- **EP-6 (multi-provider):** `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `start_outlook_oauth`, `sync_account_now`, `disconnect_account`
+- **EP-6 (multi-provider):** `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `add_jmap_account`, `start_outlook_oauth`, `sync_account_now`, `disconnect_account`
 - **EP-7 (rules/templates/FTS5):** `search_messages`, `get_rules`, `save_rule`, `delete_rule`, `get_templates`, `save_template`, `delete_template`, `send_unsubscribe`, `get_client_mode`, `set_client_mode`
 - **EP-7 stage 4 (account prefs):** `get_account_preferences`, `save_account_preferences`, `get_signature_html`, `save_signature_html`, `get_vacation_responder`, `save_vacation_responder`, `delete_vacation_responder`
 - **EP-9 (contacts sync):** `sync_google_contacts`
@@ -307,14 +307,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Known Incomplete (read `docs/known-gaps.md` for the full register)
 
-These are the items most likely to bite an agent that assumes "if it's in the type system, it works":
-
-- **`REORDER_RULES` mutation** is defined in `MutationKind` (`src/data/types.ts:490`) but has **no handler** in `src/state/mutations.ts:applyMutation()` and **no helper function**. Calling `recordMutation("REORDER_RULES", …)` silently no-ops on the optimistic update side; the Rust side has no behavior either. Compare with `REORDER_LABELS` / `REORDER_STATUSES` which are fully wired.
-- **`providers/jmap.rs`** is a stub. Every method returns `Err(anyhow!("JMAP coming in EP7"))`. The `AddAccountModal` JMAP card is correctly marked disabled — do not enable it without implementing the provider.
-- **`providers/imap_idle.rs`** is misleadingly named: `start_idle_watcher` is a 30-second polling loop, not real IMAP IDLE. Don't depend on push-style behavior.
-- **Nexus-hosted relay** is a UI stub (`SettingsPanel.tsx:440-455`). The `nexus-relay` binary is provider-agnostic but no hosted infrastructure exists.
-- **CFD drag-reorder** (option-level and definition-level) renders the `GripVertical` icon but no drag handler is wired (`src/components/settings/CustomFieldsSettings.tsx`).
-- **Native date picker** in `FlagPicker` uses raw `<input type="date">` / `<input type="datetime-local">` — no styled calendar picker.
+- **EP-8 iOS parity** is in progress and unaudited — 29 Swift files, ~15 UI screens, no measured coverage vs. the desktop feature set.
 
 ---
 
