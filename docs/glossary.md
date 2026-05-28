@@ -653,7 +653,7 @@ the app **requires** adding a kind here.
 - `CREATE_RULE` — Create a new automation rule
 - `UPDATE_RULE` — Update an existing rule's conditions/actions/enabled state
 - `DELETE_RULE` — Delete a rule by id
-- `REORDER_RULES` — Reorder rules by position
+- `REORDER_RULES` — Reorder rules by position. **🟡 Unimplemented today** — defined in `MutationKind` but has no handler in `state/mutations.ts` or the Rust side; calling it silently no-ops. See `docs/known-gaps.md` item 1.
 
 **Email templates**
 - `CREATE_TEMPLATE` — Create a new email template (`TMPL`)

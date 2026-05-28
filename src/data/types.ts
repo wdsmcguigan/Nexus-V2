@@ -492,7 +492,7 @@ export type MutationKind =
   | "CREATE_TEMPLATE"
   | "UPDATE_TEMPLATE"
   | "DELETE_TEMPLATE"
-  // Calendar ops (EP-10)
+  // Calendar ops (EP-11)
   | "UPSERT_CALENDAR_EVENT"
   | "DELETE_CALENDAR_EVENT"
   | "UPDATE_CALENDAR_EVENT_NOTES"

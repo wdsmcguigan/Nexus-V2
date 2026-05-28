@@ -130,7 +130,7 @@ Every user-initiated data change flows through the mutation system. Here's how t
 
 ### Step 1 — Add the kind to the enum
 
-In `src/data/types.ts`, find the `MutationKind` enum (currently 45+ entries) and add your new kind:
+In `src/data/types.ts`, find the `MutationKind` enum (currently 70 entries) and add your new kind:
 
 ```ts
 export type MutationKind =
@@ -444,6 +444,18 @@ cargo build -p nexus-relay --release
 
 ## Multi-Provider Support (EP-6+)
 
+> **Status check before reading:** EP-6 is shipped partial. Provider-by-provider current state:
+>
+> | Provider | Status |
+> |---|---|
+> | Gmail | ✅ Full (OAuth + History API + calendar + contacts) |
+> | IMAP | ✅ Sync + SMTP send + autodiscovery |
+> | Outlook | ✅ OAuth → IMAP plumbing underneath |
+> | IMAP IDLE | ⚠️ Misleading name — `providers/imap_idle.rs:start_idle_watcher` is a 30-second poller, not real IDLE |
+> | JMAP | ❌ Stub only — every method returns `Err("JMAP coming in EP7")` |
+>
+> See `docs/known-gaps.md` and `docs/epic-6-checklist.md`.
+
 ### IMAP autodiscovery
 
 ```ts
@@ -473,9 +485,35 @@ After OAuth completes, the account uses the IMAP/SMTP sync path with tokens stor
 
 Every provider account syncs via `sync_account_now(accountId)`. The Rust side dispatches by `provider_type` in the `accounts` table:
 - `"gmail"` → `GmailSyncer` (History API)
-- `"imap"` / `"outlook"` → `ImapProvider` (IMAP IDLE + FETCH)
+- `"imap"` / `"outlook"` → `ImapProvider` (polling-based "IDLE watcher" — see warning below)
 
 Background polling runs every 60s and reads `client_mode` fresh on each tick via `read_client_mode(vault_path)`.
+
+> **Naming caveat**: `providers/imap_idle.rs` declares a function `start_idle_watcher` but the implementation is a 30-second polling loop with exponential-backoff reconnect — not real IMAP IDLE. See `docs/known-gaps.md` item 3.
+
+### Inbound provider sync (Gmail incremental example)
+
+```mermaid
+sequenceDiagram
+    participant Timer as 60s tick
+    participant Worker as GmailSyncer
+    participant API as Gmail History API
+    participant DB
+    participant App as React app
+
+    Timer->>Worker: tick
+    Worker->>DB: SELECT history_id FROM accounts
+    Worker->>API: history.list(startHistoryId)
+    API-->>Worker: HistoryRecord[] (added, removed, label changes)
+    loop per record
+        Worker->>API: messages.get(id)
+        API-->>Worker: full message
+        Worker->>DB: upsert_message_from_gmail (single transaction)
+    end
+    Worker->>DB: UPDATE accounts SET history_id = newest
+    Worker->>App: emit("vault:hydrate-needed")
+    App->>App: load_vault_data → re-render
+```
 
 ---
 
@@ -498,6 +536,30 @@ EML files are written inside the DB transaction during sync via `write_eml_file(
 ### Disk → app (FS watcher → mutations)
 
 The `notify` crate watcher (`src-tauri/src/watcher/`) emits `vault:hydrate-needed` events when files change. Expected changes (tagged by the app) are ignored to prevent loops.
+
+```mermaid
+flowchart TB
+    Event["notify Event<br/>(Create/Modify/Remove)"]
+    Ext{".eml file?"}
+    Cookie{"Inside cookie<br/>window (5s)?"}
+    Kind{"EventKind"}
+    Create["ingest_eml<br/>→ INSERT message"]
+    Move["on_eml_moved<br/>→ UPDATE folder_id"]
+    Remove["on_eml_deleted<br/>→ DELETE message"]
+    Drop["Drop event<br/>(self-induced)"]
+    Skip["Ignore<br/>(non-.eml)"]
+
+    Event --> Ext
+    Ext -- no --> Skip
+    Ext -- yes --> Cookie
+    Cookie -- yes --> Drop
+    Cookie -- no --> Kind
+    Kind -- Create --> Create
+    Kind -- "Modify(Name)" --> Move
+    Kind -- Remove --> Remove
+```
+
+Cookies are added to `CookieMap` by `apply_local_first_fs` whenever the app itself triggers a filesystem change. The watcher checks for an entry within a 5-second window before generating a mutation. Without this guard, every app-initiated rename would echo back as a disk-originated event and create a duplicate mutation.
 
 ### Client mode lifecycle
 

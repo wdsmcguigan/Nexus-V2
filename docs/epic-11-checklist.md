@@ -29,9 +29,11 @@
 
 ## IPC Commands (Rust + TypeScript)
 
-- [x] `src-tauri/src/commands.rs` — `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `sync_google_calendar`
+- [x] `src-tauri/src/commands.rs` — `sync_google_calendar`, `create_calendar_event`, `update_calendar_event`, `get_calendar_list`, `search_calendar_events`
 - [x] `src-tauri/src/lib.rs` — all 5 commands registered in `invoke_handler!`
 - [x] `src/storage/tauri.ts` — typed wrappers for all 5 commands; `HydratePayload` extended
+
+> **Correction (post-ship)**: this section originally listed `get_calendar_events` and `delete_calendar_event` as IPC commands. They do **not** exist as IPC. Calendar events are hydrated by `load_vault_data`; deletion goes through the `DELETE_CALENDAR_EVENT` mutation, not a dedicated command. See `docs/ipc-api-reference.md`.
 
 ## TypeScript types
 
