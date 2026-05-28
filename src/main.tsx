@@ -14,6 +14,7 @@ import {
   onNewMessages,
   startWatcher,
   syncGmailNow,
+  refreshAccountPhotos,
 } from "@/storage/tauri";
 import { useWorkspace } from "@/state/workspace";
 
@@ -83,6 +84,16 @@ async function initTauri() {
       syncGmailNow(firstAccount.id).catch((e) =>
         console.warn("Auto-sync failed:", e),
       );
+    }
+
+    // Backfill profile photo + contact photos for any Gmail account missing them.
+    // Fire-and-forget — emits vault:hydrate-needed when done so the UI updates.
+    for (const account of localStore.accounts.values()) {
+      if (account.provider === "gmail" && !account.photoUrl) {
+        refreshAccountPhotos(account.id).catch((e) =>
+          console.warn("Photo refresh failed:", e),
+        );
+      }
     }
 
     // Start filesystem watcher

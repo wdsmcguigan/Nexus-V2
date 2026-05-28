@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
 import { useWorkspace } from "@/state/workspace";
-import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
+import { DEFAULT_SHORTCUTS, effectiveKey, NAV_SEQUENCES, SELECTION_SEQUENCES } from "@/lib/shortcuts";
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -38,9 +38,27 @@ export function ShortcutHelpModal({ open, onClose }: Props) {
     },
     {
       title: "Message actions",
-      items: DEFAULT_SHORTCUTS.map((def) => ({
-        keys: [effectiveKey(def.action, keyBindings) === "#" ? "#" : effectiveKey(def.action, keyBindings).toUpperCase()],
-        label: def.label,
+      items: [
+        ...DEFAULT_SHORTCUTS.map((def) => {
+          const k = effectiveKey(def.action, keyBindings);
+          return { keys: [k === "#" ? "#" : k.toUpperCase()], label: def.label };
+        }),
+        { keys: ["⇧I"], label: "Mark as read" },
+        { keys: ["⇧U"], label: "Mark as unread" },
+      ],
+    },
+    {
+      title: "Go to (G then key)",
+      items: NAV_SEQUENCES.map((s) => ({
+        keys: ["G", s.key.toUpperCase()],
+        label: s.label,
+      })),
+    },
+    {
+      title: "Select (✻ then key)",
+      items: SELECTION_SEQUENCES.map((s) => ({
+        keys: ["✻", s.key.toUpperCase()],
+        label: s.label,
       })),
     },
     {
@@ -67,6 +85,8 @@ export function ShortcutHelpModal({ open, onClose }: Props) {
       items: [
         { keys: ["⌘,"], label: "Open Settings" },
         { keys: ["?"], label: "Show this help" },
+        { keys: ["Z"], label: "Undo last action" },
+        { keys: ["⇧Z"], label: "Redo last undone action" },
       ],
     },
   ];

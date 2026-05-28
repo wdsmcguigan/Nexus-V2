@@ -24,6 +24,7 @@ import { Tag } from "@/components/ui/Tag";
 import { pickPanelLink } from "@/design-system/tokens";
 import type { Message, StarStyle, Label, Status } from "@/data/types";
 import type { Density } from "@/design-system/tokens";
+import { useContactByEmail } from "@/storage/useStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,7 @@ export const EmailRow = React.memo(function EmailRow({
   const height = HEIGHT_BY_DENSITY[density];
 
   const fromColorSeed = pickPanelLink(msg.fromAddr.email);
+  const senderContact = useContactByEmail(msg.fromAddr.email);
   const isRead = msg.flags.read;
   const isStarred = !!msg.star;
 
@@ -205,7 +207,7 @@ export const EmailRow = React.memo(function EmailRow({
       {/* Avatar */}
       {showAvatar && (
         <div className="flex shrink-0 items-start self-start pt-1 pr-2">
-          <Avatar name={msg.fromAddr.name} size={cozy ? 28 : 20} colorSeed={fromColorSeed} />
+          <Avatar name={msg.fromAddr.name} size={cozy ? 28 : 20} colorSeed={fromColorSeed} src={senderContact?.photoUrl} />
         </div>
       )}
 

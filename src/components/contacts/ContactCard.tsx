@@ -12,15 +12,18 @@ import {
   X,
   Plus,
   ExternalLink,
+  Star,
+  Cake,
+  Link2,
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { useContactByEmail, useContactMessageCount } from "@/storage/useStore";
+import { useContactByEmail, useContactMessageCount, useContactMessages } from "@/storage/useStore";
 import { useWorkspace } from "@/state/workspace";
 import { updateContact, upsertContact } from "@/state/mutations";
 import { localStore } from "@/storage/local";
 import { pickPanelLink } from "@/design-system/tokens";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Contact } from "@/data/types";
 
 // ─── Inline editable field ────────────────────────────────────────────────────
@@ -163,6 +166,10 @@ function NoContactCard({
       emails: [email],
       phones: [],
       tags: [],
+      socialProfiles: [],
+      addresses: [],
+      source: "manual",
+      importance: "normal",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -226,7 +233,7 @@ function FoundContactCard({
   if (compact) {
     return (
       <div className="flex items-start gap-3">
-        <Avatar name={contact.name} size={36} colorSeed={colorSeed} />
+        <Avatar name={contact.name} size={36} colorSeed={colorSeed} src={contact.photoUrl} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-body-strong text-text-primary">
             <EditableField
@@ -300,7 +307,7 @@ function FoundContactCard({
     <div className="flex flex-col gap-4 p-4">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <Avatar name={contact.name} size={56} colorSeed={colorSeed} />
+        <Avatar name={contact.name} size={56} colorSeed={colorSeed} src={contact.photoUrl} />
         <div className="min-w-0 flex-1">
           <div className="text-h2 font-bold text-text-primary">
             <EditableField
@@ -421,6 +428,36 @@ function FoundContactCard({
         />
       </FieldSection>
 
+      {/* Birthday */}
+      <FieldSection icon={<Cake size={14} />} label="Birthday">
+        <EditableField
+          value={contact.birthday ?? ""}
+          placeholder="YYYY-MM-DD"
+          onSave={(v) => save({ birthday: v || undefined })}
+        />
+      </FieldSection>
+
+      {/* Social profiles */}
+      {(contact.socialProfiles ?? []).length > 0 && (
+        <FieldSection icon={<Link2 size={14} />} label="Social">
+          <div className="flex flex-col gap-1">
+            {(contact.socialProfiles ?? []).map((sp, i) => (
+              <div key={i} className="flex items-center gap-1 text-small text-text-secondary">
+                <span className="text-text-tertiary capitalize">{sp.platform}:</span>
+                <a
+                  href={sp.username.startsWith("http") ? sp.username : undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="truncate hover:text-accent hover:underline"
+                >
+                  {sp.username}
+                </a>
+              </div>
+            ))}
+          </div>
+        </FieldSection>
+      )}
+
       {/* Tags */}
       <FieldSection icon={<Tag size={14} />} label="Tags">
         <div className="flex flex-wrap gap-1">
@@ -448,6 +485,26 @@ function FoundContactCard({
         </div>
       </FieldSection>
 
+      {/* VIP toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => save({ importance: contact.importance === "vip" ? "normal" : "vip" })}
+          className={cn(
+            "flex items-center gap-1.5 rounded-sm px-2 py-1 text-small transition-colors",
+            contact.importance === "vip"
+              ? "bg-amber-400/20 text-amber-500"
+              : "text-text-tertiary hover:bg-surface-3 hover:text-text-secondary",
+          )}
+        >
+          <Star size={12} className={contact.importance === "vip" ? "fill-amber-500" : ""} />
+          {contact.importance === "vip" ? "VIP contact" : "Mark as VIP"}
+        </button>
+      </div>
+
+      {/* Recent threads */}
+      <RecentThreadsSection contact={contact} />
+
       {/* Notes */}
       <div className="flex flex-col gap-1">
         <div className="text-overline uppercase text-text-tertiary">Notes</div>
@@ -457,6 +514,48 @@ function FoundContactCard({
           onSave={(v) => save({ notes: v || undefined })}
         />
       </div>
+    </div>
+  );
+}
+
+function RecentThreadsSection({ contact }: { contact: Contact }) {
+  const msgCount = useContactMessageCount(contact.id);
+  const recentMsgs = useContactMessages(contact.id, 5);
+  const openContactMessages = useWorkspace((s) => s.openContactMessages);
+  const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
+  const now = React.useMemo(() => new Date(), []);
+
+  if (msgCount === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="text-overline uppercase text-text-tertiary">Recent Threads</div>
+      <div className="space-y-0.5">
+        {recentMsgs.map((msg) => (
+          <button
+            key={msg.id}
+            type="button"
+            onClick={() => setSelectedEmail(msg.id)}
+            className="flex w-full items-baseline gap-2 rounded-xs px-1 py-0.5 text-left hover:bg-surface-2 transition-colors"
+          >
+            <span className="flex-1 truncate text-small text-text-secondary">
+              {msg.subject || "(no subject)"}
+            </span>
+            <span className="shrink-0 text-caption text-text-muted">
+              {formatRelativeTime(new Date(msg.receivedAt), now)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {msgCount > recentMsgs.length && (
+        <button
+          type="button"
+          onClick={() => openContactMessages(contact.id)}
+          className="mt-0.5 self-end text-caption text-text-tertiary hover:text-accent hover:underline transition-colors"
+        >
+          View all {msgCount} →
+        </button>
+      )}
     </div>
   );
 }

@@ -44,6 +44,18 @@ impl VaultDb {
             .context("running EP6 column migrations")?;
         self.run_ep7_migrations()
             .context("running EP7 column migrations")?;
+        self.run_ep8_migrations()
+            .context("running EP8 column migrations")?;
+        self.run_ep9_migrations()
+            .context("running EP9 column migrations")?;
+        self.run_ep10_migrations()
+            .context("running EP10 column migrations")?;
+        self.run_ep11_migrations()
+            .context("running EP11 column migrations")?;
+        self.run_ep12_migrations()
+            .context("running EP12 column migrations")?;
+        self.run_ep13_migrations()
+            .context("running EP13 calendar template migrations")?;
         Ok(())
     }
 
@@ -103,6 +115,83 @@ impl VaultDb {
         self.conn
             .execute_batch(schema::EP7_STAGE4_SQL)
             .context("EP7 stage-4 DDL")?;
+        Ok(())
+    }
+
+    /// Apply EP8 migrations (photo_url on accounts and contacts).
+    fn run_ep8_migrations(&self) -> Result<()> {
+        for &sql in schema::EP8_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply EP9 migrations (CRM fields on contacts; contact_groups, contacts_sync, calendar tables).
+    fn run_ep9_migrations(&self) -> Result<()> {
+        for &sql in schema::EP9_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP9_IDEMPOTENT_SQL)
+            .context("EP9 idempotent DDL")?;
+        Ok(())
+    }
+
+    /// Apply EP10 migrations (calendar html_link, messages ical_data).
+    fn run_ep10_migrations(&self) -> Result<()> {
+        for &sql in schema::EP10_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply EP11 migrations (calendar notes, source_message_id; calendar_events_fts).
+    fn run_ep11_migrations(&self) -> Result<()> {
+        for &sql in schema::EP11_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP11_IDEMPOTENT_SQL)
+            .context("EP11 idempotent DDL")?;
+        let _ = self.conn.execute_batch(
+            "INSERT INTO calendar_events_fts(calendar_events_fts) VALUES('rebuild');",
+        );
+        Ok(())
+    }
+
+    /// Apply EP12 migrations (all remaining Google Calendar API fields).
+    fn run_ep12_migrations(&self) -> Result<()> {
+        for &sql in schema::EP12_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Apply EP13 migrations (calendar event templates table).
+    fn run_ep13_migrations(&self) -> Result<()> {
+        self.conn
+            .execute_batch(schema::EP13_IDEMPOTENT_SQL)
+            .context("EP13 idempotent DDL")?;
         Ok(())
     }
 }

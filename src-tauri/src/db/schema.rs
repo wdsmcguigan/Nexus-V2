@@ -250,6 +250,130 @@ pub const EP7_ALTER_SQL: &[&str] = &[
     "ALTER TABLE accounts ADD COLUMN preferences_json TEXT",
 ];
 
+/// EP8 ALTER TABLE statements — photo_url on accounts and contacts; always_show_images on contacts.
+pub const EP8_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE accounts ADD COLUMN photo_url TEXT",
+    "ALTER TABLE contacts ADD COLUMN photo_url TEXT",
+    "ALTER TABLE contacts ADD COLUMN always_show_images INTEGER NOT NULL DEFAULT 0",
+];
+
+/// EP9 ALTER TABLE statements — CRM fields on contacts.
+pub const EP9_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE contacts ADD COLUMN birthday TEXT",
+    "ALTER TABLE contacts ADD COLUMN social_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE contacts ADD COLUMN addresses_json TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE contacts ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE contacts ADD COLUMN external_id TEXT",
+    "ALTER TABLE contacts ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal'",
+];
+
+/// EP9 idempotent DDL — contact groups, sync state tables, calendar schema reservation.
+pub const EP9_IDEMPOTENT_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS contact_groups (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    color TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contact_groups_vault ON contact_groups(vault_id);
+
+CREATE TABLE IF NOT EXISTS contact_group_members (
+    group_id TEXT NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, contact_id)
+);
+
+CREATE TABLE IF NOT EXISTS contacts_sync (
+    account_id TEXT PRIMARY KEY,
+    sync_token TEXT,
+    last_synced_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS calendar_events (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL DEFAULT 'primary',
+    external_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    location TEXT,
+    start_ts INTEGER NOT NULL,
+    end_ts INTEGER NOT NULL,
+    all_day INTEGER NOT NULL DEFAULT 0,
+    rrule TEXT,
+    status TEXT NOT NULL DEFAULT 'confirmed',
+    organizer_email TEXT,
+    attendees_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_vault ON calendar_events(vault_id);
+CREATE INDEX IF NOT EXISTS idx_calendar_events_range ON calendar_events(vault_id, start_ts, end_ts);
+
+CREATE TABLE IF NOT EXISTS calendar_sync (
+    account_id TEXT PRIMARY KEY,
+    sync_token TEXT,
+    last_synced_at INTEGER
+);
+"#;
+
+/// EP10 column migrations — calendar html_link and message ical_data.
+pub const EP10_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN html_link TEXT",
+    "ALTER TABLE messages ADD COLUMN ical_data TEXT",
+];
+
+/// EP11 column migrations — local notes and source email link on calendar events.
+pub const EP11_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN notes TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN source_message_id TEXT",
+];
+
+/// EP12 column migrations — capture all remaining Google Calendar API fields.
+pub const EP12_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN conference_url TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN color_id TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN ical_uid TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN recurring_event_id TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN creator_email TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN visibility TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN transparency TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN reminders_json TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN attachments_json TEXT",
+];
+
+/// EP13 idempotent DDL — calendar event templates.
+pub const EP13_IDEMPOTENT_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS event_templates (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT,
+    location TEXT,
+    duration_minutes INTEGER NOT NULL DEFAULT 60,
+    default_attendees_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_event_templates_vault ON event_templates(vault_id);
+"#;
+
+/// EP11 idempotent DDL — FTS5 index for calendar event search.
+pub const EP11_IDEMPOTENT_SQL: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(
+    event_id UNINDEXED,
+    title,
+    description,
+    location,
+    organizer_email,
+    content='calendar_events',
+    content_rowid='rowid'
+);
+"#;
+
 /// EP7 (Stage 4) idempotent DDL — vacation responder table.
 pub const EP7_STAGE4_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS vacation_responders (

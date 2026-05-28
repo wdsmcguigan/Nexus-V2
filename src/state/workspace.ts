@@ -51,8 +51,12 @@ export function newPanelId(type: string): string { return `${type}-${++_panelSeq
 
 export type ComposerMode = "reply" | "reply-all" | "forward";
 export interface ComposerContext {
-  mode: ComposerMode;
-  replyToMessage: Message;
+  mode?: ComposerMode;
+  replyToMessage?: Message;
+  /** Pre-fill To: field for new compose (no replyToMessage needed). */
+  prefilledTo?: string[];
+  /** iTIP REPLY ICS string to attach to the outgoing message. */
+  icalReply?: string;
 }
 
 // ─── Default layout capture ───────────────────────────────────────────────────
@@ -181,6 +185,17 @@ interface WorkspaceState {
   // Preferences
   filteredViewBehavior: "replace" | "new-panel";
   setFilteredViewBehavior: (v: "replace" | "new-panel") => void;
+
+  // Calendar panel
+  calendarFocusDate: string;
+  setCalendarFocusDate: (d: string) => void;
+  calendarViewMode: "agenda" | "week" | "month";
+  setCalendarViewMode: (mode: "agenda" | "week" | "month") => void;
+  openCalendarPanel: () => void;
+  eventCreateModalOpen: boolean;
+  eventCreateModalPrefill: { attendees?: string[]; title?: string; date?: string } | null;
+  openEventCreateModal: (prefill?: { attendees?: string[]; title?: string; date?: string }) => void;
+  closeEventCreateModal: () => void;
 
   // Settings panel
   openSettingsPanel: () => void;
@@ -735,6 +750,32 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       });
     }
   },
+
+  calendarFocusDate: new Date().toISOString().slice(0, 10),
+  setCalendarFocusDate: (d) => set({ calendarFocusDate: d }),
+  calendarViewMode: "agenda",
+  setCalendarViewMode: (mode) => set({ calendarViewMode: mode }),
+  openCalendarPanel: () => {
+    const api = getDockviewApi();
+    if (!api) return;
+    const existing = api.panels.find((p) => p.id === "calendar");
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      api.addPanel({
+        id: "calendar",
+        component: "calendar",
+        title: "Calendar",
+        minimumWidth: 480,
+        position: { direction: "right" },
+      });
+    }
+  },
+
+  eventCreateModalOpen: false,
+  eventCreateModalPrefill: null,
+  openEventCreateModal: (prefill) => set({ eventCreateModalOpen: true, eventCreateModalPrefill: prefill ?? null }),
+  closeEventCreateModal: () => set({ eventCreateModalOpen: false, eventCreateModalPrefill: null }),
 
   openSettingsPanel: () => {
     const api = getDockviewApi();

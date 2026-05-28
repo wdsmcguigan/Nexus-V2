@@ -12,9 +12,12 @@
  */
 
 import {
+  type CalendarEvent,
   type Contact,
+  type ContactGroup,
   type CustomFieldDef,
   type CustomFieldValue,
+  type EventTemplate,
   type FlagState,
   type Folder,
   type Label,
@@ -44,6 +47,213 @@ export function currentDeviceId(): string {
   return _deviceId;
 }
 
+// ─── Undo stack ──────────────────────────────────────────────────────────────
+
+interface UndoEntry {
+  /** The original mutation(s) — replayed to redo. */
+  forwardSteps: Array<{ kind: MutationKind; payload: unknown }>;
+  /** The inverse mutation(s) — replayed to undo. */
+  reverseSteps: Array<{ kind: MutationKind; payload: unknown }>;
+  description: string;
+  /** False for actions that are visible in history but cannot be reversed (e.g. sent email). */
+  canUndo: boolean;
+}
+
+const _undoStack: UndoEntry[] = [];
+const _redoStack: UndoEntry[] = [];
+const UNDO_MAX = 20;
+
+// When true, recordMutation skips stack push/clear (used during undo/redo replay).
+let _skipStack = false;
+
+/** Undo the last undoable mutation. Returns a human-readable description, or null if nothing can be undone. */
+export function undoLastMutation(store: LocalStore = _defaultStore): string | null {
+  // A non-undoable entry at the top of the stack acts as a barrier — z does nothing.
+  const top = _undoStack[_undoStack.length - 1];
+  if (!top?.canUndo) return null;
+  const entry = _undoStack.pop()!;
+  _redoStack.push(entry);
+  if (_redoStack.length > UNDO_MAX) _redoStack.shift();
+  _skipStack = true;
+  for (const step of entry.reverseSteps) recordMutation(step.kind, step.payload, store);
+  _skipStack = false;
+  return entry.description;
+}
+
+/** Redo the last undone mutation. Returns a human-readable description, or null if nothing to redo. */
+export function redoLastMutation(store: LocalStore = _defaultStore): string | null {
+  const entry = _redoStack.pop();
+  if (!entry) return null;
+  _undoStack.push(entry);
+  if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+  _skipStack = true;
+  for (const step of entry.forwardSteps) recordMutation(step.kind, step.payload, store);
+  _skipStack = false;
+  return entry.description;
+}
+
+export interface HistoryEntry {
+  description: string;
+  canUndo: boolean;
+  /** True when a non-undoable barrier exists between this item and "Now", making it unreachable. */
+  blocked: boolean;
+}
+
+/** Returns the undo history with the most-recent action first. */
+export function getUndoHistory(): HistoryEntry[] {
+  const items = [..._undoStack].reverse();
+  let barrier = false;
+  return items.map((e) => {
+    const entry: HistoryEntry = { description: e.description, canUndo: e.canUndo, blocked: barrier };
+    if (!e.canUndo) barrier = true;
+    return entry;
+  });
+}
+
+/** Returns the redo history with the next-to-redo action first. */
+export function getRedoHistory(): HistoryEntry[] {
+  return [..._redoStack].reverse().map((e) => ({ description: e.description, canUndo: e.canUndo, blocked: false }));
+}
+
+/** Entries for actions that appear in history but cannot be reversed. */
+function _buildNonUndoableEntry(kind: MutationKind, payload: unknown): UndoEntry | null {
+  const forward = [{ kind, payload }];
+  switch (kind) {
+    case "SEND_MESSAGE":
+      return { forwardSteps: forward, reverseSteps: [], description: "Send email", canUndo: false };
+    case "DELETE_MESSAGE":
+      return { forwardSteps: forward, reverseSteps: [], description: "Delete message", canUndo: false };
+    default:
+      return null;
+  }
+}
+
+function _buildReverseEntry(
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore,
+): UndoEntry | null {
+  const inner = _buildReverseEntryInner(kind, payload, store);
+  return inner ? { ...inner, canUndo: true } : null;
+}
+
+function _buildReverseEntryInner(
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore,
+): Omit<UndoEntry, "canUndo"> | null {
+  type Step = { kind: MutationKind; payload: unknown };
+  const forward: Step[] = [{ kind, payload }];
+
+  switch (kind) {
+    case "ADD_LABEL":
+      return { forwardSteps: forward, reverseSteps: [{ kind: "REMOVE_LABEL", payload }], description: "Add label" };
+
+    case "REMOVE_LABEL":
+      return { forwardSteps: forward, reverseSteps: [{ kind: "ADD_LABEL", payload }], description: "Remove label" };
+
+    case "READ": {
+      const { messageId } = payload as { messageId: string };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "UNREAD", payload: { messageId } }], description: "Mark read" };
+    }
+
+    case "UNREAD": {
+      const { messageId } = payload as { messageId: string };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "READ", payload: { messageId } }], description: "Mark unread" };
+    }
+
+    case "ARCHIVE": {
+      const { messageId } = payload as { messageId: string };
+      const inboxId = _systemLabelId(store, "inbox");
+      const archiveId = _systemLabelId(store, "archive");
+      if (!inboxId) return null;
+      const reverseSteps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (archiveId) reverseSteps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: archiveId } });
+      return { forwardSteps: forward, reverseSteps, description: "Archive" };
+    }
+
+    case "TRASH": {
+      const { messageId } = payload as { messageId: string };
+      const inboxId = _systemLabelId(store, "inbox");
+      const trashId = _systemLabelId(store, "trash");
+      if (!inboxId) return null;
+      const reverseSteps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (trashId) reverseSteps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: trashId } });
+      return { forwardSteps: forward, reverseSteps, description: "Move to trash" };
+    }
+
+    case "SET_STAR": {
+      const { messageId } = payload as { messageId: string; star: StarStyle };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "CLEAR_STAR", payload: { messageId } }], description: "Star" };
+    }
+
+    case "CLEAR_STAR": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.star) return null;
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_STAR", payload: { messageId, star: msg.star } }], description: "Unstar" };
+    }
+
+    case "SET_PINNED": {
+      const { messageId, pinned } = payload as { messageId: string; pinned: boolean };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PINNED", payload: { messageId, pinned: !pinned } }], description: pinned ? "Pin" : "Unpin" };
+    }
+
+    case "SET_MUTED": {
+      const { messageId, muted } = payload as { messageId: string; muted: boolean };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_MUTED", payload: { messageId, muted: !muted } }], description: muted ? "Mute" : "Unmute" };
+    }
+
+    case "SET_NOTE": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_NOTE", payload: { messageId, notes: msg?.notes ?? null } }], description: "Set note" };
+    }
+
+    case "MOVE_TO_FOLDER": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.folderId) return null;
+      return { forwardSteps: forward, reverseSteps: [{ kind: "MOVE_TO_FOLDER", payload: { messageId, folderId: msg.folderId } }], description: "Move to folder" };
+    }
+
+    case "SET_STATUS": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      const reverseSteps: Step[] = msg?.statusId
+        ? [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }]
+        : [{ kind: "CLEAR_STATUS", payload: { messageId } }];
+      return { forwardSteps: forward, reverseSteps, description: "Set status" };
+    }
+
+    case "CLEAR_STATUS": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.statusId) return null;
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Clear status" };
+    }
+
+    case "SET_PRIORITY": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      const reverseSteps: Step[] = msg?.priority
+        ? [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }]
+        : [{ kind: "CLEAR_PRIORITY", payload: { messageId } }];
+      return { forwardSteps: forward, reverseSteps, description: "Set priority" };
+    }
+
+    case "CLEAR_PRIORITY": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.priority) return null;
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
+    }
+
+    default:
+      return null;
+  }
+}
+
 // ─── Core record function ────────────────────────────────────────────────────
 
 export function recordMutation(
@@ -61,8 +271,21 @@ export function recordMutation(
     kind,
     payload,
   };
+  // Capture reverse entry before applyMutation modifies the store.
+  const undoEntry = _skipStack
+    ? null
+    : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
+
   store.appendMutation(mutation);
   applyMutation(mutation, store);
+
+  if (!_skipStack) {
+    if (undoEntry) {
+      _undoStack.push(undoEntry);
+      if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    }
+    _redoStack.length = 0;
+  }
 
   // Fire-and-forget persistence to SQLite in Tauri mode
   if (isTauri()) {
@@ -277,12 +500,24 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
     // ── Star ─────────────────────────────────────────────────────
     case "SET_STAR": {
       const { messageId, star } = m.payload as { messageId: string; star: StarStyle };
-      _updateMessage(store, messageId, { star });
+      const msg = store.messages.get(messageId);
+      if (!msg) break;
+      const starredLabel = Array.from(store.labels.values()).find((l) => l.systemKind === "starred");
+      const labelIds = starredLabel && !msg.labelIds.includes(starredLabel.id)
+        ? [...msg.labelIds, starredLabel.id]
+        : msg.labelIds;
+      _updateMessage(store, messageId, { star, labelIds });
       break;
     }
     case "CLEAR_STAR": {
       const { messageId } = m.payload as { messageId: string };
-      _updateMessage(store, messageId, { star: null });
+      const msg = store.messages.get(messageId);
+      if (!msg) break;
+      const starredLabel = Array.from(store.labels.values()).find((l) => l.systemKind === "starred");
+      const labelIds = starredLabel
+        ? msg.labelIds.filter((l) => l !== starredLabel.id)
+        : msg.labelIds;
+      _updateMessage(store, messageId, { star: null, labelIds });
       break;
     }
 
@@ -481,6 +716,27 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.deleteContact(contactId);
       break;
     }
+    case "CREATE_CONTACT_GROUP":
+    case "UPDATE_CONTACT_GROUP": {
+      const { group } = m.payload as { group: ContactGroup };
+      store.putContactGroup(group);
+      break;
+    }
+    case "DELETE_CONTACT_GROUP": {
+      const { groupId } = m.payload as { groupId: string };
+      store.deleteContactGroup(groupId);
+      break;
+    }
+    case "ADD_CONTACT_TO_GROUP": {
+      const { groupId, contactId } = m.payload as { groupId: string; contactId: string };
+      store.addContactToGroup(groupId, contactId);
+      break;
+    }
+    case "REMOVE_CONTACT_FROM_GROUP": {
+      const { groupId, contactId } = m.payload as { groupId: string; contactId: string };
+      store.removeContactFromGroup(groupId, contactId);
+      break;
+    }
 
     // ── Rule ops ─────────────────────────────────────────────────
     case "CREATE_RULE":
@@ -505,6 +761,40 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
     case "DELETE_TEMPLATE": {
       const { templateId } = m.payload as { templateId: string };
       store.deleteTemplate(templateId);
+      break;
+    }
+
+    // ── Calendar ops ──────────────────────────────────────────────
+    case "UPSERT_CALENDAR_EVENT": {
+      const event = m.payload as CalendarEvent;
+      store.putCalendarEvent(event);
+      break;
+    }
+    case "DELETE_CALENDAR_EVENT": {
+      const { eventId } = m.payload as { eventId: string };
+      store.deleteCalendarEvent(eventId);
+      break;
+    }
+    case "UPDATE_CALENDAR_EVENT_NOTES": {
+      const { id, notes } = m.payload as { id: string; notes: string | undefined };
+      const existing = store.calendarEvents.get(id);
+      if (existing) store.putCalendarEvent({ ...existing, notes });
+      break;
+    }
+    case "UPDATE_CALENDAR_EVENT": {
+      const { id, startTs, endTs } = m.payload as { id: string; startTs: number; endTs: number };
+      const existing = store.calendarEvents.get(id);
+      if (existing) store.putCalendarEvent({ ...existing, startTs, endTs, updatedAt: Date.now() });
+      break;
+    }
+    case "SAVE_EVENT_TEMPLATE": {
+      const tmpl = m.payload as EventTemplate;
+      store.putEventTemplate(tmpl);
+      break;
+    }
+    case "DELETE_EVENT_TEMPLATE": {
+      const { templateId } = m.payload as { templateId: string };
+      store.deleteEventTemplate(templateId);
       break;
     }
   }
@@ -627,6 +917,16 @@ export const unarchiveMessage = (s: LocalStore, messageId: string) => {
 };
 export const trashMessage = (s: LocalStore, messageId: string) =>
   recordMutation("TRASH", { messageId }, s);
+export const markAsSpam = (s: LocalStore, messageId: string) => {
+  const msg = s.messages.get(messageId);
+  if (!msg) return;
+  const spamId = _spamLabelId(s);
+  const inboxId = _systemLabelId(s, "inbox");
+  if (spamId && !msg.labelIds.includes(spamId))
+    recordMutation("ADD_LABEL", { messageId, labelId: spamId }, s);
+  if (inboxId && msg.labelIds.includes(inboxId))
+    recordMutation("REMOVE_LABEL", { messageId, labelId: inboxId }, s);
+};
 export const snoozeMessage = (s: LocalStore, messageId: string, until: number) =>
   recordMutation("SNOOZE", { messageId, until }, s);
 export const deleteMessage = (s: LocalStore, messageId: string) =>
@@ -655,6 +955,20 @@ function _mergedFlags(
 function _systemLabelId(store: LocalStore, systemKind: string): string | null {
   for (const label of store.labels.values()) {
     if (label.kind === "system" && label.systemKind === systemKind) return label.id;
+  }
+  return null;
+}
+
+// Spam has no stable systemKind: fixtures tag it "important", Gmail sync leaves it
+// null. Both keep kind "system" and either an id of "spam"/"{vault}-spam" or the
+// name "Spam", so match on those instead.
+function _spamLabelId(store: LocalStore): string | null {
+  for (const label of store.labels.values()) {
+    if (
+      label.kind === "system" &&
+      (label.id === "spam" || label.id.endsWith("-spam") || label.name.toLowerCase() === "spam")
+    )
+      return label.id;
   }
   return null;
 }
@@ -699,7 +1013,7 @@ export function upsertContact(
 
 export function updateContact(
   id: string,
-  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags" | "alwaysShowImages">>,
+  patch: Partial<Pick<Contact, "name" | "emails" | "phones" | "company" | "title" | "website" | "location" | "notes" | "tags" | "alwaysShowImages" | "birthday" | "socialProfiles" | "addresses" | "importance">>,
   store: LocalStore = _defaultStore,
 ): void {
   const existing = store.contacts.get(id);
@@ -734,4 +1048,23 @@ export function saveTemplateMutation(template: Template, store: LocalStore = _de
 
 export function deleteTemplateMutation(templateId: string, store: LocalStore = _defaultStore): void {
   recordMutation("DELETE_TEMPLATE", { templateId }, store);
+}
+
+// ── Event template ops ────────────────────────────────────────────────────────
+
+export function saveEventTemplateMutation(tmpl: EventTemplate, store: LocalStore = _defaultStore): void {
+  recordMutation("SAVE_EVENT_TEMPLATE", tmpl, store);
+}
+
+export function deleteEventTemplateMutation(templateId: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_EVENT_TEMPLATE", { templateId }, store);
+}
+
+export function rescheduleCalendarEvent(
+  store: LocalStore,
+  eventId: string,
+  newStartTs: number,
+  newEndTs: number,
+): void {
+  recordMutation("UPDATE_CALENDAR_EVENT", { id: eventId, startTs: newStartTs, endTs: newEndTs }, store);
 }

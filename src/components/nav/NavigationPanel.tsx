@@ -1,5 +1,6 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
+import * as RCMenu from "@radix-ui/react-context-menu";
 import {
   Inbox,
   Star,
@@ -17,11 +18,14 @@ import {
   Trash,
   Palette,
   Bookmark,
+  Check,
   type LucideIcon,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { ColorPicker } from "@/components/ui/ColorPicker";
 import { useWorkspace } from "@/state/workspace";
@@ -36,10 +40,12 @@ import {
   useFolderCount,
   useFolderUnreadCount,
   useSavedViews,
+  useAllTags,
 } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
+import type { PanelLink } from "@/design-system/tokens";
 import type { Folder as FolderType, Label as LabelType } from "@/data/types";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -63,12 +69,6 @@ const SYNC_DOT_COLOR: Record<string, string> = {
   pending: "bg-warning",
   error: "bg-danger",
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function labelDotStyle(color: number): React.CSSProperties {
-  return { backgroundColor: `var(--color-link-${color})` };
-}
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
 
@@ -436,19 +436,14 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
             ) : (
               <span className="size-4 shrink-0" />
             )}
-            <span
-              className="size-2 shrink-0 rounded-full"
-              style={labelDotStyle(label.color)}
-              aria-hidden
-            />
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-body",
-                unread > 0 && !active && "font-semibold text-text-primary",
-              )}
+            <Tag
+              color={label.color as PanelLink}
+              size="sm"
+              selected={active}
             >
               {displayName}
-            </span>
+            </Tag>
+            <span className="flex-1" />
             {unread > 0 ? (
               <span className="rounded-xs bg-surface-3 px-1 py-px font-mono text-mono-xs font-semibold text-text-secondary">
                 {unread}
@@ -647,6 +642,76 @@ function FolderTreeNode({
   );
 }
 
+// ─── Tag nav row ──────────────────────────────────────────────────────────────
+
+function TagNavRow({ tag }: { tag: string }) {
+  const folderId = useWorkspace((s) => s.selectedFolderId);
+  const setFolder = useWorkspace((s) => s.setSelectedFolder);
+  const tagId = `tag:${tag}`;
+  const active = folderId === tagId;
+  const count = localStore.messagesByTag.get(tag)?.size ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => setFolder(tagId)}
+      className={cn(
+        "group/row relative flex h-7 w-full items-center gap-2 rounded-sm px-2 text-left",
+        "transition-colors duration-fast ease-out",
+        "focus-visible:outline-none focus-visible:shadow-focus",
+        active
+          ? "bg-accent-soft text-text-primary"
+          : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+      )}
+    >
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-xs bg-accent"
+        />
+      )}
+      <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">#</span>
+      <span className="flex-1 truncate text-body">{tag}</span>
+      {count > 0 && (
+        <span className="font-mono text-mono-xs text-text-tertiary opacity-dim">{count}</span>
+      )}
+    </button>
+  );
+}
+
+// ─── Labels & Tags context menu ───────────────────────────────────────────────
+
+type LabelSort = "manual" | "alpha-asc" | "alpha-desc" | "count-desc" | "recently-created" | "recently-used";
+type TagSort   = "count-desc" | "alpha-asc" | "alpha-desc" | "recently-used";
+
+const LABEL_SORT_LABELS: Record<LabelSort, string> = {
+  "manual":           "Manual order",
+  "alpha-asc":        "A → Z",
+  "alpha-desc":       "Z → A",
+  "count-desc":       "Most used",
+  "recently-created": "Recently created",
+  "recently-used":    "Recently used",
+};
+const TAG_SORT_LABELS: Record<TagSort, string> = {
+  "count-desc":    "Most used",
+  "alpha-asc":     "A → Z",
+  "alpha-desc":    "Z → A",
+  "recently-used": "Recently used",
+};
+
+const cmContent = cn(
+  "z-50 min-w-[200px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-l3",
+  "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+);
+const cmItem = cn(
+  "relative flex h-7 cursor-default select-none items-center gap-2 rounded-xs px-2 pl-6 text-body outline-none",
+  "text-text-secondary data-[highlighted]:bg-surface-3 data-[highlighted]:text-text-primary",
+  "transition-colors duration-fast",
+);
+const cmLabel = "px-2 py-1 text-overline uppercase text-text-muted";
+const cmSeparator = "my-1 h-px bg-border-subtle";
+const cmSubTrigger = cn(cmItem, "data-[state=open]:bg-surface-3 data-[state=open]:text-text-primary");
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function NavigationPanel() {
@@ -661,8 +726,56 @@ export function NavigationPanel() {
   const renameSavedView = useWorkspace((s) => s.renameSavedView);
   const selectedSavedViewId = useWorkspace((s) => s.selectedSavedViewId);
 
+  const allTags = useAllTags();
+
+  // Labels & Tags display preferences
+  const [showLabels, setShowLabels] = React.useState(true);
+  const [showTags, setShowTags] = React.useState(true);
+  const [labelSort, setLabelSort] = React.useState<LabelSort>("manual");
+  const [tagSort, setTagSort] = React.useState<TagSort>("count-desc");
+
+  const sortedRootLabels = React.useMemo(() => {
+    if (!showLabels) return [];
+    if (labelSort === "alpha-asc")  return [...rootUserLabels].sort((a, b) => a.name.localeCompare(b.name));
+    if (labelSort === "alpha-desc") return [...rootUserLabels].sort((a, b) => b.name.localeCompare(a.name));
+    if (labelSort === "count-desc") {
+      const counts = new Map<string, number>();
+      for (const msg of localStore.messages.values()) {
+        for (const lid of msg.labelIds) counts.set(lid, (counts.get(lid) ?? 0) + 1);
+      }
+      return [...rootUserLabels].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0));
+    }
+    if (labelSort === "recently-created") {
+      // IDs are generated as `lbl-{Date.now()}-{random}` so the timestamp is in segment [1]
+      const tsOf = (id: string) => parseInt(id.split("-")[1] ?? "0", 10) || 0;
+      return [...rootUserLabels].sort((a, b) => tsOf(b.id) - tsOf(a.id));
+    }
+    if (labelSort === "recently-used") {
+      const lastUsed = new Map<string, number>();
+      for (const msg of localStore.messages.values()) {
+        for (const lid of msg.labelIds) {
+          if (msg.receivedAt > (lastUsed.get(lid) ?? 0)) lastUsed.set(lid, msg.receivedAt);
+        }
+      }
+      return [...rootUserLabels].sort((a, b) => (lastUsed.get(b.id) ?? 0) - (lastUsed.get(a.id) ?? 0));
+    }
+    return rootUserLabels;
+  }, [rootUserLabels, labelSort, showLabels]);
+
+  const sortedTags = React.useMemo(() => {
+    if (!showTags) return [];
+    if (tagSort === "alpha-asc")     return [...allTags].sort((a, b) => a.localeCompare(b));
+    if (tagSort === "alpha-desc")    return [...allTags].sort((a, b) => b.localeCompare(a));
+    if (tagSort === "recently-used") {
+      return [...allTags].sort((a, b) =>
+        (localStore.tagUsage.get(b)?.lastUsedAt ?? 0) - (localStore.tagUsage.get(a)?.lastUsedAt ?? 0)
+      );
+    }
+    return allTags; // count-desc — already sorted by useAllTags()
+  }, [allTags, tagSort, showTags]);
+
   const [foldersExpanded, setFoldersExpanded] = React.useState(true);
-  const [labelsExpanded, setLabelsExpanded] = React.useState(true);
+  const [labelTagsExpanded, setLabelTagsExpanded] = React.useState(true);
   const [viewsExpanded, setViewsExpanded] = React.useState(true);
   const [creatingFolder, setCreatingFolder] = React.useState(false);
   const [creatingLabel, setCreatingLabel] = React.useState(false);
@@ -705,12 +818,15 @@ export function NavigationPanel() {
                 "transition-colors duration-fast hover:bg-surface-2",
               )}
             >
-              <div
-                className={cn(
-                  "size-2 shrink-0 rounded-full",
-                  SYNC_DOT_COLOR[a.syncStatus] ?? "bg-success",
-                )}
-              />
+              <div className="relative shrink-0">
+                <Avatar name={a.email} size={20} colorSeed={8} src={a.photoUrl} />
+                <div
+                  className={cn(
+                    "absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-surface-1",
+                    SYNC_DOT_COLOR[a.syncStatus] ?? "bg-success",
+                  )}
+                />
+              </div>
               <span className="min-w-0 flex-1 truncate font-mono text-mono-sm text-text-secondary">
                 {a.email}
               </span>
@@ -823,35 +939,128 @@ export function NavigationPanel() {
           )}
         </div>
 
-        {/* NAV-LABEL-LIST */}
+        {/* NAV-LABEL-TAG-LIST */}
         <div className="p-1">
-          <div className="flex items-center px-2 py-1">
-            <button
-              type="button"
-              className="flex flex-1 items-center gap-1 text-overline uppercase text-text-tertiary hover:text-text-secondary"
-              onClick={() => setLabelsExpanded((v) => !v)}
-            >
-              {labelsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-              Labels
-            </button>
-            <Tooltip label="New label">
-              <Button
-                variant="ghost"
-                size="xs"
-                iconOnly
-                aria-label="New label"
-                onClick={() => {
-                  setLabelsExpanded(true);
-                  setCreatingLabel(true);
-                }}
-              >
-                <Plus />
-              </Button>
-            </Tooltip>
-          </div>
-          {labelsExpanded && (
+          <RCMenu.Root>
+            <RCMenu.Trigger asChild>
+              <div className="flex items-center px-2 py-1">
+                <button
+                  type="button"
+                  className="flex flex-1 items-center gap-1 text-overline uppercase text-text-tertiary hover:text-text-secondary"
+                  onClick={() => setLabelTagsExpanded((v) => !v)}
+                >
+                  {labelTagsExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                  Labels &amp; Tags
+                  {(!showLabels || !showTags) && (
+                    <span className="ml-1 size-1.5 rounded-full bg-accent" title="Some items hidden" />
+                  )}
+                </button>
+                <Tooltip label="New label">
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    iconOnly
+                    aria-label="New label"
+                    onClick={() => {
+                      setLabelTagsExpanded(true);
+                      setCreatingLabel(true);
+                    }}
+                  >
+                    <Plus />
+                  </Button>
+                </Tooltip>
+              </div>
+            </RCMenu.Trigger>
+
+            <RCMenu.Portal>
+              <RCMenu.Content className={cmContent}>
+                {/* Visibility toggles */}
+                <div className={cmLabel}>Show</div>
+                <RCMenu.CheckboxItem
+                  checked={showLabels}
+                  onCheckedChange={(v) => setShowLabels(!!v)}
+                  className={cmItem}
+                >
+                  <RCMenu.ItemIndicator className="absolute left-2">
+                    <Check size={11} />
+                  </RCMenu.ItemIndicator>
+                  Labels
+                </RCMenu.CheckboxItem>
+                <RCMenu.CheckboxItem
+                  checked={showTags}
+                  onCheckedChange={(v) => setShowTags(!!v)}
+                  className={cmItem}
+                >
+                  <RCMenu.ItemIndicator className="absolute left-2">
+                    <Check size={11} />
+                  </RCMenu.ItemIndicator>
+                  Tags
+                </RCMenu.CheckboxItem>
+
+                <div className={cmSeparator} />
+
+                {/* Label sort submenu */}
+                <RCMenu.Sub>
+                  <RCMenu.SubTrigger className={cmSubTrigger}>
+                    <span className="flex-1">Label order</span>
+                    <span className="ml-auto flex items-center gap-1.5 text-text-muted">
+                      <span className="font-mono text-mono-xs">{LABEL_SORT_LABELS[labelSort]}</span>
+                      <ChevronRight size={11} />
+                    </span>
+                  </RCMenu.SubTrigger>
+                  <RCMenu.Portal>
+                    <RCMenu.SubContent className={cmContent}>
+                      <RCMenu.RadioGroup
+                        value={labelSort}
+                        onValueChange={(v) => setLabelSort(v as LabelSort)}
+                      >
+                        {(["manual", "alpha-asc", "alpha-desc", "count-desc", "recently-created", "recently-used"] as LabelSort[]).map((val) => (
+                          <RCMenu.RadioItem key={val} value={val} className={cmItem}>
+                            <RCMenu.ItemIndicator className="absolute left-2">
+                              <Check size={11} />
+                            </RCMenu.ItemIndicator>
+                            {LABEL_SORT_LABELS[val]}
+                          </RCMenu.RadioItem>
+                        ))}
+                      </RCMenu.RadioGroup>
+                    </RCMenu.SubContent>
+                  </RCMenu.Portal>
+                </RCMenu.Sub>
+
+                {/* Tag sort submenu */}
+                <RCMenu.Sub>
+                  <RCMenu.SubTrigger className={cmSubTrigger}>
+                    <span className="flex-1">Tag order</span>
+                    <span className="ml-auto flex items-center gap-1.5 text-text-muted">
+                      <span className="font-mono text-mono-xs">{TAG_SORT_LABELS[tagSort]}</span>
+                      <ChevronRight size={11} />
+                    </span>
+                  </RCMenu.SubTrigger>
+                  <RCMenu.Portal>
+                    <RCMenu.SubContent className={cmContent}>
+                      <RCMenu.RadioGroup
+                        value={tagSort}
+                        onValueChange={(v) => setTagSort(v as TagSort)}
+                      >
+                        {(["count-desc", "alpha-asc", "alpha-desc", "recently-used"] as TagSort[]).map((val) => (
+                          <RCMenu.RadioItem key={val} value={val} className={cmItem}>
+                            <RCMenu.ItemIndicator className="absolute left-2">
+                              <Check size={11} />
+                            </RCMenu.ItemIndicator>
+                            {TAG_SORT_LABELS[val]}
+                          </RCMenu.RadioItem>
+                        ))}
+                      </RCMenu.RadioGroup>
+                    </RCMenu.SubContent>
+                  </RCMenu.Portal>
+                </RCMenu.Sub>
+              </RCMenu.Content>
+            </RCMenu.Portal>
+          </RCMenu.Root>
+
+          {labelTagsExpanded && (
             <>
-              {rootUserLabels.map((label) => (
+              {showLabels && sortedRootLabels.map((label) => (
                 <LabelTreeNode key={label.id} label={label} depth={0} />
               ))}
               {creatingLabel && (
@@ -869,6 +1078,13 @@ export function NavigationPanel() {
                   }}
                   onCancel={() => setCreatingLabel(false)}
                 />
+              )}
+              {showTags && sortedTags.length > 0 && (
+                <div className={cn(showLabels && sortedRootLabels.length > 0 && "border-t border-border-subtle mt-1 pt-1")}>
+                  {sortedTags.map((tag) => (
+                    <TagNavRow key={tag} tag={tag} />
+                  ))}
+                </div>
               )}
             </>
           )}

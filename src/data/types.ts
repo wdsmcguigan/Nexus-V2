@@ -24,6 +24,7 @@ export interface Account {
   provider: "gmail" | "jmap" | "imap";
   /** Sync state reflected on NAV-ACCOUNT-DOT. */
   syncStatus: "idle" | "syncing" | "pending" | "error";
+  photoUrl?: string;
 }
 
 // ─── EP6 — Multi-Provider Types ──────────────────────────────────────────────
@@ -88,9 +89,25 @@ export interface Contact {
   location?: string;
   notes?: string;
   tags: string[];
+  photoUrl?: string;
   alwaysShowImages?: boolean;
+  birthday?: string; // ISO "YYYY-MM-DD" or "--MM-DD" (no year)
+  socialProfiles: Array<{ platform: string; username: string }>;
+  addresses: Array<{ label: string; street: string; city: string; state: string; country: string; zip: string }>;
+  source: "google" | "apple" | "manual";
+  externalId?: string;
+  importance: "vip" | "normal";
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ContactGroup {
+  id: string;
+  vaultId: string;
+  name: string;
+  color?: string;
+  position: number;
+  createdAt: number;
 }
 
 // ─── FLD — Folder ────────────────────────────────────────────────────────────
@@ -253,7 +270,7 @@ export interface MessageFlags {
 export interface AttachmentRef {
   name: string;
   size: number;
-  type: "pdf" | "image" | "doc" | "archive" | "other";
+  type: "pdf" | "image" | "doc" | "archive" | "calendar" | "other";
   /** Hash for deduplication. */
   hash?: string;
   /** Provider-specific attachment ID (e.g. Gmail part ID for downloading). */
@@ -321,6 +338,64 @@ export interface Message {
   attachmentRefs: AttachmentRef[];
   /** Parsed List-Unsubscribe header JSON: { link?: string; post?: string } */
   listUnsubscribeJson?: string;
+  /** Raw ICS text from a text/calendar MIME part or .ics attachment. */
+  icalData?: string;
+}
+
+// ─── CAL — Calendar events ───────────────────────────────────────────────────
+
+export interface CalendarAttendee {
+  email: string;
+  name?: string;
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction";
+  self?: boolean;
+  organizer?: boolean;
+}
+
+export interface CalendarAttachment {
+  fileUrl: string;
+  title: string;
+  mimeType: string;
+  iconLink?: string;
+  fileId?: string;
+}
+
+export interface CalendarReminder {
+  method: "email" | "popup";
+  minutes: number;
+}
+
+export interface CalendarEvent {
+  id: string;
+  vaultId: string;
+  accountId: string;
+  calendarId: string;
+  externalId?: string;
+  title: string;
+  description?: string;
+  location?: string;
+  startTs: number;
+  endTs: number;
+  allDay: boolean;
+  rrule?: string;
+  status: "confirmed" | "tentative" | "cancelled";
+  organizerEmail?: string;
+  attendees: CalendarAttendee[];
+  htmlLink?: string;
+  notes?: string;
+  sourceMessageId?: string;
+  // EP12 — full Google Calendar API field capture
+  conferenceUrl?: string;
+  colorId?: string;
+  iCalUID?: string;
+  recurringEventId?: string;
+  creatorEmail?: string;
+  visibility?: "default" | "public" | "private" | "confidential";
+  transparency?: "opaque" | "transparent";
+  reminders?: CalendarReminder[];
+  attachments?: CalendarAttachment[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ─── VW-SAVED — Saved view ───────────────────────────────────────────────────
@@ -403,6 +478,11 @@ export type MutationKind =
   | "UPSERT_CONTACT"
   | "UPDATE_CONTACT"
   | "DELETE_CONTACT"
+  | "CREATE_CONTACT_GROUP"
+  | "UPDATE_CONTACT_GROUP"
+  | "DELETE_CONTACT_GROUP"
+  | "ADD_CONTACT_TO_GROUP"
+  | "REMOVE_CONTACT_FROM_GROUP"
   // Rule ops (EP-7)
   | "CREATE_RULE"
   | "UPDATE_RULE"
@@ -411,7 +491,15 @@ export type MutationKind =
   // Template ops (EP-7)
   | "CREATE_TEMPLATE"
   | "UPDATE_TEMPLATE"
-  | "DELETE_TEMPLATE";
+  | "DELETE_TEMPLATE"
+  // Calendar ops (EP-10)
+  | "UPSERT_CALENDAR_EVENT"
+  | "DELETE_CALENDAR_EVENT"
+  | "UPDATE_CALENDAR_EVENT_NOTES"
+  | "UPDATE_CALENDAR_EVENT"
+  // Event template ops (EP-13)
+  | "SAVE_EVENT_TEMPLATE"
+  | "DELETE_EVENT_TEMPLATE";
 
 export interface Mutation {
   id: string;
@@ -520,5 +608,20 @@ export interface Template {
   name: string;
   subject: string;
   bodyHtml: string;
+  createdAt: number;
+}
+
+// ─── EP-13: Calendar Event Templates ─────────────────────────────────────────
+
+export interface EventTemplate {
+  id: string;
+  vaultId: string;
+  name: string;
+  title: string;
+  description?: string;
+  location?: string;
+  /** Duration in minutes — auto-computes endTs when creating from template. */
+  durationMinutes: number;
+  defaultAttendees: string[];
   createdAt: number;
 }

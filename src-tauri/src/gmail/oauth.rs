@@ -10,7 +10,9 @@ const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const SCOPES: &str = "https://www.googleapis.com/auth/gmail.modify \
                        https://www.googleapis.com/auth/userinfo.email \
-                       https://www.googleapis.com/auth/userinfo.profile";
+                       https://www.googleapis.com/auth/userinfo.profile \
+                       https://www.googleapis.com/auth/contacts.readonly \
+                       https://www.googleapis.com/auth/calendar";
 
 pub struct GmailOAuth {
     client_id: String,
@@ -23,6 +25,7 @@ pub struct TokenResponse {
     pub refresh_token: Option<String>,
     pub expires_in: i64,
     pub email: String,
+    pub photo_url: Option<String>,
 }
 
 impl GmailOAuth {
@@ -84,14 +87,14 @@ impl GmailOAuth {
         let refresh_token = json["refresh_token"].as_str().map(str::to_string);
         let expires_in = json["expires_in"].as_i64().unwrap_or(3600);
 
-        // Fetch the user's email via userinfo
-        let email = fetch_email(&client, &access_token).await?;
+        let (email, photo_url) = fetch_userinfo(&client, &access_token).await?;
 
         Ok(TokenResponse {
             access_token,
             refresh_token,
             expires_in,
             email,
+            photo_url,
         })
     }
 
@@ -163,7 +166,7 @@ async fn listen_for_code(listener: TcpListener, expected_state: &str) -> Result<
         })
 }
 
-async fn fetch_email(client: &reqwest::Client, access_token: &str) -> Result<String> {
+pub async fn fetch_userinfo(client: &reqwest::Client, access_token: &str) -> Result<(String, Option<String>)> {
     let resp: serde_json::Value = client
         .get("https://www.googleapis.com/oauth2/v3/userinfo")
         .bearer_auth(access_token)
@@ -173,10 +176,12 @@ async fn fetch_email(client: &reqwest::Client, access_token: &str) -> Result<Str
         .json()
         .await
         .context("parsing userinfo")?;
-    resp["email"]
+    let email = resp["email"]
         .as_str()
         .map(str::to_string)
-        .ok_or_else(|| anyhow!("no email in userinfo response: {resp}"))
+        .ok_or_else(|| anyhow!("no email in userinfo response: {resp}"))?;
+    let photo_url = resp["picture"].as_str().map(str::to_string);
+    Ok((email, photo_url))
 }
 
 // Tiny URL-encoding helper (avoids pulling percent_encoding separately since url crate is already here)

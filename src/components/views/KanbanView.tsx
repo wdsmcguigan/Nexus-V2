@@ -19,7 +19,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useWorkspace } from "@/state/workspace";
-import { useStatuses, useVisibleMessages } from "@/storage/useStore";
+import { useStatuses, useVisibleMessages, useContactByEmail } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
@@ -39,6 +39,7 @@ function KanbanCard({ message: msg, isDragging }: CardProps) {
   const selectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const isSelected = selectedEmailId === msg.id;
   const colorSeed = pickPanelLink(msg.fromAddr.email);
+  const senderContact = useContactByEmail(msg.fromAddr.email);
 
   const userLabels = React.useMemo(() => {
     const lbls = [];
@@ -61,7 +62,7 @@ function KanbanCard({ message: msg, isDragging }: CardProps) {
     >
       {/* From + date */}
       <div className="flex items-center gap-1.5">
-        <Avatar name={msg.fromAddr.name} size={16} colorSeed={colorSeed} />
+        <Avatar name={msg.fromAddr.name} size={16} colorSeed={colorSeed} src={senderContact?.photoUrl} />
         <span className="min-w-0 flex-1 truncate font-sans text-small font-medium text-text-secondary">
           {msg.fromAddr.name}
         </span>

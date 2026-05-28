@@ -12,6 +12,12 @@ export interface AppPreferences {
   markReadAfterMs: -1 | 0 | 1000 | 3000 | 10000;
   /** Whether toolbar buttons show icon-only or icon + text label. */
   buttonLabels: "icons" | "text";
+  /** Google Cloud Translate API key for the message Translate action. */
+  translateApiKey: string;
+  /** Per-account toggle for Google Contacts sync. Key is account ID. */
+  contactsSyncEnabled: Record<string, boolean>;
+  /** Per-account toggle for Google Calendar sync. Key is account ID. */
+  calendarSyncEnabled: Record<string, boolean>;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -19,6 +25,9 @@ const DEFAULTS: AppPreferences = {
   undoSendSeconds: 5,
   markReadAfterMs: 1000,
   buttonLabels: "icons",
+  translateApiKey: "",
+  contactsSyncEnabled: {},
+  calendarSyncEnabled: {},
 };
 
 const STORAGE_KEY = "nexus_app_prefs_v1";

@@ -3,7 +3,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
   Inbox,
-  Layers,
   List,
   Trello,
   Table2,
@@ -18,18 +17,17 @@ import {
   Trash2,
   MailOpen,
   Mail,
-  CheckCheck,
   Bookmark,
   Tag,
-  MessagesSquare,
-  ArrowDownUp,
+  ArrowDown,
+  ArrowUp,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Popover from "@radix-ui/react-popover";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
-import { FilterBar } from "@/components/filter/FilterBar";
+import { FilterBar, AddFilterButton } from "@/components/filter/FilterBar";
 import { KanbanView } from "@/components/views/KanbanView";
 import { TableView } from "@/components/views/TableView";
 import { Button } from "@/components/ui/Button";
@@ -39,13 +37,19 @@ import { EmailRowContextMenu } from "./EmailRowContextMenu";
 import { LabelPickerDialog } from "@/components/email/LabelPickerPopover";
 import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
-import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels } from "@/storage/useStore";
+import { useVisibleMessagesForPanel, useSelectionTitle, useUserLabels, useEnsureLabelMessages } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { isTauri, getMessageBody } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { cn } from "@/lib/utils";
-import { actionForKey } from "@/lib/shortcuts";
+import {
+  actionForKey,
+  isNavSequencePending,
+  SELECTION_PREFIX,
+  selectionCommandForKey,
+  type SelectionCommand,
+} from "@/lib/shortcuts";
 import type { Density } from "@/design-system/tokens";
 import type { Message, MetadataFilter, Status, Label } from "@/data/types";
 
@@ -101,7 +105,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   const _removeListPanelAxis = useWorkspace((s) => s.removeListPanelAxis);
   const saveCurrentFilter = useWorkspace((s) => s.saveCurrentFilter);
   const threadedView = useWorkspace((s) => s.threadedView);
-  const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
 
   const [saveViewOpen, setSaveViewOpen] = React.useState(false);
   const [saveViewName, setSaveViewName] = React.useState("");
@@ -155,9 +158,14 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   const [sortBy, setSortBy] = React.useState<SortBy>("receivedAt");
   const [sortDir, setSortDir] = React.useState<"asc" | "desc">("desc");
-  const [groupBySta, setGroupBySta] = React.useState(false);
+  const [groupBy, setGroupBy] = React.useState<"none" | "priority" | "status">("none");
 
   const title = useSelectionTitle();
+  const globalFolderId = useWorkspace((s) => s.selectedFolderId);
+  const currentFolderId = panelLocalState?.selectedFolderId ?? globalFolderId;
+  // If the current selection is a user label (not a tag view), ensure its messages are loaded from DB.
+  const currentLabelId = localStore.labels.has(currentFolderId) && !currentFolderId.startsWith("tag:") ? currentFolderId : null;
+  useEnsureLabelMessages(currentLabelId);
   const allMessages = useVisibleMessagesForPanel(panelId, sortBy, sortDir);
 
   // Collapse to one row per threadId when threaded view is active
@@ -193,12 +201,38 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     return m;
   }, [messages]);
 
+  const PRI_GROUP_LABELS: Record<number, string> = { 1: "Urgent", 2: "High", 3: "Normal", 4: "Low" };
+
   // Build virtual item list
   const vItems = React.useMemo((): VItem[] => {
-    if (!groupBySta) {
+    if (groupBy === "none") {
       return messages.map((msg) => ({ kind: "row" as const, msg }));
     }
-    // Group by status: sort by statusId, add group headers
+
+    if (groupBy === "priority") {
+      const groups = new Map<number | null, Message[]>();
+      for (const msg of messages) {
+        const key = msg.priority ?? null;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(msg);
+      }
+      const items: VItem[] = [];
+      for (const level of [1, 2, 3, 4] as const) {
+        const msgs = groups.get(level);
+        if (msgs?.length) {
+          items.push({ kind: "header", label: PRI_GROUP_LABELS[level]! });
+          for (const msg of msgs) items.push({ kind: "row", msg });
+        }
+      }
+      const noPri = groups.get(null);
+      if (noPri?.length) {
+        items.push({ kind: "header", label: "No Priority" });
+        for (const msg of noPri) items.push({ kind: "row", msg });
+      }
+      return items;
+    }
+
+    // groupBy === "status"
     const groups = new Map<string | null, Message[]>();
     for (const msg of messages) {
       const key = msg.statusId ?? null;
@@ -206,7 +240,6 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       groups.get(key)!.push(msg);
     }
     const items: VItem[] = [];
-    // No-status group first, then ordered by statusId
     const noStatus = groups.get(null);
     if (noStatus?.length) {
       items.push({ kind: "header", label: "No Status" });
@@ -219,7 +252,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       for (const msg of msgs) items.push({ kind: "row", msg });
     }
     return items;
-  }, [messages, groupBySta]);
+  }, [messages, groupBy]);
 
   const msgList = vItems.filter((v): v is { kind: "row"; msg: Message } => v.kind === "row").map((v) => v.msg);
 
@@ -277,6 +310,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     setSelectedEmail(emailId);
   }, [panelId, setSelectedEmail]);
 
+  // "*" selection-prefix state (e.g. "*a" select all). Persisted in a ref so it
+  // survives the keyboard effect re-subscribing between the two keypresses.
+  const selectPrefixRef = React.useRef(false);
+  const selectPrefixTimer = React.useRef<number | undefined>(undefined);
+
   // Keyboard navigation + actions
   React.useEffect(() => {
     if (!isPanelFocused) return;
@@ -287,6 +325,8 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
       ) {
         return;
       }
+      // Defer to the global "g" navigation handler while a chord is in flight.
+      if (isNavSequencePending()) return;
 
       const activeId = focusedRowId ?? selectedEmailId;
       const idx = msgList.findIndex((m) => m.id === activeId);
@@ -297,6 +337,48 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         if (viewMode !== "list") return;
         const vIdx = vItems.findIndex((v) => v.kind === "row" && v.msg.id === id);
         if (vIdx >= 0) virtualizer.scrollToIndex(vIdx, { align: "auto" });
+      }
+
+      function clearSelectPrefix() {
+        selectPrefixRef.current = false;
+        if (selectPrefixTimer.current !== undefined) {
+          window.clearTimeout(selectPrefixTimer.current);
+          selectPrefixTimer.current = undefined;
+        }
+      }
+
+      function runSelectionCommand(cmd: SelectionCommand) {
+        if (cmd === "none") {
+          useWorkspace.getState().clearSelection();
+          return;
+        }
+        const match = (m: Message): boolean => {
+          switch (cmd) {
+            case "all":       return true;
+            case "read":      return m.flags.read;
+            case "unread":    return !m.flags.read;
+            case "starred":   return m.star !== null && m.star !== undefined;
+            case "unstarred": return m.star === null || m.star === undefined;
+          }
+        };
+        setSelectionRange(msgList.filter(match).map((m) => m.id));
+      }
+
+      // ── Selection commands: "*" then a key ───────────────────────
+      if (selectPrefixRef.current) {
+        clearSelectPrefix();
+        const cmd = selectionCommandForKey(e.key);
+        if (cmd) {
+          e.preventDefault();
+          runSelectionCommand(cmd);
+        }
+        return;
+      }
+      if (e.key === SELECTION_PREFIX) {
+        e.preventDefault();
+        selectPrefixRef.current = true;
+        selectPrefixTimer.current = window.setTimeout(() => { selectPrefixRef.current = false; }, 1200);
+        return;
       }
 
       function advanceAfterAction() {
@@ -319,11 +401,23 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
         if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
       } else if (e.key === "Enter" || e.key === " ") {
         if (activeId) { e.preventDefault(); openEmail(activeId); }
+      } else if (e.key === "I") {
+        // Shift+I — mark read (explicit, non-toggling)
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.readMessage(localStore, activeMsg.id);
+      } else if (e.key === "U") {
+        // Shift+U — mark unread (explicit, non-toggling)
+        if (!activeMsg) return;
+        e.preventDefault();
+        Mut.unreadMessage(localStore, activeMsg.id);
 
       // ── Action shortcuts (rebindable via keyBindings) ────────────
       } else if (!e.metaKey && !e.ctrlKey) {
         const action = e.key === "#" || e.key === "Delete"
           ? "delete"
+          : e.key === "="
+          ? "markImportant"
           : actionForKey(e.key, keyBindings);
         if (!action) return;
         switch (action) {
@@ -363,11 +457,57 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
             e.preventDefault();
             openComposer({ mode: "reply", replyToMessage: activeMsg });
             break;
+          case "replyAll":
+            if (!activeMsg) return;
+            e.preventDefault();
+            openComposer({ mode: "reply-all", replyToMessage: activeMsg });
+            break;
           case "forward":
             if (!activeMsg) return;
             e.preventDefault();
             openComposer({ mode: "forward", replyToMessage: activeMsg });
             break;
+          case "reportSpam":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.markAsSpam(localStore, activeMsg.id);
+            advanceAfterAction();
+            break;
+          case "mute":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.setMuted(localStore, activeMsg.id, !activeMsg.muted);
+            break;
+          case "selectRow":
+            e.preventDefault();
+            if (activeId) toggleEmailSelection(activeId);
+            break;
+          case "markImportant":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.setPriority(localStore, activeMsg.id, 1);
+            break;
+          case "markNotImportant":
+            if (!activeMsg) return;
+            e.preventDefault();
+            Mut.clearPriority(localStore, activeMsg.id);
+            break;
+          case "openConversation":
+            e.preventDefault();
+            if (activeId) openEmail(activeId);
+            break;
+          case "prevMessage": {
+            e.preventDefault();
+            const prev = msgList[Math.max(0, (idx === -1 ? 0 : idx) - 1)];
+            if (prev) { openEmail(prev.id); scrollToMsg(prev.id); }
+            break;
+          }
+          case "nextMessage": {
+            e.preventDefault();
+            const next = msgList[Math.min(msgList.length - 1, Math.max(0, idx + 1))];
+            if (next) { openEmail(next.id); scrollToMsg(next.id); }
+            break;
+          }
           case "snooze": {
             if (!activeMsg) return;
             e.preventDefault();
@@ -543,32 +683,151 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     />
   );
 
-  const searchBar = (
-    <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-surface-1 px-2">
-      <Search size={12} className="shrink-0 text-text-tertiary" />
-      <input
-        ref={searchRef}
-        type="search"
-        value={searchValue}
-        onChange={(e) => setSearchValue(e.target.value)}
-        placeholder="Search subject, body, notes… (/)"
-        aria-label="Search messages"
+
+  // Unified command bar: search + sort + group + filter in one elevated row.
+  // Sort / group / mark-all-read are list-view concepts and hide in kanban/table.
+  const toolbar = (
+    <div className="shrink-0 border-b border-border-subtle bg-surface-1 px-2 py-2">
+      <div
         className={cn(
-          "min-w-0 flex-1 bg-transparent font-mono text-mono-sm text-text-primary outline-none",
-          "placeholder:text-text-tertiary",
+          "flex h-9 items-center gap-1 rounded-md border border-border-default bg-surface-2 px-2",
+          "shadow-sm transition-colors",
+          "focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30",
         )}
-        onKeyDown={(e) => { if (e.key === "Escape") { setSearchValue(""); searchRef.current?.blur(); } }}
-      />
-      {searchValue && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => { setSearchValue(""); searchRef.current?.focus(); }}
-          className="shrink-0 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
-        >
-          <X size={11} />
-        </button>
-      )}
+      >
+        {/* Search */}
+        <Search size={13} className="shrink-0 text-text-tertiary" />
+        <input
+          ref={searchRef}
+          type="search"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+          placeholder="Search subject, body, notes… (/)"
+          aria-label="Search messages"
+          className={cn(
+            "min-w-0 flex-1 bg-transparent text-body text-text-primary outline-none",
+            "placeholder:text-text-tertiary",
+          )}
+          onKeyDown={(e) => { if (e.key === "Escape") { setSearchValue(""); searchRef.current?.blur(); } }}
+        />
+        {searchValue && (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => { setSearchValue(""); searchRef.current?.focus(); }}
+            className="shrink-0 rounded-xs p-0.5 text-text-tertiary hover:text-text-primary"
+          >
+            <X size={12} />
+          </button>
+        )}
+
+        <div className="mx-0.5 h-5 w-px shrink-0 bg-border-subtle" />
+
+        {/* Sort picker (list view) */}
+        {viewMode === "list" && (
+          <>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button
+                  className={cn(
+                    "flex h-7 shrink-0 items-center gap-1 rounded-xs px-2 text-caption",
+                    "text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary",
+                    "data-[state=open]:bg-surface-3 data-[state=open]:text-text-primary",
+                  )}
+                >
+                  <span className="text-text-tertiary">Sort</span>
+                  {SORT_LABELS[sortBy]}
+                  {groupBy !== "none" && (
+                    <span className="ml-0.5 rounded-xs bg-accent-soft px-1 font-mono text-mono-xs text-accent">
+                      {groupBy === "priority" ? "pri" : "sta"}
+                    </span>
+                  )}
+                  <ChevronDown size={10} />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className={cn(
+                    "z-50 min-w-[140px] overflow-hidden rounded-md border border-border-subtle",
+                    "bg-surface-2 p-1 shadow-lg",
+                    "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+                    "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
+                  )}
+                  sideOffset={6}
+                  align="start"
+                >
+                  {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
+                    <DropdownMenu.Item
+                      key={key}
+                      onSelect={() => setSortBy(key)}
+                      className={cn(
+                        "flex h-7 cursor-pointer items-center rounded-xs px-2 text-body outline-none",
+                        "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                        key === sortBy && "text-text-primary",
+                      )}
+                    >
+                      {SORT_LABELS[key]}
+                      {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
+                    </DropdownMenu.Item>
+                  ))}
+
+                  <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                  <div className="px-2 py-0.5 font-mono text-mono-xs text-text-muted uppercase tracking-wide">Group by</div>
+
+                  <DropdownMenu.CheckboxItem
+                    checked={groupBy === "priority"}
+                    onCheckedChange={(v) => setGroupBy(v ? "priority" : "none")}
+                    className={cn(
+                      "flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 pl-6 text-body outline-none",
+                      "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                      "relative",
+                    )}
+                  >
+                    <DropdownMenu.ItemIndicator className="absolute left-2">
+                      <span className="font-mono text-mono-xs">✓</span>
+                    </DropdownMenu.ItemIndicator>
+                    Priority
+                  </DropdownMenu.CheckboxItem>
+
+                  <DropdownMenu.CheckboxItem
+                    checked={groupBy === "status"}
+                    onCheckedChange={(v) => setGroupBy(v ? "status" : "none")}
+                    className={cn(
+                      "flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 pl-6 text-body outline-none",
+                      "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
+                      "relative",
+                    )}
+                  >
+                    <DropdownMenu.ItemIndicator className="absolute left-2">
+                      <span className="font-mono text-mono-xs">✓</span>
+                    </DropdownMenu.ItemIndicator>
+                    Status
+                  </DropdownMenu.CheckboxItem>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+
+            {/* Sort direction — only meaningful for time-based sort */}
+            {sortBy === "receivedAt" && (
+              <Tooltip label={sortDir === "desc" ? "Newest first" : "Oldest first"}>
+                <button
+                  type="button"
+                  aria-label="Toggle sort direction"
+                  onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-xs text-text-tertiary transition-colors hover:bg-surface-3 hover:text-text-primary"
+                >
+                  {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+                </button>
+              </Tooltip>
+            )}
+
+          </>
+        )}
+
+        {/* Filter */}
+        <AddFilterButton />
+
+      </div>
     </div>
   );
 
@@ -576,7 +835,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (viewMode === "kanban") {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <KanbanView />
       </Panel>
@@ -586,7 +845,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (viewMode === "table") {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <TableView />
       </Panel>
@@ -596,7 +855,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
   if (msgList.length === 0) {
     return (
       <Panel panelId={panelId} type="stage" header={header}>
-        {searchBar}
+        {toolbar}
         <FilterBar />
         <PanelEmpty
           icon={Inbox}
@@ -610,131 +869,10 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
 
   return (
     <Panel panelId={panelId} type="stage" header={header}>
-      {/* Search bar (EP-3 FTS) */}
-      {searchBar}
-      {/* Filter pills bar */}
+      {/* Unified command bar: search + sort + group + filter */}
+      {toolbar}
+      {/* Active filter pills (hidden when no filter) */}
       <FilterBar />
-
-      {/* Sub-toolbar: sort + group-by */}
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 px-2">
-        {/* Sort picker */}
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              className={cn(
-                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary",
-                "hover:bg-surface-2 hover:text-text-secondary",
-              )}
-            >
-              Sort: {SORT_LABELS[sortBy]}
-              <ChevronDown size={10} />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              className={cn(
-                "z-50 min-w-[140px] overflow-hidden rounded-md border border-border-subtle",
-                "bg-surface-2 p-1 shadow-lg",
-                "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
-                "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-              )}
-              sideOffset={4}
-              align="start"
-            >
-              {(Object.keys(SORT_LABELS) as SortBy[]).map((key) => (
-                <DropdownMenu.Item
-                  key={key}
-                  onSelect={() => setSortBy(key)}
-                  className={cn(
-                    "flex h-7 cursor-pointer items-center rounded-xs px-2 text-body outline-none",
-                    "text-text-secondary focus:bg-surface-3 focus:text-text-primary",
-                    key === sortBy && "text-text-primary",
-                  )}
-                >
-                  {SORT_LABELS[key]}
-                  {key === sortBy && <span className="ml-auto font-mono text-mono-xs text-text-tertiary">✓</span>}
-                </DropdownMenu.Item>
-              ))}
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
-
-        {/* Sort direction toggle — only shown for receivedAt (time-based sorts) */}
-        {sortBy === "receivedAt" && (
-          <Tooltip label={sortDir === "desc" ? "Showing newest first" : "Showing oldest first"}>
-            <button
-              type="button"
-              onClick={() => setSortDir((d) => d === "desc" ? "asc" : "desc")}
-              className={cn(
-                "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-                "hover:bg-surface-2 hover:text-text-secondary",
-                sortDir === "asc" ? "text-text-secondary" : "text-text-tertiary",
-              )}
-            >
-              <ArrowDownUp size={10} />
-              {sortDir === "desc" ? "Newest" : "Oldest"}
-            </button>
-          </Tooltip>
-        )}
-
-        <span className="text-caption text-text-muted">·</span>
-
-        {/* Group-by STA toggle */}
-        <Tooltip label={groupBySta ? "Ungroup" : "Group by status"}>
-          <button
-            type="button"
-            onClick={() => setGroupBySta((v) => !v)}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-              "transition-colors hover:bg-surface-2",
-              groupBySta
-                ? "bg-accent-soft text-text-primary"
-                : "text-text-tertiary hover:text-text-secondary",
-            )}
-            aria-pressed={groupBySta}
-          >
-            <Layers size={11} />
-            {groupBySta ? "Grouped" : "Group by Status"}
-          </button>
-        </Tooltip>
-
-        {/* Threaded view toggle */}
-        <Tooltip label={threadedView ? "Showing conversations — click for flat view" : "Showing all messages — click for conversation view"}>
-          <button
-            type="button"
-            onClick={toggleThreadedView}
-            className={cn(
-              "flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption",
-              "transition-colors hover:bg-surface-2",
-              threadedView
-                ? "bg-accent-soft text-text-primary"
-                : "text-text-tertiary hover:text-text-secondary",
-            )}
-            aria-pressed={threadedView}
-          >
-            <MessagesSquare size={11} />
-            {threadedView ? "Threaded" : "Flat"}
-          </button>
-        </Tooltip>
-
-        {/* Mark all as read */}
-        {msgList.some((m) => !m.flags.read) && (
-          <Tooltip label={`Mark all ${msgList.filter((m) => !m.flags.read).length} as read`}>
-            <button
-              type="button"
-              onClick={() => {
-                for (const msg of msgList) {
-                  if (!msg.flags.read) Mut.readMessage(localStore, msg.id);
-                }
-              }}
-              className="ml-auto flex h-6 items-center gap-1 rounded-xs px-1.5 text-caption text-text-tertiary hover:bg-surface-2 hover:text-text-secondary"
-            >
-              <CheckCheck size={11} />
-              Mark all read
-            </button>
-          </Tooltip>
-        )}
-      </div>
 
       {/* Virtualized list */}
       <div className="relative min-h-0 flex-1">
@@ -796,6 +934,7 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
                 >
                   <EmailRowContextMenu
                     message={msg}
+                    selectedIds={selectedEmailIds}
                     onArchive={() => {
                       Mut.archiveMessage(localStore, msg.id);
                       const i = msgList.findIndex((m) => m.id === msg.id);

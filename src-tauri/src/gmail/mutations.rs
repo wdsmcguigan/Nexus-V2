@@ -70,6 +70,10 @@ pub async fn apply_to_gmail(
             }
             Ok(true)
         }
+        "CLEAR_STAR" => {
+            modify_labels(client, access_token, gmail_msg_id, &[], &["STARRED"]).await?;
+            Ok(true)
+        }
         // All other mutations are local-only
         _ => Ok(false),
     }

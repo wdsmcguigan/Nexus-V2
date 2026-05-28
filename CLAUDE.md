@@ -8,7 +8,7 @@ Quick orientation for AI coding agents and new contributors. Read this first; di
 
 Nexus is a **local-first, privacy-focused email client for macOS** built with Tauri 2 (Rust backend) and React 18 (TypeScript frontend). All mail data lives in a local SQLite vault encrypted with SQLCipher. Cross-device sync is optional and E2EE via a self-hosted relay server.
 
-Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay), EP-6 (multi-provider: IMAP/SMTP/Outlook), EP-7 (FTS5 + rules engine + quick wins), EP-8 (iOS Swift app — partial; shares vault format via relay sync).
+Epics shipped so far: EP-0 (data model + filtering), EP-1 (workspace layouts + kanban), EP-2 (deferred), EP-3 (FTS + contacts), EP-4 (Tauri native shell + Gmail sync), EP-5 (E2EE relay), EP-6 (multi-provider: IMAP/SMTP/Outlook), EP-7 (FTS5 + rules engine + quick wins), EP-8 (iOS Swift app — partial; shares vault format via relay sync), plus inter-epic improvements (ContactHoverCard, vCard import/export, tag sidebar navigation, 21-color label palette, email row right-click context menu, undo/redo with history modal), EP-11 (calendar foundation: Google Calendar sync, agenda view, event CRUD, per-calendar toggles), EP-12 (calendar field completeness: conference URLs, Drive attachments, per-event colors, Compose→Event flow), EP-13 (calendar event templates, week/month time-grid views, drag-to-reschedule).
 
 ---
 
@@ -103,6 +103,10 @@ EP-6 additions: `discover_imap_settings`, `test_imap_connection`, `add_imap_acco
 EP-7 additions: `search_messages`, `get_rules`, `save_rule`, `delete_rule`, `get_templates`, `save_template`, `delete_template`, `send_unsubscribe`, `get_client_mode`, `set_client_mode`
 
 EP-7E additions: `get_account_preferences`, `save_account_preferences`, `get_account_signature`, `save_account_signature`, `get_vacation_responder`, `save_vacation_responder`, `delete_vacation_responder`
+
+EP-11 additions: `get_calendar_events`, `create_calendar_event`, `update_calendar_event`, `delete_calendar_event`, `sync_google_calendar`
+
+EP-13 additions: `get_event_templates`, `save_event_template`, `delete_event_template`
 
 ### Non-Send VaultDb across async
 
@@ -241,7 +245,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | Design tokens (colors, spacing, typography) | `docs/UI-DESIGN-SYSTEM-SPEC.md` |
 | Terminology / stable IDs (LBL, MSG, etc.) | `docs/glossary.md` |
 | Architecture rationale and commitments | `docs/architecture.md` |
-| Epic feature checklists | `docs/epic-{0,1,2,3,7}-checklist.md` |
+| Epic feature checklists | `docs/epic-{0,1,2,3,7,11,12,13}-checklist.md` |
+| Calendar color map (Google colorId → hex) | `src/lib/calendarColors.ts` → `eventColor()` |
+| Calendar date/grid utilities | `src/lib/calendarUtils.ts` |
+| Calendar view components | `src/components/calendar/` |
+| vCard import/export | `src/lib/vcard.ts` → `parseVcf`, `serializeVcf` |
+| Sender/participant hover card | `src/components/contacts/ContactHoverCard.tsx` |
+| Contact message history hook | `src/storage/useStore.ts` → `useContactMessages()` |
 
 ---
 
@@ -258,6 +268,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **Rules/Templates mutation pipeline:** Rules and templates must be saved via `saveRuleMutation()` / `saveTemplateMutation()` / `deleteRuleMutation()` / `deleteTemplateMutation()` in `src/state/mutations.ts` — NOT by calling the IPC functions directly. Direct IPC calls bypass the local store and the relay queue.
 
 **EmailViewerPanel rendering:** The email body is rendered by the `EmailBody` component using `contentDocument.write()` + `ResizeObserver` for reliable iframe sizing and DOMPurify sanitization. The `bodyHtml` state is `string | null` — `null` = loading, `""` = no body (show snippet), string = render. Do not revert to `srcDoc`/`onLoad` — that pattern broke image blocking and produced layout pop-in.
+
+**Event templates mutation pipeline:** Event templates must be saved via `saveEventTemplateMutation()` / `deleteEventTemplateMutation()` in `src/state/mutations.ts` — NOT by calling the IPC functions directly. Follows the same pattern as email templates (`TMPL`).
+
+**Drag-to-reschedule and recurring events:** `WeekView` and `MonthView` set `draggable={false}` on events with a `recurringEventId`. Do not remove this guard — rescheduling a recurring instance via timestamp-swap corrupts the recurring series on Google's side.
+
+**updateCalendarEvent IPC takes `externalId`:** The `updateCalendarEvent` IPC function identifies events by `externalId` (the Google Calendar event ID), not by the internal Nexus `id`. Using `id` here will silently fail to push the change to Google.
+
+**Tag pseudo-folder IDs:** Tags in the navigation sidebar use the synthetic `selectedFolderId = "tag:<name>"` pattern. `useVisibleMessagesForPanel` and `useSelectionTitle` resolve these pseudo-IDs. Do not pass real folder UUIDs for tag navigation.
 
 ---
 

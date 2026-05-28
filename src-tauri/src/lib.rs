@@ -8,6 +8,7 @@ pub mod smtp;
 mod watcher;
 
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 use tokio::sync::Mutex as AsyncMutex;
 
 /// Shared application state, held behind a Mutex so commands can mutate it.
@@ -39,12 +40,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
+            commands::get_messages_for_label,
+            commands::get_message_source,
             commands::apply_mutation,
             commands::get_message_body,
             commands::list_accounts,
             commands::disconnect_account,
             commands::start_gmail_oauth,
             commands::sync_gmail_now,
+            commands::refresh_account_photos,
             commands::start_watcher,
             commands::send_message,
             commands::save_file_to_downloads,
@@ -74,6 +78,9 @@ pub fn run() {
             commands::get_templates,
             commands::save_template,
             commands::delete_template,
+            commands::get_event_templates,
+            commands::save_event_template,
+            commands::delete_event_template,
             commands::send_unsubscribe,
             commands::get_client_mode,
             commands::set_client_mode,
@@ -87,14 +94,26 @@ pub fn run() {
             commands::get_vacation_responder,
             commands::save_vacation_responder,
             commands::delete_vacation_responder,
+            // EP9 contacts sync
+            commands::sync_google_contacts,
+            // EP10 calendar sync
+            commands::sync_google_calendar,
+            // EP11 calendar write + multi-calendar + FTS
+            commands::create_calendar_event,
+            commands::update_calendar_event,
+            commands::get_calendar_list,
+            commands::search_calendar_events,
         ])
         .setup(|app| {
-            // On startup, auto-load vault if the path was saved previously
+            // On startup, auto-load vault if the path was saved previously.
+            // Emitting vault:hydrate-needed after init_vault ensures the frontend
+            // re-hydrates even if it called get_vault_path before init_vault finished.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Some(path) = commands::load_saved_vault_path(&app_handle) {
-                    if let Err(e) = commands::init_vault(&app_handle, &path).await {
-                        log::error!("Failed to auto-load vault: {e}");
+                    match commands::init_vault(&app_handle, &path).await {
+                        Ok(()) => { let _ = app_handle.emit("vault:hydrate-needed", ()); }
+                        Err(e) => log::error!("Failed to auto-load vault: {e}"),
                     }
                 }
             });

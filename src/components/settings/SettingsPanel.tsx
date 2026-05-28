@@ -35,6 +35,8 @@ import {
   Keyboard,
   RotateCcw,
   X as XIcon,
+  Users,
+  Calendar,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -54,11 +56,16 @@ import {
   startRelayHosting,
   resetVault,
   setNotificationPref,
+  syncGoogleContacts,
+  syncGoogleCalendar,
+  getCalendarList,
+  type CalendarListEntry,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
+import { EventTemplatesSettings } from "@/components/settings/EventTemplatesSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -66,7 +73,7 @@ import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
 import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
 import type { StarStyle } from "@/data/types";
-import { DEFAULT_SHORTCUTS, effectiveKey } from "@/lib/shortcuts";
+import { DEFAULT_SHORTCUTS, effectiveKey, NAV_SEQUENCES, SELECTION_SEQUENCES } from "@/lib/shortcuts";
 import type { ShortcutAction } from "@/lib/shortcuts";
 import {
   getAccountPreferences,
@@ -1047,6 +1054,154 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
   );
 }
 
+// ─── Contacts sync section (EP-9) ────────────────────────────────────────────
+
+function CalendarSyncSection({ accountId }: { accountId: string }) {
+  const prefs = getAppPreferences();
+  const [syncing, setSyncing] = React.useState(false);
+  const [lastCount, setLastCount] = React.useState<number | null>(null);
+  const [calendars, setCalendars] = React.useState<CalendarListEntry[] | null>(null);
+
+  React.useEffect(() => {
+    if (!isTauri()) return;
+    getCalendarList(accountId).then(setCalendars).catch(() => setCalendars([]));
+  }, [accountId]);
+
+  const isCalendarEnabled = (calId: string) =>
+    prefs.calendarSyncEnabled[`${accountId}:${calId}`] ?? true;
+
+  const toggleCalendar = (calId: string) => {
+    saveAppPreferences({
+      calendarSyncEnabled: {
+        ...prefs.calendarSyncEnabled,
+        [`${accountId}:${calId}`]: !isCalendarEnabled(calId),
+      },
+    });
+  };
+
+  const handleSyncNow = async () => {
+    if (!isTauri()) return;
+    setSyncing(true);
+    try {
+      const n = await syncGoogleCalendar(accountId);
+      setLastCount(n);
+    } catch (e) {
+      console.warn("sync_google_calendar error:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+          <Calendar size={11} />
+          Calendar
+        </div>
+        {isTauri() && (
+          <Button variant="ghost" size="xs" onClick={handleSyncNow} disabled={syncing}>
+            {syncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+            {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
+          </Button>
+        )}
+      </div>
+      {calendars === null ? (
+        <p className="text-small text-text-muted">Loading calendars…</p>
+      ) : calendars.length === 0 ? (
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input
+            type="checkbox"
+            checked={isCalendarEnabled("primary")}
+            onChange={() => toggleCalendar("primary")}
+            className="accent-accent"
+          />
+          Sync Google Calendar
+        </label>
+      ) : (
+        <div className="space-y-1.5">
+          {calendars.map((cal) => (
+            <label key={cal.id} className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+              <input
+                type="checkbox"
+                checked={isCalendarEnabled(cal.id)}
+                onChange={() => toggleCalendar(cal.id)}
+                className="accent-accent"
+              />
+              <span
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: cal.backgroundColor }}
+              />
+              <span className="truncate">{cal.summary}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContactsSyncSection({ accountId }: { accountId: string }) {
+  const prefs = getAppPreferences();
+  const enabled = prefs.contactsSyncEnabled[accountId] ?? true;
+  const [syncing, setSyncing] = React.useState(false);
+  const [lastCount, setLastCount] = React.useState<number | null>(null);
+
+  const handleSyncNow = async () => {
+    if (!isTauri()) return;
+    setSyncing(true);
+    try {
+      const n = await syncGoogleContacts(accountId);
+      setLastCount(n);
+    } catch (e) {
+      console.warn("sync_google_contacts error:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const toggleEnabled = () => {
+    saveAppPreferences({
+      contactsSyncEnabled: { ...prefs.contactsSyncEnabled, [accountId]: !enabled },
+    });
+  };
+
+  return (
+    <div className="border-t border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+        <Users size={11} />
+        Contacts
+      </div>
+      <div className="flex items-center justify-between">
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={toggleEnabled}
+            className="accent-accent"
+          />
+          Sync Google Contacts
+        </label>
+        {enabled && isTauri() && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={handleSyncNow}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <RefreshCw size={11} />
+            )}
+            {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main panel ───────────────────────────────────────────────────────────────
 
 export function SettingsPanel({ panelId }: { panelId: string }) {
@@ -1079,6 +1234,9 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
   const [markReadAfterMs, setMarkReadAfterMsState] = React.useState(
     () => getAppPreferences().markReadAfterMs,
   );
+  const [translateApiKey, setTranslateApiKeyState] = React.useState(
+    () => getAppPreferences().translateApiKey,
+  );
 
   function updatePref<K extends keyof AppPreferences>(key: K, value: AppPreferences[K]) {
     saveAppPreferences({ [key]: value });
@@ -1100,7 +1258,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     updatePref("markReadAfterMs", ms);
   }
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "shortcuts">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "calendar" | "shortcuts">("accounts");
   const [rebindingAction, setRebindingAction] = React.useState<ShortcutAction | null>(null);
 
   React.useEffect(() => {
@@ -1115,6 +1273,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
     { id: "rules" as const, label: "Rules", icon: <Zap size={14} /> },
     { id: "templates" as const, label: "Templates", icon: <FileText size={14} /> },
+    { id: "calendar" as const, label: "Calendar", icon: <Calendar size={14} /> },
     { id: "shortcuts" as const, label: "Shortcuts", icon: <Keyboard size={14} /> },
     ...(clientMode === "local-first"
       ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
@@ -1177,6 +1336,8 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                       <AccountRow accountId={acc.id} email={acc.email} />
                       <AccountPrefsSection accountId={acc.id} />
                       <VacationResponderSection accountId={acc.id} />
+                      <ContactsSyncSection accountId={acc.id} />
+                      <CalendarSyncSection accountId={acc.id} />
                     </div>
                   ))}
                 </div>
@@ -1582,6 +1743,28 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                   </button>
                 ))}
               </div>
+
+              {/* Translate */}
+              <SectionHeader>Translation</SectionHeader>
+              <div className="px-4 pb-4">
+                <label className="mb-1 block text-small text-text-secondary">
+                  Google Translate API key
+                </label>
+                <input
+                  type="password"
+                  value={translateApiKey}
+                  onChange={(e) => {
+                    setTranslateApiKeyState(e.target.value);
+                    updatePref("translateApiKey", e.target.value);
+                  }}
+                  placeholder="AIza…"
+                  className="w-full rounded-sm border border-border-subtle bg-surface-2 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                />
+                <p className="mt-1.5 text-small text-text-tertiary">
+                  Required for the Translate action in the message viewer. Uses the Cloud
+                  Translation API v2.
+                </p>
+              </div>
             </div>
           )}
 
@@ -1594,6 +1777,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
           {activeSection === "rules" && <RulesSettings />}
 
           {activeSection === "templates" && <TemplatesSettings />}
+          {activeSection === "calendar" && <EventTemplatesSettings />}
 
           {activeSection === "shortcuts" && (
             <div>
@@ -1668,6 +1852,34 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Navigation chords (read-only) */}
+              <SectionHeader>Go to (press G, then a key)</SectionHeader>
+              <div className="divide-y divide-border-subtle">
+                {NAV_SEQUENCES.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-body text-text-secondary">{s.label}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">G</span>
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">{s.key.toUpperCase()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Selection commands (read-only) */}
+              <SectionHeader>Select (press ✻, then a key)</SectionHeader>
+              <div className="divide-y divide-border-subtle">
+                {SELECTION_SEQUENCES.map((s) => (
+                  <div key={s.key} className="flex items-center justify-between px-4 py-2.5">
+                    <span className="text-body text-text-secondary">{s.label}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">✻</span>
+                      <span className="min-w-[28px] rounded-sm border border-border-default bg-surface-2 px-2 py-0.5 text-center font-mono text-mono-xs text-text-secondary">{s.key.toUpperCase()}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

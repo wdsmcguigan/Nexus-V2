@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { FolderOpen, ArrowRight, Loader2, Cloud, HardDrive, PlusCircle } from "lucide-react";
-import { setVaultPath, loadVaultData, isTauri, setClientModeIpc } from "@/storage/tauri";
+import { setVaultPath, loadVaultData, getVaultPath, isTauri, setClientModeIpc } from "@/storage/tauri";
 import { localStore } from "@/storage/local";
 import { ftsIndex } from "@/storage/fts";
 import { bodyStore } from "@/storage/bodyStore";
@@ -26,11 +26,20 @@ export function VaultSetup({ onComplete }: Props) {
     return "vault";
   });
   const [showAddAccount, setShowAddAccount] = useState(false);
-  const [vaultPath, setVaultPathState] = useState(defaultVaultPath());
+  const [vaultPath, setVaultPathState] = useState("~/Mail");
+  const [savedVaultPath, setSavedVaultPath] = useState<string | null>(null);
+  const [showCustomPath, setShowCustomPath] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [visible, setVisible] = useState(false);
   const setClientMode = useWorkspace((s) => s.setClientMode);
+
+  // Load the previously saved vault path to offer as a quick-open
+  useEffect(() => {
+    getVaultPath().then((path) => {
+      if (path) setSavedVaultPath(path);
+    });
+  }, []);
 
   useEffect(() => {
     setVisible(false);
@@ -47,18 +56,16 @@ export function VaultSetup({ onComplete }: Props) {
     setStep(s);
   }
 
-  async function handleVaultContinue() {
+  async function openVault(path: string) {
     setLoading(true);
     setError("");
     try {
-      await setVaultPath(vaultPath);
-      const payload = await loadVaultData(vaultPath);
+      await setVaultPath(path);
+      const payload = await loadVaultData(path);
       localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
       ftsIndex.indexMessages(Array.from(localStore.messages.values()), bodyStore);
 
-      // Redirect selectedFolderId to the real inbox label (vault-scoped ID).
-      // Without this, the Workspace would show an empty list because the
-      // default "inbox" folder ID doesn't match the real vault label ID.
+      // Redirect selectedFolderId to the real inbox label (vault-scoped ID)
       const { selectedFolderId } = useWorkspace.getState();
       const folderExists =
         localStore.labels.has(selectedFolderId) ||
@@ -73,8 +80,16 @@ export function VaultSetup({ onComplete }: Props) {
       }
 
       seedDefaultCustomFields();
-      // Sync stored client mode to Rust backend (covers returning users who skip onboarding).
       setClientModeIpc(loadClientMode()).catch(() => {});
+
+      // Returning user: vault already has an account — skip setup steps entirely
+      if (localStore.accounts.size > 0) {
+        localStorage.removeItem(STEP_KEY);
+        advanceTo("done");
+        setTimeout(onComplete, 0);
+        return;
+      }
+
       advanceTo("mode");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -120,36 +135,71 @@ export function VaultSetup({ onComplete }: Props) {
             </p>
           </div>
 
-          <div className="w-full flex flex-col gap-2">
-            <label className="text-xs font-medium text-neutral-400 uppercase tracking-wide">
-              Vault path
-            </label>
-            <input
-              type="text"
-              value={vaultPath}
-              onChange={(e) => setVaultPathState(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="~/Mail"
-            />
-            {error && (
-              <p className="text-xs text-red-400">{error}</p>
-            )}
-          </div>
-
-          <button
-            onClick={handleVaultContinue}
-            disabled={loading || !vaultPath}
-            className="flex items-center gap-2 w-full justify-center px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <>
-                Continue
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </button>
+          {/* Quick-open the previously saved vault */}
+          {savedVaultPath && !showCustomPath ? (
+            <div className="w-full flex flex-col gap-3">
+              <button
+                onClick={() => openVault(savedVaultPath)}
+                disabled={loading}
+                className="flex items-center gap-2 w-full justify-center px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <FolderOpen className="h-4 w-4" />
+                    Open {savedVaultPath.replace(/^\/Users\/[^/]+/, "~")}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowCustomPath(true); setVaultPathState(savedVaultPath); }}
+                className="text-xs text-neutral-500 hover:text-neutral-400 underline text-center"
+              >
+                Open a different vault…
+              </button>
+            </div>
+          ) : (
+            <div className="w-full flex flex-col gap-2">
+              <label className="text-xs font-medium text-neutral-400 uppercase tracking-wide">
+                Vault path
+              </label>
+              <input
+                type="text"
+                value={vaultPath}
+                onChange={(e) => setVaultPathState(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="~/Mail"
+              />
+              {error && (
+                <p className="text-xs text-red-400">{error}</p>
+              )}
+              <button
+                onClick={() => openVault(vaultPath)}
+                disabled={loading || !vaultPath}
+                className="flex items-center gap-2 w-full justify-center px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    Continue
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+              {savedVaultPath && (
+                <button
+                  type="button"
+                  onClick={() => setShowCustomPath(false)}
+                  className="text-xs text-neutral-500 hover:text-neutral-400 underline text-center"
+                >
+                  Back
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -254,11 +304,4 @@ export function VaultSetup({ onComplete }: Props) {
       <div className="text-sm text-neutral-400">Loading your inbox…</div>
     </div>
   );
-}
-
-function defaultVaultPath(): string {
-  if (typeof window !== "undefined" && "__TAURI__" in window) {
-    return "~/Mail";
-  }
-  return "~/Mail";
 }

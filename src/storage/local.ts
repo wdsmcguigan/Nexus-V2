@@ -11,9 +11,12 @@
 
 import type {
   Account,
+  CalendarEvent,
   Contact,
+  ContactGroup,
   CustomFieldDef,
   CustomFieldValue,
+  EventTemplate,
   Folder,
   Label,
   Message,
@@ -40,8 +43,11 @@ interface StorageSnapshot {
   tagUsage: TagUsage[];
   mutations: Mutation[];
   contacts?: Contact[];
+  contactGroups?: ContactGroup[];
+  calendarEvents?: CalendarEvent[];
   rules?: Rule[];
   templates?: Template[];
+  eventTemplates?: EventTemplate[];
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -71,8 +77,13 @@ export class LocalStore {
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
   contacts = new Map<string, Contact>();
+  contactGroups = new Map<string, ContactGroup>();
+  /** contactId → Set<groupId> */
+  groupsByContact = new Map<string, Set<string>>();
   rules = new Map<string, Rule>();
   templates = new Map<string, Template>();
+  eventTemplates = new Map<string, EventTemplate>();
+  calendarEvents = new Map<string, CalendarEvent>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -127,6 +138,7 @@ export class LocalStore {
     this.savedViews.clear();
     this.rules.clear();
     this.templates.clear();
+    this.eventTemplates.clear();
     this.mutations = [];
 
     // Clear indexes
@@ -139,8 +151,11 @@ export class LocalStore {
     this.messagesByThread.clear();
     this.messagesByCustomField.clear();
     this.contacts.clear();
+    this.contactGroups.clear();
+    this.groupsByContact.clear();
     this.emailIndex.clear();
     this.messagesByContact.clear();
+    this.calendarEvents.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -153,6 +168,9 @@ export class LocalStore {
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
+    for (const et of (snap.eventTemplates ?? [])) this.eventTemplates.set(et.id, et);
+    for (const g of (snap.contactGroups ?? [])) this.contactGroups.set(g.id, g);
+    for (const e of (snap.calendarEvents ?? [])) this.calendarEvents.set(e.id, e);
 
     // Load explicit contacts from snapshot
     for (const c of (snap.contacts ?? [])) {
@@ -171,6 +189,10 @@ export class LocalStore {
           emails: [email],
           phones: [],
           tags: [],
+          socialProfiles: [],
+          addresses: [],
+          source: "manual",
+          importance: "normal",
           createdAt: msg.receivedAt,
           updatedAt: msg.receivedAt,
         };
@@ -203,6 +225,8 @@ export class LocalStore {
       savedViews: Array.from(this.savedViews.values()),
       mutations: this.mutations,
       contacts: Array.from(this.contacts.values()),
+      contactGroups: Array.from(this.contactGroups.values()),
+      calendarEvents: Array.from(this.calendarEvents.values()),
     };
   }
 
@@ -214,6 +238,19 @@ export class LocalStore {
     this._insertMessageIndexes(msg);
     this._notify();
     this._schedulePersist();
+  }
+
+  /** Merge new messages into the store without clearing existing data.
+   *  Used for on-demand label loading when messages fall outside the initial hydration window. */
+  mergeMessages(msgs: Message[]): void {
+    let changed = false;
+    for (const msg of msgs) {
+      if (!this.messages.has(msg.id)) {
+        this._insertMessageIndexes(msg);
+        changed = true;
+      }
+    }
+    if (changed) this._notify();
   }
 
   deleteMessage(id: string): void {
@@ -539,6 +576,65 @@ export class LocalStore {
     }
   }
 
+  // ── ContactGroup CRUD (EP-9) ─────────────────────────────────────
+
+  putContactGroup(group: ContactGroup): void {
+    this.contactGroups.set(group.id, group);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteContactGroup(id: string): void {
+    this.contactGroups.delete(id);
+    // Remove group membership entries
+    for (const [contactId, groups] of this.groupsByContact) {
+      groups.delete(id);
+      if (groups.size === 0) this.groupsByContact.delete(contactId);
+    }
+    this._notify();
+    this._schedulePersist();
+  }
+
+  addContactToGroup(groupId: string, contactId: string): void {
+    let groups = this.groupsByContact.get(contactId);
+    if (!groups) { groups = new Set(); this.groupsByContact.set(contactId, groups); }
+    groups.add(groupId);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  removeContactFromGroup(groupId: string, contactId: string): void {
+    this.groupsByContact.get(contactId)?.delete(groupId);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  getContactGroups(): ContactGroup[] {
+    return Array.from(this.contactGroups.values()).sort((a, b) => a.position - b.position);
+  }
+
+  getGroupsForContact(contactId: string): string[] {
+    return Array.from(this.groupsByContact.get(contactId) ?? []);
+  }
+
+  // ── Calendar event CRUD (EP-10) ─────────────────────────────────
+
+  putCalendarEvent(event: CalendarEvent): void {
+    this.calendarEvents.set(event.id, event);
+    this._notify();
+  }
+
+  deleteCalendarEvent(id: string): void {
+    this.calendarEvents.delete(id);
+    this._notify();
+  }
+
+  getCalendarEventsInRange(startTs: number, endTs: number): CalendarEvent[] {
+    return Array.from(this.calendarEvents.values())
+      .filter((e) => e.endTs >= startTs && e.startTs <= endTs)
+      .sort((a, b) => a.startTs - b.startTs);
+  }
+
   // ── SavedView CRUD (EP-1) ────────────────────────────────────────
 
   putSavedView(view: SavedView): void {
@@ -587,6 +683,20 @@ export class LocalStore {
 
   deleteTemplate(id: string): void {
     this.templates.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  // ── Event Template CRUD (EP-13) ──────────────────────────────────
+
+  putEventTemplate(tmpl: EventTemplate): void {
+    this.eventTemplates.set(tmpl.id, tmpl);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteEventTemplate(id: string): void {
+    this.eventTemplates.delete(id);
     this._notify();
     this._schedulePersist();
   }

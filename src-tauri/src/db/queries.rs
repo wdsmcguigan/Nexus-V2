@@ -23,9 +23,12 @@ pub struct HydratePayload {
     pub tag_usage: Vec<JsonValue>,
     pub mutations: Vec<JsonValue>,
     pub contacts: Vec<JsonValue>,
+    pub contact_groups: Vec<JsonValue>,
     pub saved_views: Vec<JsonValue>,
     pub rules: Vec<JsonValue>,
     pub templates: Vec<JsonValue>,
+    pub calendar_events: Vec<JsonValue>,
+    pub event_templates: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -42,9 +45,19 @@ impl VaultDb {
             tag_usage: self.load_tag_usage(vault_id)?,
             mutations: vec![],
             contacts: self.load_contacts(vault_id)?,
+            contact_groups: self.load_contact_groups(vault_id)?,
             saved_views: self.load_saved_views(vault_id)?,
             rules: self.get_rules(vault_id)?,
             templates: self.get_templates(vault_id)?,
+            event_templates: self.get_event_templates(vault_id)?,
+            calendar_events: {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                let day_ms: i64 = 86_400_000;
+                self.load_calendar_events(vault_id, now_ms - 14 * day_ms, now_ms + 90 * day_ms)?
+            },
         })
     }
 
@@ -66,7 +79,7 @@ impl VaultDb {
 
     pub fn load_accounts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, provider, email, display_name FROM accounts WHERE vault_id = ?1",
+            "SELECT id, provider, email, display_name, photo_url FROM accounts WHERE vault_id = ?1",
         )?;
         let rows = stmt.query_map(params![vault_id], |r| {
             Ok(serde_json::json!({
@@ -74,7 +87,8 @@ impl VaultDb {
                 "vaultId": vault_id,
                 "provider": r.get::<_, String>(1)?,
                 "email": r.get::<_, String>(2)?,
-                "displayName": r.get::<_, Option<String>>(3)?
+                "displayName": r.get::<_, Option<String>>(3)?,
+                "photoUrl": r.get::<_, Option<String>>(4)?
             }))
         })?;
         rows.map(|r| r.context("loading account row")).collect()
@@ -241,7 +255,8 @@ impl VaultDb {
                     status_id, priority, star, pinned, muted, notes, flag_json,
                     from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                     attachment_refs_json, custom_fields_json,
-                    flags_read, flags_answered, flags_draft, flags_flagged
+                    flags_read, flags_answered, flags_draft, flags_flagged,
+                    ical_data
              FROM messages WHERE vault_id = ?1
              ORDER BY received_at DESC LIMIT 2000",
         )?;
@@ -290,6 +305,7 @@ impl VaultDb {
                     "draft": r.get::<_, bool>(22)?,
                     "flagged": r.get::<_, bool>(23)?
                 },
+                "icalData": r.get::<_, Option<String>>(24)?,
                 "labelIds": [],
                 "tags": []
             });
@@ -347,23 +363,185 @@ impl VaultDb {
         Ok(result)
     }
 
+    /// Load all messages that carry a specific Nexus label ID.
+    /// Used for on-demand label hydration when the label's messages fall
+    /// outside the initial 2000-message hydration window.
+    pub fn load_messages_for_label(&self, vault_id: &str, label_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT m.id, m.folder_id, m.thread_id, m.subject, m.snippet, m.body_ref, m.received_at,
+                    m.status_id, m.priority, m.star, m.pinned, m.muted, m.notes, m.flag_json,
+                    m.from_addr_json, m.to_addrs_json, m.cc_addrs_json, m.bcc_addrs_json,
+                    m.attachment_refs_json, m.custom_fields_json,
+                    m.flags_read, m.flags_answered, m.flags_draft, m.flags_flagged
+             FROM messages m
+             INNER JOIN message_labels ml ON ml.message_id = m.id
+             WHERE m.vault_id = ?1 AND ml.label_id = ?2
+             ORDER BY m.received_at DESC",
+        )?;
+
+        let msg_rows: Vec<(String, JsonValue)> = stmt.query_map(params![vault_id, label_id], |r| {
+            let id: String = r.get(0)?;
+            let msg = serde_json::json!({
+                "id": id.clone(),
+                "vaultId": vault_id,
+                "folderId": r.get::<_, String>(1)?,
+                "threadId": r.get::<_, String>(2)?,
+                "subject": r.get::<_, String>(3)?,
+                "snippet": r.get::<_, String>(4)?,
+                "bodyRef": r.get::<_, String>(5)?,
+                "receivedAt": r.get::<_, i64>(6)?,
+                "statusId": r.get::<_, Option<String>>(7)?,
+                "priority": r.get::<_, Option<i64>>(8)?,
+                "star": r.get::<_, Option<String>>(9)?,
+                "pinned": r.get::<_, bool>(10)?,
+                "muted": r.get::<_, bool>(11)?,
+                "notes": r.get::<_, Option<String>>(12)?,
+                "flag": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, Option<String>>(13)?.unwrap_or_default()
+                ).unwrap_or(JsonValue::Null),
+                "fromAddr": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(14)?
+                ).unwrap_or(JsonValue::Null),
+                "toAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(15)?
+                ).unwrap_or_default(),
+                "ccAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(16)?
+                ).unwrap_or_default(),
+                "bccAddrs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(17)?
+                ).unwrap_or_default(),
+                "attachmentRefs": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(18)?
+                ).unwrap_or_default(),
+                "customFields": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, String>(19)?
+                ).unwrap_or_default(),
+                "flags": {
+                    "read": r.get::<_, bool>(20)?,
+                    "answered": r.get::<_, bool>(21)?,
+                    "draft": r.get::<_, bool>(22)?,
+                    "flagged": r.get::<_, bool>(23)?
+                },
+                "labelIds": [],
+                "tags": []
+            });
+            Ok((id, msg))
+        })?.map(|r| r.context("loading message row for label"))
+          .collect::<Result<Vec<_>>>()?;
+
+        if msg_rows.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Collect message IDs to batch-load their label and tag associations.
+        let ids: Vec<&str> = msg_rows.iter().map(|(id, _)| id.as_str()).collect();
+        let placeholders = ids.iter().enumerate()
+            .map(|(i, _)| format!("?{}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let id_params: Vec<&dyn rusqlite::types::ToSql> = ids.iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let mut label_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let sql = format!(
+                "SELECT message_id, label_id FROM message_labels WHERE message_id IN ({placeholders})"
+            );
+            let mut ls = self.conn.prepare(&sql)?;
+            for row in ls.query_map(id_params.as_slice(), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, lbl_id) = row.context("loading label row")?;
+                label_map.entry(msg_id).or_default().push(lbl_id);
+            }
+        }
+
+        let mut tag_map: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let sql = format!(
+                "SELECT message_id, tag FROM message_tags WHERE message_id IN ({placeholders})"
+            );
+            let mut ts = self.conn.prepare(&sql)?;
+            for row in ts.query_map(id_params.as_slice(), |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })? {
+                let (msg_id, tag) = row.context("loading tag row for label")?;
+                tag_map.entry(msg_id).or_default().push(tag);
+            }
+        }
+
+        let mut result = Vec::with_capacity(msg_rows.len());
+        for (id, mut msg) in msg_rows {
+            msg["labelIds"] = label_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
+            msg["tags"] = tag_map.remove(&id)
+                .unwrap_or_default()
+                .into_iter().map(JsonValue::String).collect::<Vec<_>>()
+                .into();
+            result.push(msg);
+        }
+        Ok(result)
+    }
+
+    /// Absolute path to the message's `.eml` on disk, if one was written
+    /// (local-first mode only). Returns None when the column is NULL or the
+    /// message does not exist.
+    pub fn get_message_eml_path(&self, vault_id: &str, message_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT eml_path FROM messages WHERE vault_id = ?1 AND id = ?2 LIMIT 1",
+        )?;
+        let path: Option<Option<String>> = stmt
+            .query_row(params![vault_id, message_id], |row| row.get::<_, Option<String>>(0))
+            .optional()?;
+        Ok(path.flatten())
+    }
+
     pub fn load_contacts(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, name, company, title, website, location, notes, tags_json, created_at, updated_at
+            "SELECT id, name, company, title, website, location, notes, tags_json,
+                    created_at, updated_at, photo_url, always_show_images,
+                    birthday, social_json, addresses_json, source, external_id, importance
              FROM contacts WHERE vault_id = ?1 ORDER BY name"
         )?;
-        let contacts: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, String, i64, i64)> =
-            stmt.query_map(params![vault_id], |r| Ok((
-                r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?,
-                r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?,
-                r.get(8)?, r.get(9)?
-            )))?.filter_map(|r| r.ok()).collect();
+        let rows: Vec<_> = stmt.query_map(params![vault_id], |r| Ok((
+            r.get::<_, String>(0)?,       // id
+            r.get::<_, String>(1)?,       // name
+            r.get::<_, Option<String>>(2)?,  // company
+            r.get::<_, Option<String>>(3)?,  // title
+            r.get::<_, Option<String>>(4)?,  // website
+            r.get::<_, Option<String>>(5)?,  // location
+            r.get::<_, Option<String>>(6)?,  // notes
+            r.get::<_, String>(7)?,       // tags_json
+            r.get::<_, i64>(8)?,          // created_at
+            r.get::<_, i64>(9)?,          // updated_at
+            r.get::<_, Option<String>>(10)?, // photo_url
+            r.get::<_, bool>(11)?,        // always_show_images
+            r.get::<_, Option<String>>(12)?, // birthday
+            r.get::<_, Option<String>>(13)?, // social_json
+            r.get::<_, Option<String>>(14)?, // addresses_json
+            r.get::<_, Option<String>>(15)?, // source
+            r.get::<_, Option<String>>(16)?, // external_id
+            r.get::<_, Option<String>>(17)?, // importance
+        )))?.filter_map(|r| r.ok()).collect();
 
         let mut result = Vec::new();
-        for (id, name, company, title, website, location, notes, tags_json, created_at, updated_at) in contacts {
+        for (id, name, company, title, website, location, notes, tags_json,
+             created_at, updated_at, photo_url, always_show_images,
+             birthday, social_json, addresses_json, source, external_id, importance) in rows
+        {
             let emails = self.load_contact_emails(&id)?;
             let phones = self.load_contact_phones(&id)?;
             let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or(serde_json::json!([]));
+            let social: serde_json::Value = social_json.as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!([]));
+            let addresses: serde_json::Value = addresses_json.as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!([]));
             result.push(serde_json::json!({
                 "id": id,
                 "vaultId": vault_id,
@@ -376,6 +554,14 @@ impl VaultDb {
                 "location": location,
                 "notes": notes,
                 "tags": tags,
+                "photoUrl": photo_url,
+                "alwaysShowImages": always_show_images,
+                "birthday": birthday,
+                "socialProfiles": social,
+                "addresses": addresses,
+                "source": source.unwrap_or_else(|| "manual".to_string()),
+                "externalId": external_id,
+                "importance": importance.unwrap_or_else(|| "normal".to_string()),
                 "createdAt": created_at,
                 "updatedAt": updated_at
             }));
@@ -408,17 +594,40 @@ impl VaultDb {
         let location = contact["location"].as_str();
         let notes = contact["notes"].as_str();
         let tags = contact["tags"].to_string();
+        let photo_url = contact["photoUrl"].as_str();
+        let always_show_images = contact["alwaysShowImages"].as_bool().unwrap_or(false) as i64;
+        let birthday = contact["birthday"].as_str();
+        let social = contact["socialProfiles"].to_string();
+        let addresses = contact["addresses"].to_string();
+        let source = contact["source"].as_str().unwrap_or("manual");
+        let external_id = contact["externalId"].as_str();
+        let importance = contact["importance"].as_str().unwrap_or("normal");
         let created_at = contact["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         let updated_at = contact["updatedAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
 
         self.conn.execute(
-            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes, tags_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes,
+                                   tags_json, photo_url, always_show_images,
+                                   birthday, social_json, addresses_json, source, external_id, importance,
+                                   created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, company=excluded.company, title=excluded.title,
                website=excluded.website, location=excluded.location, notes=excluded.notes,
-               tags_json=excluded.tags_json, updated_at=excluded.updated_at",
-            params![id, vault_id, name, company, title, website, location, notes, tags, created_at, updated_at],
+               tags_json=excluded.tags_json,
+               photo_url=COALESCE(excluded.photo_url, photo_url),
+               always_show_images=excluded.always_show_images,
+               birthday=excluded.birthday,
+               social_json=excluded.social_json,
+               addresses_json=excluded.addresses_json,
+               source=excluded.source,
+               external_id=COALESCE(excluded.external_id, external_id),
+               importance=excluded.importance,
+               updated_at=excluded.updated_at",
+            params![id, vault_id, name, company, title, website, location, notes,
+                    tags, photo_url, always_show_images,
+                    birthday, social, addresses, source, external_id, importance,
+                    created_at, updated_at],
         )?;
 
         // Rebuild email list
@@ -447,6 +656,98 @@ impl VaultDb {
             }
         }
 
+        Ok(())
+    }
+
+    /// Bulk-update contact photo URLs from a People API response (email → photo_url map).
+    /// Only updates contacts that already exist in this vault; does not create new ones.
+    pub fn update_contact_photos(
+        &self,
+        vault_id: &str,
+        photos: &std::collections::HashMap<String, String>,
+    ) -> Result<()> {
+        for (email, photo_url) in photos {
+            self.conn.execute(
+                "UPDATE contacts SET photo_url = ?1
+                 WHERE vault_id = ?2 AND id IN (
+                     SELECT contact_id FROM contact_emails WHERE email = ?3
+                 )",
+                params![photo_url, vault_id, email],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn load_contact_groups(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, color, position, created_at FROM contact_groups WHERE vault_id = ?1 ORDER BY position"
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "name": r.get::<_, String>(1)?,
+                "color": r.get::<_, Option<String>>(2)?,
+                "position": r.get::<_, i64>(3)?,
+                "createdAt": r.get::<_, i64>(4)?
+            }))
+        })?;
+        rows.map(|r| r.context("loading contact group")).collect()
+    }
+
+    pub fn upsert_contact_group(&self, vault_id: &str, group: &JsonValue) -> Result<()> {
+        let id = group["id"].as_str().unwrap_or_default();
+        let name = group["name"].as_str().unwrap_or_default();
+        let color = group["color"].as_str();
+        let position = group["position"].as_i64().unwrap_or(0);
+        let created_at = group["createdAt"].as_i64()
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        self.conn.execute(
+            "INSERT INTO contact_groups (id, vault_id, name, color, position, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, position=excluded.position",
+            params![id, vault_id, name, color, position, created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_contact_group(&self, group_id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM contact_groups WHERE id = ?1", params![group_id])?;
+        Ok(())
+    }
+
+    pub fn add_contact_to_group(&self, group_id: &str, contact_id: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO contact_group_members (group_id, contact_id) VALUES (?1, ?2)",
+            params![group_id, contact_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_contact_from_group(&self, group_id: &str, contact_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM contact_group_members WHERE group_id = ?1 AND contact_id = ?2",
+            params![group_id, contact_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_contacts_sync(&self, account_id: &str) -> Result<Option<(Option<String>, Option<i64>)>> {
+        let row: Option<(Option<String>, Option<i64>)> = self.conn.query_row(
+            "SELECT sync_token, last_synced_at FROM contacts_sync WHERE account_id = ?1",
+            params![account_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        Ok(row)
+    }
+
+    pub fn upsert_contacts_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO contacts_sync (account_id, sync_token, last_synced_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(account_id) DO UPDATE SET sync_token=excluded.sync_token, last_synced_at=excluded.last_synced_at",
+            params![account_id, sync_token, last_synced_at],
+        )?;
         Ok(())
     }
 
@@ -503,16 +804,26 @@ impl VaultDb {
         provider: &str,
         email: &str,
         display_name: Option<&str>,
+        photo_url: Option<&str>,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO accounts (id, vault_id, provider, email, display_name, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO accounts (id, vault_id, provider, email, display_name, photo_url, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(id) DO UPDATE SET
                provider = excluded.provider,
                email = excluded.email,
-               display_name = excluded.display_name",
-            params![id, vault_id, provider, email, display_name,
+               display_name = excluded.display_name,
+               photo_url = COALESCE(excluded.photo_url, photo_url)",
+            params![id, vault_id, provider, email, display_name, photo_url,
                     chrono::Utc::now().timestamp_millis()],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_account_photo(&self, account_id: &str, photo_url: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE accounts SET photo_url = ?1 WHERE id = ?2",
+            params![photo_url, account_id],
         )?;
         Ok(())
     }
@@ -747,18 +1058,27 @@ impl VaultDb {
             None
         };
 
+        let starred_label_id = format!("{vault_id}-starred");
+        let initial_star: Option<&str> = if msg.label_ids.contains(&starred_label_id) {
+            Some("yellow")
+        } else {
+            None
+        };
+
         self.conn.execute(
             "INSERT OR IGNORE INTO messages (
                 id, vault_id, folder_id, thread_id, subject, snippet, body_ref, received_at,
                 from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                 attachment_refs_json, custom_fields_json,
                 flags_read, flags_answered, flags_draft, flags_flagged,
-                provider_id, provider_account_id, eml_path, list_unsubscribe_json
+                provider_id, provider_account_id, eml_path, list_unsubscribe_json, star,
+                ical_data
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                 ?9, ?10, ?11, ?12, ?13, '{}',
                 ?14, 0, 0, 0,
-                ?15, ?16, ?17, ?18
+                ?15, ?16, ?17, ?18, ?19,
+                ?20
             )",
             params![
                 msg.id, vault_id, msg.folder_id, msg.thread_id,
@@ -771,7 +1091,9 @@ impl VaultDb {
                 if msg.flags_read { 1 } else { 0 },
                 msg.provider_id, msg.account_id,
                 msg.eml_path,
-                list_unsubscribe_json
+                list_unsubscribe_json,
+                initial_star,
+                msg.ical_data
             ],
         )?;
 
@@ -980,6 +1302,14 @@ impl VaultDb {
                 self.conn.execute(
                     "UPDATE messages SET star = ?1 WHERE id = ?2",
                     params![star, msg_id],
+                )?;
+                // Keep the starred system label in sync with the star field.
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO message_labels (message_id, label_id)
+                     SELECT ?1, l.id FROM labels l
+                     WHERE l.system_kind = 'starred'
+                       AND l.vault_id = (SELECT vault_id FROM messages WHERE id = ?1 LIMIT 1)",
+                    params![msg_id],
                 )?;
             }
             "SET_CUSTOM_FIELD_VALUE" => {
@@ -1207,6 +1537,13 @@ impl VaultDb {
             "CLEAR_STAR" => {
                 let msg_id = p["messageId"].as_str().unwrap_or_default();
                 self.conn.execute("UPDATE messages SET star = NULL WHERE id = ?1", params![msg_id])?;
+                // Keep the starred system label in sync with the star field.
+                self.conn.execute(
+                    "DELETE FROM message_labels
+                     WHERE message_id = ?1
+                       AND label_id IN (SELECT id FROM labels WHERE system_kind = 'starred')",
+                    params![msg_id],
+                )?;
             }
 
             // ── Message lifecycle ──────────────────────────────────
@@ -1349,6 +1686,55 @@ impl VaultDb {
                     "DELETE FROM contacts WHERE id = ?1",
                     params![contact_id],
                 )?;
+            }
+            "CREATE_CONTACT_GROUP" | "UPDATE_CONTACT_GROUP" => {
+                let group = &p["group"];
+                let vault_id = group["vaultId"].as_str().unwrap_or("local");
+                self.upsert_contact_group(vault_id, group)?;
+            }
+            "DELETE_CONTACT_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                self.delete_contact_group(group_id)?;
+            }
+            "ADD_CONTACT_TO_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                let contact_id = p["contactId"].as_str().unwrap_or_default();
+                self.add_contact_to_group(group_id, contact_id)?;
+            }
+            "REMOVE_CONTACT_FROM_GROUP" => {
+                let group_id = p["groupId"].as_str().unwrap_or_default();
+                let contact_id = p["contactId"].as_str().unwrap_or_default();
+                self.remove_contact_from_group(group_id, contact_id)?;
+            }
+            "UPSERT_CALENDAR_EVENT" => {
+                let event = p.get("event").ok_or_else(|| anyhow::anyhow!("missing event"))?;
+                self.upsert_calendar_event(vault_id, event)?;
+            }
+            "DELETE_CALENDAR_EVENT" => {
+                let id = p["eventId"].as_str().unwrap_or_default();
+                self.delete_calendar_event(id)?;
+            }
+            "UPDATE_CALENDAR_EVENT_NOTES" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let notes = p["notes"].as_str();
+                self.update_calendar_event_notes(id, notes)?;
+            }
+            "UPDATE_CALENDAR_EVENT" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let start_ts = p["startTs"].as_i64().unwrap_or_default();
+                let end_ts = p["endTs"].as_i64().unwrap_or_default();
+                let now = chrono::Utc::now().timestamp_millis();
+                self.conn.execute(
+                    "UPDATE calendar_events SET start_ts = ?1, end_ts = ?2, updated_at = ?3 WHERE id = ?4",
+                    params![start_ts, end_ts, now, id],
+                )?;
+            }
+            "SAVE_EVENT_TEMPLATE" => {
+                self.upsert_event_template(vault_id, &p)?;
+            }
+            "DELETE_EVENT_TEMPLATE" => {
+                let id = p["templateId"].as_str().unwrap_or_default();
+                self.delete_event_template(id, vault_id)?;
             }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
@@ -1571,6 +1957,15 @@ impl VaultDb {
              SELECT id, ?2 FROM messages WHERE provider_id = ?1",
             params![provider_id, label_id],
         )?;
+        // If this is the starred system label, also set the star field (only when null
+        // to preserve any custom star style the user may have set locally).
+        self.conn.execute(
+            "UPDATE messages SET star = 'yellow'
+             WHERE provider_id = ?1
+               AND star IS NULL
+               AND EXISTS (SELECT 1 FROM labels WHERE id = ?2 AND system_kind = 'starred')",
+            params![provider_id, label_id],
+        )?;
         Ok(())
     }
 
@@ -1580,6 +1975,13 @@ impl VaultDb {
             "DELETE FROM message_labels
              WHERE label_id = ?2
                AND message_id = (SELECT id FROM messages WHERE provider_id = ?1 LIMIT 1)",
+            params![provider_id, label_id],
+        )?;
+        // If this is the starred system label, also clear the star field.
+        self.conn.execute(
+            "UPDATE messages SET star = NULL
+             WHERE provider_id = ?1
+               AND EXISTS (SELECT 1 FROM labels WHERE id = ?2 AND system_kind = 'starred')",
             params![provider_id, label_id],
         )?;
         Ok(())
@@ -2027,6 +2429,65 @@ impl VaultDb {
         Ok(())
     }
 
+    // ─── EP13: Calendar Event Templates ──────────────────────────────────────
+
+    pub fn get_event_templates(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, name, title, description, location, \
+                    duration_minutes, default_attendees_json, created_at \
+             FROM event_templates WHERE vault_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            let attendees_str: String = r.get(7)?;
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "title": r.get::<_, String>(3)?,
+                "description": r.get::<_, Option<String>>(4)?,
+                "location": r.get::<_, Option<String>>(5)?,
+                "durationMinutes": r.get::<_, i64>(6)?,
+                "defaultAttendees": serde_json::from_str::<JsonValue>(&attendees_str).unwrap_or(serde_json::json!([])),
+                "createdAt": r.get::<_, i64>(8)?,
+            }))
+        })?;
+        rows.map(|r| r.context("loading event_template")).collect()
+    }
+
+    pub fn upsert_event_template(&self, vault_id: &str, tmpl: &JsonValue) -> Result<()> {
+        let id = tmpl["id"].as_str().unwrap_or("").to_string();
+        let name = tmpl["name"].as_str().unwrap_or("").to_string();
+        let title = tmpl["title"].as_str().unwrap_or("").to_string();
+        let description = tmpl["description"].as_str();
+        let location = tmpl["location"].as_str();
+        let duration_minutes = tmpl["durationMinutes"].as_i64().unwrap_or(60);
+        let attendees = tmpl["defaultAttendees"].to_string();
+        let created_at = tmpl["createdAt"].as_i64()
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        self.conn.execute(
+            "INSERT INTO event_templates \
+               (id, vault_id, name, title, description, location, \
+                duration_minutes, default_attendees_json, created_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
+             ON CONFLICT(id) DO UPDATE SET \
+               name=excluded.name, title=excluded.title, \
+               description=excluded.description, location=excluded.location, \
+               duration_minutes=excluded.duration_minutes, \
+               default_attendees_json=excluded.default_attendees_json",
+            params![id, vault_id, name, title, description, location,
+                    duration_minutes, attendees, created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_event_template(&self, id: &str, vault_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM event_templates WHERE id = ?1 AND vault_id = ?2",
+            params![id, vault_id],
+        )?;
+        Ok(())
+    }
+
     // ─── EP7: List-Unsubscribe ────────────────────────────────────────────────
 
     pub fn get_list_unsubscribe(&self, message_id: &str) -> Result<Option<String>> {
@@ -2122,6 +2583,202 @@ fn decode_hex(s: &str) -> Result<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!("hex decode: {e}")))
         .collect()
+}
+
+// ─── Calendar queries ─────────────────────────────────────────────────────────
+
+impl VaultDb {
+    pub fn load_calendar_events(&self, vault_id: &str, start_ts: i64, end_ts: i64) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, account_id, calendar_id, external_id, title, description, location,
+                    start_ts, end_ts, all_day, rrule, status, organizer_email,
+                    attendees_json, html_link, created_at, updated_at,
+                    notes, source_message_id,
+                    conference_url, color_id, ical_uid, recurring_event_id,
+                    creator_email, visibility, transparency, reminders_json, attachments_json
+             FROM calendar_events
+             WHERE vault_id = ?1 AND end_ts >= ?2 AND start_ts <= ?3
+             ORDER BY start_ts ASC",
+        )?;
+        stmt.query_map(params![vault_id, start_ts, end_ts], |r| {
+            let parse_json = |s: Option<String>| -> JsonValue {
+                s.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(JsonValue::Null)
+            };
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "accountId": r.get::<_, String>(1)?,
+                "calendarId": r.get::<_, String>(2)?,
+                "externalId": r.get::<_, Option<String>>(3)?,
+                "title": r.get::<_, String>(4)?,
+                "description": r.get::<_, Option<String>>(5)?,
+                "location": r.get::<_, Option<String>>(6)?,
+                "startTs": r.get::<_, i64>(7)?,
+                "endTs": r.get::<_, i64>(8)?,
+                "allDay": r.get::<_, bool>(9)?,
+                "rrule": r.get::<_, Option<String>>(10)?,
+                "status": r.get::<_, String>(11)?,
+                "organizerEmail": r.get::<_, Option<String>>(12)?,
+                "attendees": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, Option<String>>(13)?.unwrap_or_else(|| "[]".into())
+                ).unwrap_or_default(),
+                "htmlLink": r.get::<_, Option<String>>(14)?,
+                "createdAt": r.get::<_, i64>(15)?,
+                "updatedAt": r.get::<_, i64>(16)?,
+                "notes": r.get::<_, Option<String>>(17)?,
+                "sourceMessageId": r.get::<_, Option<String>>(18)?,
+                "conferenceUrl": r.get::<_, Option<String>>(19)?,
+                "colorId": r.get::<_, Option<String>>(20)?,
+                "iCalUID": r.get::<_, Option<String>>(21)?,
+                "recurringEventId": r.get::<_, Option<String>>(22)?,
+                "creatorEmail": r.get::<_, Option<String>>(23)?,
+                "visibility": r.get::<_, Option<String>>(24)?,
+                "transparency": r.get::<_, Option<String>>(25)?,
+                "reminders": parse_json(r.get::<_, Option<String>>(26)?),
+                "attachments": parse_json(r.get::<_, Option<String>>(27)?),
+            }))
+        })?.map(|r| r.context("loading calendar_events row")).collect()
+    }
+
+    pub fn upsert_calendar_event(&self, vault_id: &str, event: &JsonValue) -> Result<()> {
+        let id = event["id"].as_str().unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        let attachments_json = match &event["attachments"] {
+            JsonValue::Null | JsonValue::Array(_) if event["attachments"].is_array() =>
+                Some(event["attachments"].to_string()),
+            _ => None,
+        };
+        let reminders_json = match &event["reminders"] {
+            JsonValue::Array(_) => Some(event["reminders"].to_string()),
+            _ => None,
+        };
+        self.conn.execute(
+            "INSERT INTO calendar_events
+               (id, vault_id, account_id, calendar_id, external_id, title, description,
+                location, start_ts, end_ts, all_day, rrule, status, organizer_email,
+                attendees_json, html_link, created_at, updated_at, notes, source_message_id,
+                conference_url, color_id, ical_uid, recurring_event_id, creator_email,
+                visibility, transparency, reminders_json, attachments_json)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
+                     ?21,?22,?23,?24,?25,?26,?27,?28,?29)
+             ON CONFLICT(id) DO UPDATE SET
+               title=excluded.title, description=excluded.description, location=excluded.location,
+               start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
+               rrule=excluded.rrule, status=excluded.status, organizer_email=excluded.organizer_email,
+               attendees_json=excluded.attendees_json, html_link=excluded.html_link,
+               source_message_id=COALESCE(excluded.source_message_id, calendar_events.source_message_id),
+               conference_url=excluded.conference_url, color_id=excluded.color_id,
+               ical_uid=excluded.ical_uid, recurring_event_id=excluded.recurring_event_id,
+               creator_email=excluded.creator_email, visibility=excluded.visibility,
+               transparency=excluded.transparency, reminders_json=excluded.reminders_json,
+               attachments_json=excluded.attachments_json,
+               updated_at=excluded.updated_at",
+            params![
+                id,
+                vault_id,
+                event["accountId"].as_str().unwrap_or(""),
+                event["calendarId"].as_str().unwrap_or("primary"),
+                event["externalId"].as_str(),
+                event["title"].as_str().unwrap_or(""),
+                event["description"].as_str(),
+                event["location"].as_str(),
+                event["startTs"].as_i64().unwrap_or(0),
+                event["endTs"].as_i64().unwrap_or(0),
+                event["allDay"].as_bool().unwrap_or(false),
+                event["rrule"].as_str(),
+                event["status"].as_str().unwrap_or("confirmed"),
+                event["organizerEmail"].as_str(),
+                event["attendees"].to_string(),
+                event["htmlLink"].as_str(),
+                event["createdAt"].as_i64().unwrap_or(now),
+                event["updatedAt"].as_i64().unwrap_or(now),
+                event["notes"].as_str(),
+                event["sourceMessageId"].as_str(),
+                event["conferenceUrl"].as_str(),
+                event["colorId"].as_str(),
+                event["iCalUID"].as_str(),
+                event["recurringEventId"].as_str(),
+                event["creatorEmail"].as_str(),
+                event["visibility"].as_str(),
+                event["transparency"].as_str(),
+                reminders_json,
+                attachments_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_calendar_event_notes(&self, id: &str, notes: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE calendar_events SET notes = ?1 WHERE id = ?2",
+            params![notes, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_calendar_fts5(&self, query: &str, vault_id: &str, limit: usize) -> Result<Vec<String>> {
+        // Sanitize for FTS5: wrap in quotes to treat as phrase, escape internal quotes
+        let safe_query = format!("\"{}\"", query.replace('"', "\"\""));
+        let mut stmt = self.conn.prepare(
+            "SELECT cf.event_id FROM calendar_events_fts cf
+              JOIN calendar_events e ON e.id = cf.event_id
+              WHERE e.vault_id = ?1 AND calendar_events_fts MATCH ?2
+              ORDER BY rank
+              LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![vault_id, safe_query, limit as i64], |r| {
+            r.get::<_, String>(0)
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            match row {
+                Ok(id) => results.push(id),
+                Err(_) => break,
+            }
+        }
+        // Fallback to LIKE if FTS5 matched nothing (handles short/special queries)
+        if results.is_empty() {
+            let like = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+            let mut stmt2 = self.conn.prepare(
+                "SELECT id FROM calendar_events WHERE vault_id = ?1
+                  AND (title LIKE ?2 ESCAPE '\\' OR description LIKE ?2 ESCAPE '\\' OR location LIKE ?2 ESCAPE '\\')
+                  LIMIT ?3",
+            )?;
+            let rows2 = stmt2.query_map(params![vault_id, like, limit as i64], |r| {
+                r.get::<_, String>(0)
+            })?;
+            for row in rows2 {
+                if let Ok(id) = row { results.push(id); }
+            }
+        }
+        Ok(results)
+    }
+
+    pub fn delete_calendar_event(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM calendar_events WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_calendar_sync(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT sync_token FROM calendar_sync WHERE account_id = ?1",
+        )?;
+        stmt.query_row(params![account_id], |r| r.get(0)).optional()
+    }
+
+    pub fn upsert_calendar_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO calendar_sync(account_id, sync_token, last_synced_at)
+             VALUES(?1,?2,?3)
+             ON CONFLICT(account_id) DO UPDATE SET
+               sync_token=excluded.sync_token, last_synced_at=excluded.last_synced_at",
+            params![account_id, sync_token, last_synced_at],
+        )?;
+        Ok(())
+    }
 }
 
 // Allow rusqlite's optional() on queries returning no rows

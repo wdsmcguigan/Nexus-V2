@@ -9,9 +9,13 @@ import {
   Trash2,
   MoreHorizontal,
   MailQuestion,
+  MailOpen,
   BellOff,
   Bell,
   Folder,
+  Star,
+  ChevronRight,
+  Building2,
 } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -21,7 +25,7 @@ import { Tag } from "@/components/ui/Tag";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { useInspectorEmailId, useWorkspace } from "@/state/workspace";
-import { useMessage, useLabels } from "@/storage/useStore";
+import { useMessage, useLabels, useContactMessageCount, useContactMessages } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { TagBar } from "@/components/inspector/TagBar";
@@ -34,7 +38,7 @@ import { NoteEditor } from "@/components/inspector/NoteEditor";
 import { CustomFieldStrip } from "@/components/customfields/CustomFieldStrip";
 import { FolderPickerDialog } from "@/components/email/FolderPickerDialog";
 import { Avatar } from "@/components/ui/Avatar";
-import { cn, formatAbsoluteTime, formatBytes } from "@/lib/utils";
+import { cn, formatAbsoluteTime, formatBytes, formatRelativeTime } from "@/lib/utils";
 import { pickPanelLink, type PanelLink } from "@/design-system/tokens";
 
 function Section({
@@ -71,25 +75,72 @@ function ParticipantRow({
   const contact = localStore.lookupByEmail(email);
   const colorSeed = pickPanelLink(email);
   const displayName = contact?.name ?? name;
+  const subtitle = [contact?.title, contact?.company].filter(Boolean).join(" · ");
 
   return (
-    <div className="flex items-center gap-2 py-1">
-      <Avatar name={displayName} size={24} colorSeed={colorSeed} />
+    <button
+      type="button"
+      aria-label={`Open contact: ${displayName}`}
+      onClick={() => openContactsPanel(contact?.id, allParticipantEmails)}
+      className="group/pr flex w-full items-center gap-2.5 rounded-sm py-1.5 px-1 -mx-1 text-left hover:bg-surface-2 transition-colors"
+    >
+      <Avatar name={displayName} size={32} colorSeed={colorSeed} src={contact?.photoUrl} />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-small text-text-primary">{displayName}</div>
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-small text-text-primary">{displayName}</span>
+          {contact?.importance === "vip" && (
+            <Star size={10} className="shrink-0 fill-amber-500 text-amber-500" />
+          )}
+          {role !== "from" && (
+            <span className="shrink-0 font-mono text-mono-xs text-text-muted">{role}</span>
+          )}
+        </div>
+        {subtitle && (
+          <div className="flex items-center gap-1 text-caption text-text-tertiary truncate">
+            <Building2 size={10} className="shrink-0" />
+            <span className="truncate">{subtitle}</span>
+          </div>
+        )}
         <div className="truncate font-mono text-mono-xs text-text-tertiary">{email}</div>
       </div>
-      {role !== "from" && (
-        <span className="shrink-0 font-mono text-mono-xs text-text-muted">{role}</span>
+      <ChevronRight size={12} className="shrink-0 text-text-muted opacity-0 group-hover/pr:opacity-100 transition-opacity" />
+    </button>
+  );
+}
+
+// ─── Recent threads for a contact ────────────────────────────────────────────
+
+function RecentThreads({ email }: { email: string }) {
+  const contact = localStore.lookupByEmail(email);
+  const msgCount = useContactMessageCount(contact?.id ?? "");
+  const recentMsgs = useContactMessages(contact?.id ?? "", 5);
+  const openContactMessages = useWorkspace((s) => s.openContactMessages);
+  const now = React.useMemo(() => new Date(), []);
+
+  if (!contact || msgCount === 0) return null;
+
+  return (
+    <div className="mt-2 border-t border-border-subtle pt-2">
+      <div className="mb-1.5 text-overline uppercase text-text-tertiary">Recent threads</div>
+      <div className="space-y-0.5">
+        {recentMsgs.map((msg) => (
+          <div key={msg.id} className="flex items-baseline gap-2">
+            <span className="flex-1 truncate text-caption text-text-secondary">{msg.subject || "(no subject)"}</span>
+            <span className="shrink-0 text-caption text-text-muted">
+              {formatRelativeTime(new Date(msg.receivedAt), now)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {msgCount > 5 && (
+        <button
+          type="button"
+          onClick={() => openContactMessages(contact.id)}
+          className="mt-1.5 text-caption text-accent hover:underline"
+        >
+          View all {msgCount} →
+        </button>
       )}
-      <button
-        type="button"
-        aria-label={`Open contact: ${displayName}`}
-        onClick={() => openContactsPanel(contact?.id, allParticipantEmails)}
-        className="shrink-0 rounded-xs border border-border-subtle px-1.5 py-0.5 font-sans text-[10px] font-medium text-text-tertiary hover:border-border-default hover:bg-surface-3 hover:text-text-secondary transition-colors duration-fast"
-      >
-        Open Contact
-      </button>
     </div>
   );
 }
@@ -216,6 +267,7 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
                   allParticipantEmails={allEmails}
                 />
               ))}
+              <RecentThreads email={msg.fromAddr.email} />
             </Section>
           );
         })()}
@@ -249,6 +301,10 @@ export function InspectorPanel({ panelId }: { panelId?: string }) {
             <Button variant="secondary" size="sm" onClick={() => Mut.deleteMessage(localStore, msg.id)}>
               <Trash2 />
               Delete
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => Mut.unreadMessage(localStore, msg.id)}>
+              <MailOpen />
+              Mark unread
             </Button>
           </div>
         </Section>

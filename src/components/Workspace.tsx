@@ -2,12 +2,13 @@ import * as React from "react";
 import { DockviewReact, DockviewDefaultTab } from "dockview";
 import type { DockviewReadyEvent, IDockviewPanelProps, IDockviewPanelHeaderProps } from "dockview";
 import { GripVertical, X } from "lucide-react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
 import { StatusBar } from "@/components/chrome/StatusBar";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { ShortcutHelpModal } from "@/components/chrome/ShortcutHelpModal";
+import { UndoHistoryModal } from "@/components/chrome/UndoHistoryModal";
 import { NavigationPanel } from "@/components/nav/NavigationPanel";
 import { EmailListPanel } from "@/components/email/EmailListPanel";
 import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
@@ -16,8 +17,13 @@ import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
 import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { CalendarPanel } from "@/components/calendar/CalendarPanel";
+import { EventCreateModal } from "@/components/calendar/EventCreateModal";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
+import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
+import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -32,6 +38,7 @@ const ViewerPanel = (props: IDockviewPanelProps) => {
 const InspPanel = (props: IDockviewPanelProps) => <InspectorPanel panelId={props.api.id} />;
 const ContactsPanelWrapper = (props: IDockviewPanelProps) => <ContactsPanel panelId={props.api.id} />;
 const SettingsPanelWrapper = (props: IDockviewPanelProps) => <SettingsPanel panelId={props.api.id} />;
+const CalendarPanelWrapper = (_: IDockviewPanelProps) => <CalendarPanel />;
 
 const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   nav: NavPanel,
@@ -40,6 +47,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
   inspector: InspPanel,
   contacts: ContactsPanelWrapper,
   settings: SettingsPanelWrapper,
+  calendar: CalendarPanelWrapper,
 };
 
 // ─── Custom tab component ─────────────────────────────────────────────────────
@@ -160,6 +168,15 @@ function initLayout(event: DockviewReadyEvent) {
  */
 export function Workspace() {
   const [helpOpen, setHelpOpen] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+
+  const eventCreateModalOpen = useWorkspace((s) => s.eventCreateModalOpen);
+  const eventCreateModalPrefill = useWorkspace((s) => s.eventCreateModalPrefill);
+  const closeEventCreateModal = useWorkspace((s) => s.closeEventCreateModal);
+  // Incrementing this forces re-reads of the module-level undo/redo stacks.
+  const [, setStackVersion] = React.useState(0);
+  const bumpStack = React.useCallback(() => setStackVersion((v) => v + 1), []);
+
   const unread = useTotalInboxUnread();
 
   // Update document title with unread badge
@@ -195,6 +212,81 @@ export function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Global `z` = undo, `Z` (Shift+z) = redo
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+      if (tag === "INPUT" || tag === "TEXTAREA" || isEditable) return;
+      if (e.key === "z") {
+        e.preventDefault();
+        const description = undoLastMutation(localStore);
+        if (description) { toast(`Undone: ${description}`); bumpStack(); }
+      } else if (e.key === "Z") {
+        e.preventDefault();
+        const description = redoLastMutation(localStore);
+        if (description) { toast(`Redone: ${description}`); bumpStack(); }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [bumpStack]);
+
+  // Global navigation chords: "g" then a key (gi, gs, gt, gd, gb, ga, gc).
+  // Works from any panel. The list panel's own handler defers to this one
+  // while a "g" sequence is pending (see isNavSequencePending).
+  React.useEffect(() => {
+    let prefixActive = false;
+    let timer: number | undefined;
+
+    function isEditable(el: EventTarget | null): boolean {
+      const node = el as HTMLElement | null;
+      if (!node) return false;
+      return node.tagName === "INPUT" || node.tagName === "TEXTAREA" || node.isContentEditable;
+    }
+    function resetPrefix() {
+      prefixActive = false;
+      setNavSequencePending(false);
+      if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+    }
+    function goToSystemFolder(systemKind: string) {
+      const label = Array.from(localStore.labels.values()).find(
+        (l) => l.kind === "system" && l.systemKind === systemKind,
+      );
+      if (label) useWorkspace.getState().setSelectedFolder(label.id);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) { resetPrefix(); return; }
+      if (isEditable(document.activeElement) || isEditable(e.target)) { resetPrefix(); return; }
+
+      if (prefixActive) {
+        // Second key of a "g" sequence.
+        prefixActive = false;
+        if (timer !== undefined) { window.clearTimeout(timer); timer = undefined; }
+        const target = navTargetForKey(e.key);
+        if (target) {
+          e.preventDefault();
+          if (target.kind === "folder") goToSystemFolder(target.systemKind);
+          else if (target.kind === "contacts") useWorkspace.getState().openContactsPanel();
+          else if (target.kind === "calendar") useWorkspace.getState().openCalendarPanel();
+        }
+        // Keep the guard set through the end of this event so the list handler
+        // ignores this key regardless of window-listener ordering, then clear.
+        window.setTimeout(() => setNavSequencePending(false), 0);
+        return;
+      }
+
+      if (e.key === NAV_PREFIX) {
+        prefixActive = true;
+        setNavSequencePending(true);
+        timer = window.setTimeout(resetPrefix, 1200);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); resetPrefix(); };
+  }, []);
+
   return (
     <TooltipProvider delayDuration={600}>
       <div
@@ -208,7 +300,7 @@ export function Workspace() {
           }
         }}
       >
-        <WorkspaceChrome />
+        <WorkspaceChrome onShowHistory={() => setHistoryOpen(true)} />
 
         <div className="relative min-h-0 flex-1">
           <DockviewReact
@@ -225,7 +317,22 @@ export function Workspace() {
 
         <StatusBar />
         <CommandPalette />
+        <EventCreateModal
+          open={eventCreateModalOpen}
+          onClose={closeEventCreateModal}
+          prefillDate={eventCreateModalPrefill?.date}
+          prefillAttendees={eventCreateModalPrefill?.attendees}
+          prefillTitle={eventCreateModalPrefill?.title}
+        />
         <ShortcutHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+        <UndoHistoryModal
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          undoHistory={getUndoHistory()}
+          redoHistory={getRedoHistory()}
+          onUndoSteps={(n) => { for (let i = 0; i < n; i++) undoLastMutation(localStore); bumpStack(); }}
+          onRedoSteps={(n) => { for (let i = 0; i < n; i++) redoLastMutation(localStore); bumpStack(); }}
+        />
 
         <Toaster
           position="bottom-right"

@@ -74,8 +74,9 @@ nexus-v2/
 │       ├── nav/                    # NavigationPanel (folder/label/status tree)
 │       ├── filter/                 # FilterBar (query pill UI)
 │       ├── palette/                # CommandPalette (⌘K)
-│       ├── contacts/               # ContactsPanel, ContactCard
-│       ├── settings/               # SettingsPanel, CustomFieldsSettings
+│       ├── calendar/               # CalendarPanel, AgendaView, WeekView, MonthView, MiniMonth, EventDetailPopover, EventCreateModal, EventEditModal, CalendarManagementSection
+│       ├── contacts/               # ContactsPanel, ContactCard, ContactHoverCard
+│       ├── settings/               # SettingsPanel, CustomFieldsSettings, EventTemplatesSettings
 │       ├── views/                  # TableView, KanbanView
 │       ├── onboarding/             # VaultSetup, GmailConnect
 │       ├── panel/                  # Panel, PanelHeader, PanelEmpty (dockview wrappers)
@@ -297,6 +298,9 @@ The vault database lives at `{vault_path}/.nexus/db.sqlite` and is encrypted wit
 | `relay_state` | Relay URL, last pulled sequence number |
 | `enroll_sessions` | Active enrollment sessions (code hash, encrypted vault key) |
 | `vacation_responders` | Per-account auto-reply config: subject, body_html, date range, contacts_only, sent_to dedup list |
+| `calendars` | Connected Google Calendars: externalId, name, color, enabled toggle (EP-11) |
+| `calendar_events` | Calendar event instances with 9 extra columns from EP-12 (conference_url, color_id, ical_uid, recurring_event_id, creator_email, visibility, transparency, reminders_json, attachments_json) |
+| `event_templates` | Reusable event presets: name, title, description, location, duration_minutes, default_attendees_json (EP-13) |
 
 ### Column migrations
 
@@ -549,6 +553,109 @@ deleteTemplateMutation(templateId)
 ```
 
 **UI:** `TemplatesSettings.tsx` in `src/components/settings/`. Composer toolbar "Insert template" button in `EmailComposerPanel.tsx`.
+
+---
+
+## Calendar (EP-11, EP-12, EP-13)
+
+### IPC
+
+```ts
+// EP-11
+const events = await getCalendarEvents(vaultId, startMs, endMs);
+await createCalendarEvent(vaultId, accountId, calendarId, event);
+await updateCalendarEvent({ accountId, externalId, startTs, endTs, allDay });
+await deleteCalendarEvent(eventId, vaultId);
+await syncGoogleCalendar(accountId);
+
+// EP-13
+const templates = await getEventTemplates(vaultId);
+await saveEventTemplate(vaultId, template);
+await deleteEventTemplate(templateId, vaultId);
+```
+
+**Important:** `updateCalendarEvent` takes `externalId` (the Google Calendar event ID), not the Nexus internal `id`. Using `id` silently fails to push the change to Google.
+
+### Mutation helpers
+
+```ts
+// Always use these — not the IPC directly
+saveEventTemplateMutation(template)     // src/state/mutations.ts
+deleteEventTemplateMutation(templateId)
+rescheduleCalendarEvent(store, eventId, newStartTs, newEndTs) // optimistic; call again with originals to roll back
+```
+
+### Event color
+
+`src/lib/calendarColors.ts` exports `eventColor(colorId?: string): string`. Maps Google colorId "1"–"11" to their hex equivalents (Tomato, Flamingo, Tangerine, Banana, Sage, Basil, Peacock, Blueberry, Lavender, Grape, Graphite). Falls back to `var(--color-accent)` for missing/null values. Use this function everywhere an event needs a color — never hardcode hex values.
+
+### WeekView overlap layout
+
+`WeekView.tsx` uses a greedy two-pass column assignment via `layoutDayEvents()`:
+- Pass 1: assign `col` index to each event (the first free column slot)
+- Pass 2: compute `cols` (total concurrent column count) for each event to determine width
+
+`HOUR_HEIGHT = 56` px. Total grid height = `HOUR_HEIGHT * 24` = 1344 px.
+
+### EventCreateModal prefill
+
+Any component can open the event creation modal pre-filled with data:
+```ts
+const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
+openEventCreateModal({ date?: string, attendees?: string[], title?: string });
+```
+
+The modal is mounted at `Workspace.tsx` root so it renders even when `CalendarPanel` is closed. The EmailComposerPanel uses this to create an event pre-filled with all current recipients.
+
+### Drag-to-reschedule rollback
+
+Both `WeekView` and `MonthView` do an optimistic local update first, then push to Google:
+1. `rescheduleCalendarEvent(store, id, newStart, newEnd)` — updates local store immediately
+2. `updateCalendarEvent({ accountId, externalId, startTs, endTs, allDay })` — pushes to Google
+3. On IPC failure: `rescheduleCalendarEvent(store, id, origStart, origEnd)` — rolls back
+
+Recurring events (`recurringEventId` set) have `draggable={false}` — rescheduling a recurring instance via simple timestamp-swap corrupts the series on Google's side.
+
+---
+
+## Contacts (EP-3 + inter-epic improvements)
+
+### ContactHoverCard
+
+`ContactHoverCard` wraps any element that should trigger a contact hover card on mouseenter:
+
+```tsx
+import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
+
+<ContactHoverCard contact={contact}>
+  <span>{contact.name}</span>
+</ContactHoverCard>
+```
+
+`contact` is a `Contact | null` resolved by the caller (typically `localStore.contacts.get(id)` or found by email address). Returns `null` = hover card disabled (renders children as-is).
+
+### useContactMessages hook
+
+```ts
+import { useContactMessages } from "@/storage/useStore";
+const messages = useContactMessages(contactId, 5); // latest 5 messages from/to this contact
+```
+
+Returns messages where `fromAddr` or any `toAddrs` matches the contact's primary email, sorted by `receivedAt` descending.
+
+### vCard import/export
+
+```ts
+import { parseVcf, serializeVcf } from "@/lib/vcard";
+
+// Parse a .vcf file string → array of partial Contact objects
+const contacts = parseVcf(vcfText);
+
+// Serialize contacts → .vcf string for download/export
+const vcfText = serializeVcf(selectedContacts);
+```
+
+Implements RFC 2426 vCard 3.0. Supported properties: FN, EMAIL, TEL, ORG, TITLE, URL, BDAY, ADR, NOTE, CATEGORIES, X-VIP. Line folding and property escaping are handled automatically.
 
 ---
 

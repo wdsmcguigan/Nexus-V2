@@ -14,6 +14,7 @@ import {
   X,
   ChevronDown,
   FileText,
+  CalendarDays,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -276,9 +277,11 @@ export function EmailComposerPanel() {
   const setComposerOpen = useWorkspace((s) => s.setComposerOpen);
   const composerContext = useWorkspace((s) => s.composerContext);
   const archive = useWorkspace((s) => s.archive);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
 
   const replyMsg = composerContext?.replyToMessage ?? null;
   const mode = composerContext?.mode ?? null;
+  const prefilledTo = composerContext?.prefilledTo ?? null;
   const _draftKey = draftKey(replyMsg?.id ?? null);
   const _draft = React.useMemo(() => loadDraft(_draftKey), []); // load once on mount
   const sendAndArchiveRef = React.useRef(false);
@@ -289,6 +292,7 @@ export function EmailComposerPanel() {
 
   const [recipients, setRecipients] = React.useState<string[]>(() => {
     if (_draft) return _draft.recipients;
+    if (prefilledTo) return prefilledTo;
     if (!replyMsg || mode === "forward") return [];
     if (mode === "reply") return [replyMsg.fromAddr.email];
     const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";
@@ -408,6 +412,7 @@ export function EmailComposerPanel() {
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
           attachments: attachmentPayloads,
+          icalReply: composerContext?.icalReply,
         });
         clearDraft(_draftKey);
         toast.success("Sent");
@@ -632,6 +637,13 @@ export function EmailComposerPanel() {
           <ToolbarBtn icon={ListOrdered} label="Numbered list" active={editor?.isActive("orderedList")} onClick={() => editor?.chain().focus().toggleOrderedList().run()} />
           <ToolbarBtn icon={Quote} label="Blockquote" active={editor?.isActive("blockquote")} onClick={() => editor?.chain().focus().toggleBlockquote().run()} />
           <ToolbarBtn icon={Code} label="Inline code" active={editor?.isActive("code")} onClick={() => editor?.chain().focus().toggleCode().run()} />
+          <span className="mx-1 h-4 w-px bg-border-default" />
+          <ToolbarBtn
+            icon={CalendarDays}
+            label="Create calendar event from this email"
+            active={false}
+            onClick={() => openEventCreateModal({ attendees: [...recipients, ...ccRecipients] })}
+          />
           {templates.length > 0 && (
             <>
               <span className="mx-1 h-4 w-px bg-border-default" />

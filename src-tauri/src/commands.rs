@@ -44,6 +44,43 @@ pub async fn load_vault_data(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_messages_for_label(
+    state: State<'_, AppState>,
+    label_id: String,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    db_guard
+        .as_ref()
+        .ok_or_else(|| "DB not open".to_string())?
+        .load_messages_for_label(&vault_id, &label_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Read the raw RFC 822 source of a message from its on-disk `.eml` file.
+/// Returns None when no `.eml` exists (e.g. traditional mode, where the
+/// frontend falls back to reconstructed headers).
+#[tauri::command]
+pub async fn get_message_source(
+    state: State<'_, AppState>,
+    message_id: String,
+) -> std::result::Result<Option<String>, String> {
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let eml_path = {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        db_guard
+            .as_ref()
+            .ok_or_else(|| "DB not open".to_string())?
+            .get_message_eml_path(&vault_id, &message_id)
+            .map_err(|e| e.to_string())?
+    };
+    match eml_path {
+        Some(path) => std::fs::read_to_string(&path).map(Some).map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
 /// Read the client mode from the vault's .nexus-mode file.
 /// Returns "traditional" if the file is absent or unreadable (safe default).
 pub fn read_client_mode(vault_path: &str) -> String {
@@ -248,7 +285,17 @@ pub async fn list_accounts(
 pub async fn get_vault_path(
     state: State<'_, AppState>,
 ) -> std::result::Result<Option<String>, String> {
-    Ok(state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone())
+    // Prefer in-memory state (set after init_vault runs).
+    // Fall back to the on-disk file so calls that race the startup init hook
+    // still return the saved path instead of None → prevents spurious Welcome screen.
+    let in_memory = state.vault_path.lock().map_err(|_| "vault_path lock poisoned".to_string())?.clone();
+    if in_memory.is_some() {
+        return Ok(in_memory);
+    }
+    Ok(dirs::data_local_dir()
+        .map(|d| d.join("Nexus").join("vault_path.txt"))
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|s| expand_tilde(s.trim())))
 }
 
 #[tauri::command]
@@ -322,7 +369,7 @@ pub async fn start_gmail_oauth(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "gmail", &token_resp.email, Some(&token_resp.email))
+        db.upsert_account(&account_id, &vault_id, "gmail", &token_resp.email, Some(&token_resp.email), token_resp.photo_url.as_deref())
             .map_err(|e| e.to_string())?;
         if let Some(rt) = &token_resp.refresh_token {
             db.save_tokens(&account_id, &token_resp.access_token, rt, expires_at)
@@ -344,22 +391,46 @@ pub async fn start_gmail_oauth(
             .to_string_lossy()
             .into_owned();
 
+        let http = reqwest::Client::new();
+
+        // Fetch Google Contacts photos in parallel with initial mail sync
+        let photos_future = crate::gmail::contacts::fetch_contact_photos(&http, &access_token);
+
         let syncer = GmailSyncer::new(
-            account_id_clone,
-            vault_id_clone,
-            access_token,
+            account_id_clone.clone(),
+            vault_id_clone.clone(),
+            access_token.clone(),
             std::path::Path::new(&vault_path),
             client_mode,
             app_handle.clone(),
         );
 
-        match syncer.initial_sync_with_db(&db_path).await {
-            Ok(stats) => {
-                log::info!("Initial sync complete: {stats:?}");
-                let _ = app_handle.emit("vault:hydrate-needed", ());
-            }
+        let (sync_result, photos_result) = tokio::join!(
+            syncer.initial_sync_with_db(&db_path),
+            photos_future,
+        );
+
+        match sync_result {
+            Ok(stats) => log::info!("Initial sync complete: {stats:?}"),
             Err(e) => log::error!("Initial sync failed: {e}"),
         }
+
+        // Save contact photos (own profile photo already stored via userinfo in upsert_account)
+        match photos_result {
+            Ok(photos) => {
+                let db = match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(d) => d,
+                    Err(e) => { log::warn!("Could not open DB for contact photos: {e}"); return; }
+                };
+                if let Err(e) = db.update_contact_photos(&vault_id_clone, &photos) {
+                    log::warn!("update_contact_photos error: {e}");
+                }
+                log::info!("Synced {} Google Contact photos", photos.len());
+            }
+            Err(e) => log::warn!("Google Contacts fetch failed: {e}"),
+        }
+
+        let _ = app_handle.emit("vault:hydrate-needed", ());
     });
 
     Ok(OAuthResult {
@@ -466,6 +537,85 @@ pub async fn sync_gmail_now(
 
     let _ = app.emit("vault:hydrate-needed", ());
     Ok(stats)
+}
+
+/// Backfill the profile photo for a Gmail account and refresh all contact photos.
+/// Safe to call for existing accounts that predate the photo_url column.
+#[tauri::command]
+pub async fn refresh_account_photos(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    let vault_path = state
+        .vault_path
+        .lock()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
+        .clone()
+        .ok_or("No vault loaded")?;
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+
+    // Only Gmail accounts have People API / userinfo
+    let provider = {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or("DB not open")?;
+        db.conn
+            .query_row(
+                "SELECT provider FROM accounts WHERE id = ?1",
+                rusqlite::params![&account_id],
+                |r| r.get::<_, String>(0),
+            )
+            .map_err(|e| e.to_string())?
+    };
+    if provider != "gmail" {
+        return Ok(());
+    }
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let vault_id_clone = vault_id.clone();
+    let account_id_clone = account_id.clone();
+    let app_handle = app.clone();
+
+    tokio::spawn(async move {
+        let http = reqwest::Client::new();
+
+        // Fetch own profile photo
+        match crate::gmail::oauth::fetch_userinfo(&http, &access_token).await {
+            Ok((_, Some(photo_url))) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        if let Err(e) = db.update_account_photo(&account_id_clone, &photo_url) {
+                            log::warn!("update_account_photo error: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
+                }
+            }
+            Ok((_, None)) => {}
+            Err(e) => log::warn!("fetch_userinfo error: {e}"),
+        }
+
+        // Refresh contact photos via People API
+        match crate::gmail::contacts::fetch_contact_photos(&http, &access_token).await {
+            Ok(photos) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        if let Err(e) = db.update_contact_photos(&vault_id_clone, &photos) {
+                            log::warn!("update_contact_photos error: {e}");
+                        } else {
+                            log::info!("Refreshed {} contact photos", photos.len());
+                        }
+                    }
+                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
+                }
+            }
+            Err(e) => log::warn!("fetch_contact_photos error: {e}"),
+        }
+
+        let _ = app_handle.emit("vault:hydrate-needed", ());
+    });
+
+    Ok(())
 }
 
 /// Batch re-fetch HTML bodies for all messages missing from message_bodies.
@@ -1007,7 +1157,7 @@ pub async fn add_imap_account(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "imap", &email, display_name.as_deref())
+        db.upsert_account(&account_id, &vault_id, "imap", &email, display_name.as_deref(), None)
             .map_err(|e| e.to_string())?;
         db.save_settings_json(&account_id, &settings.to_string())
             .map_err(|e| e.to_string())?;
@@ -1228,7 +1378,7 @@ pub async fn start_outlook_oauth(
     {
         let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
         let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
-        db.upsert_account(&account_id, &vault_id, "imap", &email, Some(&email))
+        db.upsert_account(&account_id, &vault_id, "imap", &email, Some(&email), None)
             .map_err(|e| e.to_string())?;
 
         let settings = serde_json::json!({
@@ -1606,6 +1756,38 @@ pub async fn delete_template(
 }
 
 #[tauri::command]
+pub async fn get_event_templates(
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<JsonValue>, String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.get_event_templates(&vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_event_template(
+    vault_id: String,
+    template: JsonValue,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.upsert_event_template(&vault_id, &template).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_event_template(
+    id: String,
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.delete_event_template(&id, &vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn send_unsubscribe(
     message_id: String,
     state: State<'_, AppState>,
@@ -1792,4 +1974,261 @@ pub async fn delete_vacation_responder(
     let guard = state.db.lock().map_err(|e| e.to_string())?;
     let db = guard.as_ref().ok_or("Vault not open")?;
     db.delete_vacation_responder(&account_id).map_err(|e| e.to_string())
+}
+
+/// Sync full Google Contacts for the given account via the People API.
+/// Uses delta sync tokens for efficiency on subsequent calls.
+/// Returns the number of contacts upserted.
+#[tauri::command]
+pub async fn sync_google_contacts(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<u32, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+
+    // Load existing sync token (delta sync)
+    let sync_token: Option<String> = {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.get_contacts_sync(&account_id)
+            .map_err(|e| e.to_string())?
+            .and_then(|(token, _)| token)
+    };
+
+    let http = reqwest::Client::new();
+    let (contacts, next_sync_token) = crate::gmail::contacts::fetch_google_contacts(
+        &http,
+        &access_token,
+        &vault_id,
+        sync_token.as_deref(),
+    ).await.map_err(|e| e.to_string())?;
+
+    let count = contacts.len() as u32;
+    let now = chrono::Utc::now().timestamp_millis();
+
+    {
+        let db = crate::db::VaultDb::open(&vault_path, "nexus")
+            .map_err(|e| e.to_string())?;
+        for contact in &contacts {
+            db.upsert_contact(&vault_id, contact).map_err(|e| e.to_string())?;
+        }
+        db.upsert_contacts_sync(&account_id, next_sync_token.as_deref(), now)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    log::info!("sync_google_contacts: upserted {count} contacts for account {account_id}");
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn sync_google_calendar(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<u32, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+
+    // Load existing sync token for delta sync
+    let sync_token: Option<String> = {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.get_calendar_sync(&account_id).map_err(|e| e.to_string())?
+    };
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let day_ms: i64 = 86_400_000;
+    let time_min = chrono::DateTime::from_timestamp_millis(now_ms - 14 * day_ms)
+        .unwrap_or_default()
+        .format("%Y-%m-%dT00:00:00Z")
+        .to_string();
+    let time_max = chrono::DateTime::from_timestamp_millis(now_ms + 90 * day_ms)
+        .unwrap_or_default()
+        .format("%Y-%m-%dT00:00:00Z")
+        .to_string();
+
+    let http = reqwest::Client::new();
+    let fetch_result = crate::gmail::calendar::fetch_google_calendar_events(
+        &http,
+        &access_token,
+        &vault_id,
+        &account_id,
+        sync_token.as_deref(),
+        &time_min,
+        &time_max,
+    ).await;
+
+    // If the syncToken expired (410 Gone), retry with a full sync
+    let (events, next_sync_token) = match fetch_result {
+        Ok(r) => r,
+        Err(e) if e.to_string().contains("syncToken expired") => {
+            log::info!("sync_google_calendar: syncToken expired, falling back to full sync");
+            crate::gmail::calendar::fetch_google_calendar_events(
+                &http, &access_token, &vault_id, &account_id,
+                None, &time_min, &time_max,
+            ).await.map_err(|e| e.to_string())?
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let count = events.len() as u32;
+    {
+        let db = crate::db::VaultDb::open(&vault_path, "nexus")
+            .map_err(|e| e.to_string())?;
+        for event in &events {
+            if event["status"].as_str() == Some("cancelled") {
+                let id = event["id"].as_str().unwrap_or_default();
+                db.delete_calendar_event(id).map_err(|e| e.to_string())?;
+            } else {
+                db.upsert_calendar_event(&vault_id, event).map_err(|e| e.to_string())?;
+            }
+        }
+        db.upsert_calendar_sync(&account_id, next_sync_token.as_deref(), now_ms)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    log::info!("sync_google_calendar: processed {count} events for account {account_id}");
+    Ok(count)
+}
+
+#[tauri::command]
+pub async fn create_calendar_event(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+    title: String,
+    start_ts: i64,
+    end_ts: i64,
+    all_day: bool,
+    location: Option<String>,
+    description: Option<String>,
+    attendee_emails: Vec<String>,
+) -> std::result::Result<String, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+
+    let event = crate::gmail::calendar::create_google_calendar_event(
+        &client, &access_token, &vault_id, &account_id,
+        &title, start_ts, end_ts, all_day,
+        location.as_deref(), description.as_deref(), &attendee_emails,
+    ).await.map_err(|e| e.to_string())?;
+
+    let event_id = event["id"].as_str().unwrap_or("").to_owned();
+
+    let db = crate::db::VaultDb::open(&vault_path, "nexus").map_err(|e| e.to_string())?;
+    db.upsert_calendar_event(&vault_id, &event).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(event_id)
+}
+
+#[tauri::command]
+pub async fn update_calendar_event(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+    external_id: String,
+    title: Option<String>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    all_day: Option<bool>,
+    location: Option<String>,
+    description: Option<String>,
+    attendee_emails: Option<Vec<String>>,
+) -> std::result::Result<(), String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+
+    let event = crate::gmail::calendar::update_google_calendar_event(
+        &client, &access_token, &vault_id, &account_id,
+        &external_id,
+        title.as_deref(), start_ts, end_ts, all_day,
+        location.as_deref(), description.as_deref(),
+        attendee_emails.as_deref(),
+    ).await.map_err(|e| e.to_string())?;
+
+    let db = crate::db::VaultDb::open(&vault_path, "nexus").map_err(|e| e.to_string())?;
+    db.upsert_calendar_event(&vault_id, &event).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_calendar_list(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+    crate::gmail::calendar::fetch_google_calendar_list(&client, &access_token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_calendar_events(
+    state: State<'_, AppState>,
+    query: String,
+    vault_id: String,
+    limit: usize,
+) -> std::result::Result<Vec<String>, String> {
+    let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.search_calendar_fts5(&query, &vault_id, limit)
+        .map_err(|e| e.to_string())
 }

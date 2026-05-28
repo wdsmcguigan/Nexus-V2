@@ -38,6 +38,9 @@ import {
   Columns2,
   User,
   MessagesSquare,
+  Users,
+  Calendar as CalendarIcon,
+  Plus,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
@@ -80,6 +83,8 @@ export function CommandPalette() {
   const openComposer = useWorkspace((s) => s.openComposer);
   const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
   const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
+  const openCalendarPanel = useWorkspace((s) => s.openCalendarPanel);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
   const togglePin = useWorkspace((s) => s.togglePin);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const toggleThreadedView = useWorkspace((s) => s.toggleThreadedView);
@@ -411,6 +416,9 @@ export function CommandPalette() {
     all.push({ id: "density-comfortable", label: "Density: Comfortable", group: "Workspace", icon: Rows3, perform: () => setDensity("comfortable" as Density) });
     all.push({ id: "density-cozy", label: "Density: Cozy", group: "Workspace", icon: Rows2, perform: () => setDensity("cozy" as Density) });
     all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => openSettingsPanel() });
+    all.push({ id: "contacts", label: "Open Contacts", group: "Workspace", icon: Users, perform: () => openContactsPanel() });
+    all.push({ id: "calendar", label: "Open Calendar", group: "Workspace", icon: CalendarIcon, perform: () => openCalendarPanel() });
+    all.push({ id: "new-event", label: "New Calendar Event", group: "Workspace", icon: Plus, perform: () => openEventCreateModal() });
 
     // ── Workspaces ──────────────────────────────────────────────────
     all.push({
@@ -630,6 +638,53 @@ export function CommandPalette() {
                         ))}
                       </Command.Group>
                     )}
+                    {(() => {
+                      const eventResults = Array.from(localStore.calendarEvents.values())
+                        .filter((e) => e.status !== "cancelled" && (
+                          e.title.toLowerCase().includes(q.toLowerCase()) ||
+                          (e.description ?? "").toLowerCase().includes(q.toLowerCase()) ||
+                          (e.location ?? "").toLowerCase().includes(q.toLowerCase())
+                        ))
+                        .slice(0, 5);
+                      if (!eventResults.length) return null;
+                      return (
+                        <Command.Group
+                          heading="Events"
+                          className={cn(
+                            "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2",
+                            "[&_[cmdk-group-heading]]:text-overline [&_[cmdk-group-heading]]:uppercase",
+                            "[&_[cmdk-group-heading]]:text-text-tertiary",
+                          )}
+                        >
+                          {eventResults.map((ev) => {
+                            const evDate = new Date(ev.startTs).toLocaleDateString("default", {
+                              month: "short", day: "numeric",
+                            });
+                            return (
+                              <Command.Item
+                                key={ev.id}
+                                value={`event-${ev.id}-${ev.title}`}
+                                onSelect={() => {
+                                  openCalendarPanel();
+                                  useWorkspace.getState().setCalendarFocusDate(new Date(ev.startTs).toISOString().slice(0, 10));
+                                  setOpen(false);
+                                }}
+                                className={cn(
+                                  "flex h-9 cursor-default items-center gap-2 rounded-sm px-2",
+                                  "text-body text-text-primary",
+                                  "data-[selected=true]:bg-surface-3",
+                                  "transition-colors duration-fast",
+                                )}
+                              >
+                                <CalendarIcon size={14} className="shrink-0 text-text-tertiary" />
+                                <span className="flex-1 truncate">{ev.title}</span>
+                                <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">{evDate}</span>
+                              </Command.Item>
+                            );
+                          })}
+                        </Command.Group>
+                      );
+                    })()}
                   </>
                 );
               })()}

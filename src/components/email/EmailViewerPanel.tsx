@@ -8,8 +8,8 @@ import {
   ShieldCheck,
   ImageIcon,
   Mail,
+  MailOpen,
   MailX,
-  Star,
   Archive,
   Trash2,
   Pin,
@@ -24,10 +24,17 @@ import {
   BellOff,
   Printer,
   FileDown,
+  AlarmClock,
+  ShieldAlert,
+  Fish,
+  Filter,
+  Languages,
+  Code,
+  X,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { SnoozePopover } from "@/components/email/SnoozePopover";
 import { LabelPickerPopover } from "@/components/email/LabelPickerPopover";
+import { RuleEditorDialog } from "@/components/settings/RuleEditorDialog";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -42,7 +49,7 @@ import { localStore } from "@/storage/local";
 import { toast } from "sonner";
 import { readMessage } from "@/state/mutations";
 import * as Mut from "@/state/mutations";
-import { isTauri, getMessageBody, downloadAttachment, sendUnsubscribe } from "@/storage/tauri";
+import { isTauri, getMessageBody, downloadAttachment, sendUnsubscribe, getMessageSource } from "@/storage/tauri";
 import { printMessages } from "@/lib/print";
 import { exportMessageEml, exportMessagesAsMbox } from "@/lib/export";
 import { loadBodies } from "@/lib/loadBodies";
@@ -51,6 +58,9 @@ import { getAppPreferences } from "@/lib/appPreferences";
 import { getAccountPreferences, type AccountPreferences } from "@/storage/tauri";
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
+import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
+import { parseIcsInvite, buildIcalReply } from "@/lib/icalUtils";
+import { Calendar, CheckCircle, HelpCircle, XCircle } from "lucide-react";
 
 // ─── Shared email body renderer ──────────────────────────────────────────────
 // Uses contentDocument.write() + useLayoutEffect so height is measured
@@ -61,8 +71,8 @@ const IFRAME_CSS =
   `html{margin:0;padding:0;overflow-x:hidden}` +
   `body{margin:0;padding:0;background:#fff;color:#1a1a1a;font-size:14px;line-height:1.6;overflow-x:hidden;word-break:break-word}` +
   `img{max-width:100%!important;height:auto!important}` +
-  `table{max-width:100%!important;word-break:break-word}` +
-  `td,th{max-width:0;word-break:break-word}` +
+  `table{max-width:100%!important;border-collapse:collapse}` +
+  `td,th{word-break:break-word;overflow-wrap:anywhere}` +
   `a{color:#2563eb}`;
 
 // Applied AFTER DOMPurify so attribute structure is already clean.
@@ -140,6 +150,7 @@ function EmailBody({ html, title, imagesShown }: { html: string; title: string; 
 function ThreadMessageRow({ msg }: { msg: Message }) {
   const [expanded, setExpanded] = React.useState(false);
   const colorSeed = pickPanelLink(msg.fromAddr.email);
+  const senderContact = useContactByEmail(msg.fromAddr.email);
   const [body, setBody] = React.useState<string | null>(
     () => bodyStore.get(msg.bodyRef) ?? null
   );
@@ -163,7 +174,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2 transition-colors duration-fast"
       >
-        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} />
+        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} src={senderContact?.photoUrl} />
         <div className="min-w-0 flex-1">
           {expanded ? (
             <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
@@ -199,6 +210,130 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
   );
 }
 
+// ─── Calendar invite card ─────────────────────────────────────────────────────
+
+function CalendarInviteCard({ msg }: { msg: Message }) {
+  const openComposer = useWorkspace((s) => s.openComposer);
+  const [rsvped, setRsvped] = React.useState<"ACCEPTED" | "DECLINED" | "TENTATIVE" | null>(null);
+
+  const invite = React.useMemo(
+    () => (msg.icalData ? parseIcsInvite(msg.icalData) : null),
+    [msg.icalData],
+  );
+
+  if (!invite || invite.method === "REPLY") return null;
+
+  const account = Array.from(localStore.accounts.values())[0];
+  const userEmail = account?.email ?? "";
+
+  function formatInviteTime(): string {
+    if (invite!.allDay) {
+      return new Date(invite!.startTs).toLocaleDateString("default", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+    }
+    const start = new Date(invite!.startTs);
+    const end = new Date(invite!.endTs);
+    const date = start.toLocaleDateString("default", { weekday: "short", month: "short", day: "numeric" });
+    const s = start.toLocaleTimeString("default", { hour: "numeric", minute: "2-digit" });
+    const e = end.toLocaleTimeString("default", { hour: "numeric", minute: "2-digit" });
+    return `${date} · ${s} – ${e}`;
+  }
+
+  function handleRsvp(partstat: "ACCEPTED" | "DECLINED" | "TENTATIVE") {
+    if (!invite) return;
+    setRsvped(partstat);
+    const event = {
+      id: `cal-${invite.uid}`,
+      vaultId: localStore.vault?.id ?? "local",
+      accountId: account?.id ?? "local",
+      calendarId: "primary",
+      externalId: invite.uid,
+      title: invite.title,
+      description: invite.description,
+      location: invite.location,
+      startTs: invite.startTs,
+      endTs: invite.endTs,
+      allDay: invite.allDay,
+      status: "confirmed" as const,
+      organizerEmail: invite.organizer,
+      attendees: invite.attendees.map((a) => ({
+        email: a.email,
+        name: a.name,
+        responseStatus: a.partstat?.toLowerCase() === "accepted" ? "accepted" as const
+          : a.partstat?.toLowerCase() === "declined" ? "declined" as const
+          : a.partstat?.toLowerCase() === "tentative" ? "tentative" as const
+          : "needsAction" as const,
+        self: a.email.toLowerCase() === userEmail.toLowerCase(),
+        organizer: a.email.toLowerCase() === invite!.organizer.toLowerCase(),
+      })),
+      sourceMessageId: msg.id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    Mut.recordMutation("UPSERT_CALENDAR_EVENT", { event });
+    const replyIcs = buildIcalReply(invite, userEmail, partstat);
+    openComposer({
+      prefilledTo: [invite.organizer],
+      icalReply: replyIcs,
+    });
+  }
+
+  return (
+    <div className="mx-4 mt-4 shrink-0 rounded-md border border-border-default bg-surface-2 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <Calendar size={20} className="mt-0.5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <p className="font-sans text-body-strong text-text-primary leading-snug">{invite.title}</p>
+          <p className="mt-0.5 font-sans text-small text-text-secondary">{formatInviteTime()}</p>
+          {invite.location && (
+            <p className="mt-0.5 font-sans text-small text-text-tertiary truncate">{invite.location}</p>
+          )}
+          <p className="mt-0.5 font-sans text-caption text-text-muted">
+            {invite.organizer} · {invite.attendees.length} attendee{invite.attendees.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+      </div>
+      {rsvped ? (
+        <p className={cn(
+          "mt-2 font-sans text-small",
+          rsvped === "ACCEPTED" ? "text-success" : rsvped === "DECLINED" ? "text-danger" : "text-amber-500",
+        )}>
+          {rsvped === "ACCEPTED" ? "✓ Accepted" : rsvped === "DECLINED" ? "✗ Declined" : "? Tentative"}
+          {" — reply composer opened"}
+        </p>
+      ) : (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleRsvp("ACCEPTED")}
+            className="inline-flex items-center gap-1 rounded-sm border border-success px-2.5 py-1 font-sans text-small text-success hover:bg-success hover:text-white transition-colors"
+          >
+            <CheckCircle size={13} />
+            Accept
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRsvp("TENTATIVE")}
+            className="inline-flex items-center gap-1 rounded-sm border border-amber-500 px-2.5 py-1 font-sans text-small text-amber-500 hover:bg-amber-500 hover:text-white transition-colors"
+          >
+            <HelpCircle size={13} />
+            Tentative
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRsvp("DECLINED")}
+            className="inline-flex items-center gap-1 rounded-sm border border-danger px-2.5 py-1 font-sans text-small text-danger hover:bg-danger hover:text-white transition-colors"
+          >
+            <XCircle size={13} />
+            Decline
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const globalSelectedEmailId = useWorkspace((s) => s.selectedEmailId);
   const pinnedEmailId = useWorkspace((s) => s.viewerPinState[panelId] ?? null);
@@ -215,6 +350,11 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   const [imagesShown, setImagesShown] = React.useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = React.useState(false);
   const [accountPrefs, setAccountPrefs] = React.useState<AccountPreferences | null>(null);
+  const [showRuleDialog, setShowRuleDialog] = React.useState(false);
+  const [translatedBody, setTranslatedBody] = React.useState<string | null>(null);
+  const [translating, setTranslating] = React.useState(false);
+  const [showSourceModal, setShowSourceModal] = React.useState(false);
+  const [sourceContent, setSourceContent] = React.useState<string | null | "loading">("loading");
 
   // Auto-mark as read based on user preference (markReadAfterMs; -1 = never)
   React.useEffect(() => {
@@ -235,6 +375,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   );
   React.useEffect(() => {
     if (!msg) return;
+    setTranslatedBody(null);
     const cached = bodyStore.get(msg.bodyRef);
     if (cached) { setBodyHtml(cached); return; }
     if (!isTauri()) { setBodyHtml(""); return; }
@@ -339,6 +480,41 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
   const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
+  const renderedBody = translatedBody ?? bodyHtml;
+
+  async function handleTranslate() {
+    if (!msg) return;
+    const key = getAppPreferences().translateApiKey.trim();
+    if (!key) {
+      toast.error("Add a Google Translate API key in Settings → Preferences");
+      return;
+    }
+    const source = bodyHtml || msg.snippet;
+    if (!source) {
+      toast.error("Nothing to translate");
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res = await fetch(
+        `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: source, target: "en", format: "html" }),
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const translated = data?.data?.translations?.[0]?.translatedText;
+      if (typeof translated !== "string") throw new Error("Unexpected API response");
+      setTranslatedBody(translated);
+    } catch (e) {
+      toast.error(`Translation failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTranslating(false);
+    }
+  }
 
   return (
     <Panel
@@ -373,58 +549,15 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                   {inspectorOpen ? <PanelRightClose size={12} /> : <PanelRight size={12} />}
                 </Button>
               </Tooltip>
-              <Tooltip label={msg.star ? "Unstar" : "Star"} shortcut="S">
+              <Tooltip label="Mark as unread">
                 <Button
                   variant="ghost"
                   size="sm"
                   iconOnly
-                  aria-label="Star"
-                  className={msg.star ? "text-accent" : ""}
-                  onClick={() => { if (msg.star) Mut.clearStar(localStore, msg.id); else Mut.setStar(localStore, msg.id, "yellow"); }}
+                  aria-label="Mark as unread"
+                  onClick={() => Mut.unreadMessage(localStore, msg.id)}
                 >
-                  <Star />
-                </Button>
-              </Tooltip>
-              <SnoozePopover messageId={msg.id} />
-              <Tooltip label="Archive" shortcut="E">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Archive"
-                  onClick={() => {
-                    const id = msg.id;
-                    Mut.archiveMessage(localStore, id);
-                    toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
-                  }}
-                >
-                  <Archive />
-                </Button>
-              </Tooltip>
-              <Tooltip label="Delete" shortcut="#">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label="Delete"
-                  onClick={() => {
-                    Mut.deleteMessage(localStore, msg.id);
-                    toast("Moved to Trash");
-                  }}
-                >
-                  <Trash2 />
-                </Button>
-              </Tooltip>
-              <Tooltip label={msg.muted ? "Unmute thread" : "Mute thread"}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  aria-label={msg.muted ? "Unmute" : "Mute"}
-                  className={msg.muted ? "text-accent" : ""}
-                  onClick={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
-                >
-                  {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
+                  <MailOpen size={12} />
                 </Button>
               </Tooltip>
               <span className="mx-1 h-4 w-px bg-border-subtle" />
@@ -445,12 +578,114 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                     align="end"
                     className="z-50 min-w-[180px] overflow-hidden rounded-md border border-border-subtle bg-surface-2 p-1 shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95"
                   >
+                    {/* Snooze */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const d = new Date();
+                        d.setDate(d.getDate() + 1);
+                        d.setHours(8, 0, 0, 0);
+                        Mut.snoozeMessage(localStore, msg.id, d.getTime());
+                        toast("Snoozed until tomorrow");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <AlarmClock size={12} />
+                      Snooze to tomorrow
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    {/* Archive */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.archiveMessage(localStore, id);
+                        toast("Archived", { action: { label: "Undo", onClick: () => unarchive(id) } });
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Archive size={12} />
+                      Archive
+                    </DropdownMenu.Item>
+                    {/* Mute */}
+                    <DropdownMenu.Item
+                      onSelect={() => Mut.setMuted(localStore, msg.id, !msg.muted)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      {msg.muted ? <Bell size={12} /> : <BellOff size={12} />}
+                      {msg.muted ? "Unmute thread" : "Mute thread"}
+                    </DropdownMenu.Item>
+                    {/* Delete */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        Mut.deleteMessage(localStore, msg.id);
+                        toast("Moved to Trash");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-error outline-none focus:bg-error/10 focus:text-error"
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
+                    {/* Report spam */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.markAsSpam(localStore, id);
+                        toast("Reported as spam");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <ShieldAlert size={12} />
+                      Report spam
+                    </DropdownMenu.Item>
+                    {/* Report phishing */}
+                    <DropdownMenu.Item
+                      onSelect={() => {
+                        const id = msg.id;
+                        Mut.markAsSpam(localStore, id);
+                        toast("Reported as phishing");
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Fish size={12} />
+                      Report phishing
+                    </DropdownMenu.Item>
+                    {/* Filter messages like this */}
+                    <DropdownMenu.Item
+                      onSelect={() => setShowRuleDialog(true)}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Filter size={12} />
+                      Filter messages like this
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
                     <DropdownMenu.Item
                       onSelect={() => setLabelPickerOpen(true)}
                       className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
                     >
                       <TagIcon size={12} />
                       Label…
+                    </DropdownMenu.Item>
+                    {/* Translate */}
+                    <DropdownMenu.Item
+                      onSelect={() => { void handleTranslate(); }}
+                      disabled={translating}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary data-[disabled]:opacity-50"
+                    >
+                      <Languages size={12} />
+                      {translating ? "Translating…" : "Translate"}
+                    </DropdownMenu.Item>
+                    {/* Show original */}
+                    <DropdownMenu.Item
+                      onSelect={async () => {
+                        setShowSourceModal(true);
+                        setSourceContent("loading");
+                        const raw = await getMessageSource(msg.id).catch(() => null);
+                        setSourceContent(raw);
+                      }}
+                      className="flex h-7 cursor-pointer items-center gap-2 rounded-xs px-2 text-body text-text-secondary outline-none focus:bg-surface-3 focus:text-text-primary"
+                    >
+                      <Code size={12} />
+                      Show original
                     </DropdownMenu.Item>
                     <DropdownMenu.Separator className="my-1 h-px bg-border-subtle" />
                     <DropdownMenu.Item
@@ -526,12 +761,19 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
 
         {/* Sender chrome */}
         <div className="flex shrink-0 items-center gap-3 border-b border-border-subtle bg-surface-1 px-4 py-3">
-          <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="truncate font-sans text-body-strong text-text-primary">
+          <ContactHoverCard email={msg.fromAddr.email} name={msg.fromAddr.name ?? ""}>
+            <button
+              type="button"
+              className="flex shrink-0 cursor-default items-center gap-3 rounded-sm px-1 -mx-1 hover:bg-surface-2 transition-colors"
+            >
+              <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl} />
+              <span className="max-w-[160px] truncate font-sans text-body-strong text-text-primary">
                 {msg.fromAddr.name}
               </span>
+            </button>
+          </ContactHoverCard>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
               <span className="truncate font-mono text-mono-sm text-text-tertiary">
                 &lt;{msg.fromAddr.email}&gt;
               </span>
@@ -626,6 +868,10 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
                       emails: [email],
                       phones: [],
                       tags: [],
+                      socialProfiles: [],
+                      addresses: [],
+                      source: "manual",
+                      importance: "normal",
                       alwaysShowImages: true,
                       createdAt: Date.now(),
                       updatedAt: Date.now(),
@@ -639,19 +885,35 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
           </div>
         )}
 
+        {/* Translation banner */}
+        {translatedBody !== null && (
+          <div className="flex h-8 shrink-0 items-center gap-2 border-b border-accent bg-accent-soft px-4">
+            <Languages size={14} className="text-accent" />
+            <span className="text-small text-text-primary">Translated to English</span>
+            <div className="ml-auto">
+              <Button variant="ghost" size="sm" onClick={() => setTranslatedBody(null)}>
+                Show original
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Calendar invite card */}
+        {msg.icalData && <CalendarInviteCard msg={msg} />}
+
         {/* Iframe sandbox boundary */}
         <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas">
-          {bodyHtml === null ? (
+          {renderedBody === null ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
             </div>
-          ) : bodyHtml === "" ? (
+          ) : renderedBody === "" ? (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1 px-6 py-5">
               <p className="text-sm text-text-secondary leading-relaxed">{msg.snippet}</p>
             </div>
           ) : (
             <div className="mx-4 my-4 overflow-hidden rounded-md border border-border-default bg-white shadow-l1">
-              <EmailBody html={bodyHtml} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown} />
+              <EmailBody html={renderedBody} title={`Email body from ${msg.fromAddr.name}`} imagesShown={imagesShown || translatedBody !== null} />
             </div>
           )}
         </div>
@@ -711,6 +973,120 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
           </Button>
         </div>
       </div>
+
+      {/* Filter messages like this — opens the rule editor pre-filled from sender */}
+      {showRuleDialog && (
+        <RuleEditorDialog
+          open={showRuleDialog}
+          initial={{
+            id: "",
+            vaultId: localStore.vault?.id ?? "local",
+            name: `Messages from ${msg.fromAddr.email}`,
+            conditionLogic: "AND",
+            conditions: [{ field: "from", op: "contains", value: msg.fromAddr.email }],
+            actions: [],
+            enabled: true,
+            position: 0,
+          }}
+          vaultId={localStore.vault?.id ?? "local"}
+          onSave={(rule) => {
+            Mut.saveRuleMutation(rule, localStore);
+            setShowRuleDialog(false);
+            toast("Rule created");
+          }}
+          onClose={() => setShowRuleDialog(false)}
+        />
+      )}
+
+      {/* Show original — raw RFC 822 source */}
+      {showSourceModal && (
+        <MessageSourceModal
+          msg={msg}
+          content={sourceContent}
+          onClose={() => setShowSourceModal(false)}
+        />
+      )}
     </Panel>
+  );
+}
+
+// ─── Show-original modal ──────────────────────────────────────────────────────
+
+function reconstructHeaders(msg: Message): string {
+  const fmtAddr = (a: { name: string | null; email: string }) =>
+    a.name ? `${a.name} <${a.email}>` : a.email;
+  const lines = [
+    `Message-ID: ${msg.id}`,
+    `Date: ${new Date(msg.receivedAt).toUTCString()}`,
+    `From: ${fmtAddr(msg.fromAddr)}`,
+    `To: ${msg.toAddrs.map(fmtAddr).join(", ")}`,
+  ];
+  if (msg.ccAddrs.length > 0) lines.push(`Cc: ${msg.ccAddrs.map(fmtAddr).join(", ")}`);
+  lines.push(`Subject: ${msg.subject}`);
+  return lines.join("\n");
+}
+
+function MessageSourceModal({
+  msg,
+  content,
+  onClose,
+}: {
+  msg: Message;
+  content: string | null | "loading";
+  onClose: () => void;
+}) {
+  const reconstructed = React.useMemo(() => reconstructHeaders(msg), [msg]);
+  const text = content === "loading" ? "" : (content ?? reconstructed);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-8"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-default bg-surface-2 shadow-l4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 py-3">
+          <span className="text-body-strong text-text-primary">Original message</span>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose}>
+            <X size={14} />
+          </Button>
+        </div>
+        <div className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas p-4">
+          {content === "loading" ? (
+            <div className="flex h-32 items-center justify-center">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-600 border-t-neutral-300" />
+            </div>
+          ) : (
+            <>
+              {content === null && (
+                <p className="mb-3 text-small text-text-tertiary">
+                  Raw source is not stored for this message. Showing reconstructed headers.
+                </p>
+              )}
+              <pre className="whitespace-pre-wrap break-words font-mono text-mono-xs text-text-primary">
+                {text}
+              </pre>
+            </>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border-subtle px-4 py-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={content === "loading"}
+            onClick={() => {
+              navigator.clipboard.writeText(text).then(
+                () => toast("Copied to clipboard"),
+                () => toast.error("Copy failed"),
+              );
+            }}
+          >
+            Copy to clipboard
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

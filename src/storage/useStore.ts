@@ -6,12 +6,13 @@
  * from that version so references are stable until data actually changes.
  */
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef } from "react";
 import { useSyncExternalStore } from "react";
 import { localStore } from "@/storage/local";
 import { queryMessages } from "@/storage/query";
 import { useWorkspace } from "@/state/workspace";
-import type { Contact, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
+import { isTauri, getMessagesForLabel } from "@/storage/tauri";
+import type { Contact, ContactGroup, Folder, Label, SavedView, Status, Account, Message, MetadataFilter, CustomFieldDef } from "@/data/types";
 
 function subscribe(cb: () => void): () => void {
   return localStore.subscribe(cb);
@@ -192,6 +193,12 @@ export function useContacts(): Contact[] {
   );
 }
 
+export function useContactGroups(): ContactGroup[] {
+  const v = useStoreVersion();
+  void v;
+  return localStore.getContactGroups();
+}
+
 export function useContactByEmail(email: string): Contact | null {
   const v = useStoreVersion();
   void v;
@@ -202,6 +209,32 @@ export function useContactMessageCount(contactId: string): number {
   const v = useStoreVersion();
   void v;
   return localStore.messagesByContact.get(contactId)?.size ?? 0;
+}
+
+/** Returns the most recent `limit` messages involving a contact, newest first. */
+export function useContactMessages(contactId: string, limit = 5): Message[] {
+  const v = useStoreVersion();
+  void v;
+  const ids = localStore.messagesByContact.get(contactId);
+  if (!ids) return [];
+  return Array.from(ids)
+    .map((id) => localStore.messages.get(id))
+    .filter((m): m is Message => m !== undefined)
+    .sort((a, b) => b.receivedAt - a.receivedAt)
+    .slice(0, limit);
+}
+
+export function useCalendarEvents(startTs: number, endTs: number): import("@/data/types").CalendarEvent[] {
+  const v = useStoreVersion();
+  void v;
+  return localStore.getCalendarEventsInRange(startTs, endTs);
+}
+
+export function useEventTemplates(): import("@/data/types").EventTemplate[] {
+  const v = useStoreVersion();
+  void v;
+  return Array.from(localStore.eventTemplates.values())
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /** Returns a single message by id, or null. */
@@ -265,6 +298,18 @@ export function useVisibleMessages(
   }, [v, folderId, activeFilter, savedViewId, sortBy, sortDir]);
 }
 
+/** Returns all tag strings sorted by usage count descending, then alphabetically. */
+export function useAllTags(): string[] {
+  const v = useStoreVersion();
+  return useMemo(
+    () =>
+      Array.from(localStore.tagUsage.values())
+        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+        .map((t) => t.tag),
+    [v],
+  );
+}
+
 /** Returns display title of the current view (nav selection or saved view name). */
 export function useSelectionTitle(): string {
   const folderId = useWorkspace((s) => s.selectedFolderId);
@@ -276,6 +321,7 @@ export function useSelectionTitle(): string {
     }
     const lbl = localStore.labels.get(folderId);
     if (lbl) return lbl.name;
+    if (folderId.startsWith("tag:")) return `#${folderId.slice(4)}`;
     const folder = localStore.folders.get(folderId);
     if (folder) return folder.name;
     return "Mail";
@@ -324,6 +370,8 @@ export function useVisibleMessagesForPanel(
     const lbl = localStore.labels.get(folderId);
     if (lbl) {
       base.labelIds = [folderId];
+    } else if (folderId.startsWith("tag:")) {
+      base.tags = [folderId.slice(4)];
     } else if (localStore.folders.has(folderId)) {
       base.folderId = folderId;
     } else {
@@ -331,4 +379,32 @@ export function useVisibleMessagesForPanel(
     }
     return queryMessages({ ...base, ...filter }, localStore).items;
   }, [v, panelId, panelState, globalFolderId, globalFilter, globalSavedViewId, sortBy, sortDir]);
+}
+
+/**
+ * When a label is selected and has no messages in the in-memory cache (because
+ * they fall outside the initial 2000-message hydration window), fetch them
+ * on-demand from the DB and merge into the local store.
+ */
+export function useEnsureLabelMessages(labelId: string | null): void {
+  const fetchedRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!labelId || !isTauri()) return;
+    if (fetchedRef.current.has(labelId)) return;
+
+    // Only fetch if the label exists but has no messages in the store yet.
+    const lbl = localStore.labels.get(labelId);
+    if (!lbl) return;
+    const cached = localStore.messagesByLabel.get(labelId)?.size ?? 0;
+    if (cached > 0) return;
+
+    fetchedRef.current.add(labelId);
+    getMessagesForLabel(labelId)
+      .then((raw) => {
+        if (raw.length === 0) return;
+        localStore.mergeMessages(raw as Message[]);
+      })
+      .catch((e) => console.warn("Failed to load messages for label", labelId, e));
+  }, [labelId]);
 }

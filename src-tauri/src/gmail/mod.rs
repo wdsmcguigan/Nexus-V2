@@ -1,4 +1,6 @@
 pub mod backoff;
+pub mod calendar;
+pub mod contacts;
 pub mod label_map;
 pub mod mutations;
 pub mod oauth;
