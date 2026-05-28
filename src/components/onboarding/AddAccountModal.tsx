@@ -9,12 +9,13 @@ import {
   discoverImapSettings,
   testImapConnection,
   addImapAccount,
+  addJmapAccount,
   onSyncProgress,
   onHydrateNeeded,
 } from "@/storage/tauri";
 import type { DiscoveryResult } from "@/data/types";
 
-type Provider = "select" | "gmail" | "outlook" | "imap";
+type Provider = "select" | "gmail" | "outlook" | "imap" | "jmap";
 type ImapStep = "email" | "settings" | "testing" | "saving";
 
 interface Props {
@@ -47,6 +48,9 @@ export function AddAccountModal({ onConnected, onClose }: Props) {
         )}
         {provider === "imap" && (
           <ImapFlow onConnected={onConnected} onBack={() => setProvider("select")} />
+        )}
+        {provider === "jmap" && (
+          <JmapFlow onConnected={onConnected} onBack={() => setProvider("select")} />
         )}
       </div>
     </div>
@@ -83,11 +87,10 @@ function ProviderSelect({ onSelect }: { onSelect: (p: Provider) => void }) {
           onClick={() => onSelect("imap")}
         />
         <ProviderCard
-          icon={<Server className="h-5 w-5 text-neutral-500" />}
+          icon={<Server className="h-5 w-5 text-neutral-300" />}
           title="JMAP"
-          description="Coming soon — Fastmail native protocol."
-          disabled
-          onClick={() => {}}
+          description="Native JMAP — Fastmail, Stalwart, and other RFC 8621 servers. Bearer-token auth."
+          onClick={() => onSelect("jmap")}
         />
       </div>
     </div>
@@ -574,6 +577,118 @@ function ImapFlow({ onConnected, onBack }: { onConnected: Props["onConnected"]; 
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save account"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── JMAP flow ────────────────────────────────────────────────────────────────
+
+function JmapFlow({ onConnected, onBack }: { onConnected: Props["onConnected"]; onBack: () => void }) {
+  const [status, setStatus] = useState<"idle" | "connecting" | "done" | "error">("idle");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [sessionUrl, setSessionUrl] = useState("https://api.fastmail.com/jmap/session");
+  const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function handleConnect() {
+    if (!email.trim() || !token.trim() || !sessionUrl.trim()) {
+      setStatus("error");
+      setErrorMsg("Email, session URL, and token are required.");
+      return;
+    }
+    setStatus("connecting");
+    setErrorMsg("");
+    try {
+      const result = await addJmapAccount({
+        email: email.trim(),
+        displayName: displayName.trim() || undefined,
+        sessionUrl: sessionUrl.trim(),
+        token: token.trim(),
+      });
+      setStatus("done");
+      setTimeout(() => onConnected(result.accountId, result.email), 600);
+    } catch (e) {
+      setStatus("error");
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="p-6 flex flex-col gap-5">
+      <FlowHeader title="Connect JMAP account" onBack={onBack} />
+      <p className="text-xs text-neutral-400">
+        JMAP servers (Fastmail, Stalwart, Cyrus) use a bearer token for auth. Generate one in your
+        account settings and paste it below. For Fastmail: Settings → Privacy &amp; Security → API
+        tokens → New token (scope: Mail).
+      </p>
+      <div className="flex flex-col gap-3">
+        <Field label="Email">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@fastmail.com"
+            className="px-3 py-2 rounded-md bg-neutral-800 border border-neutral-700 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+          />
+        </Field>
+        <Field label="Display name (optional)">
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            className="px-3 py-2 rounded-md bg-neutral-800 border border-neutral-700 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+          />
+        </Field>
+        <Field label="Session URL">
+          <input
+            type="url"
+            value={sessionUrl}
+            onChange={(e) => setSessionUrl(e.target.value)}
+            placeholder="https://api.example.com/jmap/session"
+            className="px-3 py-2 rounded-md bg-neutral-800 border border-neutral-700 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+          />
+        </Field>
+        <Field label="API token">
+          <div className="relative">
+            <input
+              type={showToken ? "text" : "password"}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="fmu1-..."
+              className="w-full pr-9 px-3 py-2 rounded-md bg-neutral-800 border border-neutral-700 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-500"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken((v) => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300"
+              aria-label={showToken ? "Hide token" : "Show token"}
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </Field>
+        <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500">
+          <Shield className="h-3.5 w-3.5" />
+          Token is encrypted with your vault key before being stored.
+        </div>
+      </div>
+
+      <div className="flex flex-col items-center gap-3">
+        {status === "idle" && (
+          <button
+            onClick={handleConnect}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
+          >
+            Connect JMAP account
+          </button>
+        )}
+        {status === "connecting" && <StatusSpinner label="Discovering session…" />}
+        {status === "done" && <StatusDone label={`Connected as ${email}`} />}
+        {status === "error" && <StatusError msg={errorMsg} onRetry={() => setStatus("idle")} />}
       </div>
     </div>
   );

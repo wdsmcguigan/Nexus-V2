@@ -437,23 +437,6 @@ function RelaySection() {
       {/* Mode picker */}
       <SectionHeader>Relay mode</SectionHeader>
       <div className="flex gap-2 px-4 pb-4">
-        {/* Nexus Relay — coming soon */}
-        <div
-          className="flex flex-1 flex-col gap-1 rounded-sm border border-border-subtle bg-surface-2 px-3 py-3 opacity-50 cursor-not-allowed"
-          title="Coming soon"
-        >
-          <div className="flex items-center gap-2">
-            <Server size={14} className="text-text-tertiary" />
-            <span className="text-body text-text-secondary">Nexus Relay</span>
-            <span className="ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-mono-xs text-text-muted">
-              coming soon
-            </span>
-          </div>
-          <p className="text-small text-text-muted">
-            Nexus-hosted zero-knowledge relay. No setup required.
-          </p>
-        </div>
-
         {/* Self-Hosted */}
         <button
           type="button"

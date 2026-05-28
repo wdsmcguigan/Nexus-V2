@@ -162,8 +162,8 @@
 - OPFS persistence for `LocalStore`
 
 **→ EP-4 (Tauri desktop):**
-- CFD option drag-reorder (currently shows GripVertical icon but DnD not wired)
-- CFD definition drag-reorder
+- CFD option drag-reorder — ✅ shipped post-EP-2 via dnd-kit `useSortable`; persists through `REORDER_CUSTOM_FIELD_OPTIONS`.
+- CFD definition drag-reorder — ✅ shipped post-EP-2; persists through `REORDER_CUSTOM_FIELD_DEFS`.
 - Saved-view + custom-field settings tab-based Settings panel (replace single-modal approach)
 
 ---
@@ -173,8 +173,8 @@
 **`NoteEditor` textarea — no markdown preview in EP-2:**
 Markdown preview requires either a parser bundle (adds ~40kB) or the full body retrieval pipeline (EP-3). Deferred to EP-3 when FTS + body retrieval land together.
 
-**`FlagPicker` date inputs — HTML `<input type="date">` not a custom picker:**
-Native date inputs are accessible by default, work across all browsers, and require zero added dependencies. A styled calendar picker (react-day-picker or similar) is a cosmetic upgrade deferred to EP-4 when the design system is more locked.
+**`FlagPicker` date inputs — `react-day-picker` (post-EP-2 upgrade):**
+Originally shipped with raw HTML `<input type="date">` for accessibility/zero-dep simplicity. Replaced post-EP-2 with `react-day-picker` wrapped by `src/components/ui/DatePickerField.tsx`, styled with design-system tokens — same `dueAt` / `reminderAt` epoch-ms data shape, no model change.
 
 **`CustomFieldStrip` person editor commits on blur:**
 Committing on every keystroke would create excessive mutations. Blur is the right save boundary for a two-field form (email + name). A "save" button would add chrome for little benefit.

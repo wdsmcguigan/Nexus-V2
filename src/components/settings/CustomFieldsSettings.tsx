@@ -6,6 +6,20 @@
 import * as React from "react";
 import { Plus, Trash2, GripVertical, ChevronDown, Check } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useWorkspace } from "@/state/workspace";
 import { useCustomFieldDefs } from "@/storage/useStore";
 import { cn } from "@/lib/utils";
@@ -56,9 +70,29 @@ function OptionRow({
   onUpdate: (updates: Partial<CustomFieldOption>) => void;
   onDelete: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: option.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
   return (
-    <div className="flex items-center gap-2 rounded-xs bg-surface-1 px-2 py-1">
-      <GripVertical size={12} className="shrink-0 cursor-grab text-text-muted" />
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 rounded-xs bg-surface-1 px-2 py-1"
+    >
+      <button
+        type="button"
+        aria-label="Drag to reorder option"
+        className="shrink-0 cursor-grab text-text-muted hover:text-text-secondary"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical size={12} />
+      </button>
       <div className="flex gap-0.5">
         {OPTION_COLORS.map((c) => (
           <OptionColorDot key={c} color={c} selected={option.color === c} onClick={() => onUpdate({ color: c })} />
@@ -132,12 +166,34 @@ function TypePicker({ value, onChange }: { value: CustomFieldType; onChange: (t:
 
 // ─── Expanded field editor ────────────────────────────────────────────────────
 
-function FieldEditor({ def }: { def: CustomFieldDef }) {
+function FieldEditor({
+  def,
+  dragHandleProps,
+}: {
+  def: CustomFieldDef;
+  dragHandleProps?: React.HTMLAttributes<HTMLElement>;
+}) {
   const updateCustomField = useWorkspace((s) => s.updateCustomField);
   const deleteCustomField = useWorkspace((s) => s.deleteCustomField);
+  const reorderOptions = useWorkspace((s) => s.reorderCustomFieldOptions);
   const [expanded, setExpanded] = React.useState(false);
   const [name, setName] = React.useState(def.name);
   const [options, setOptions] = React.useState<CustomFieldOption[]>(def.options ?? []);
+  const optionSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  function handleOptionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = options.findIndex((o) => o.id === active.id);
+    const newIdx = options.findIndex((o) => o.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const next = [...options];
+    const [moved] = next.splice(oldIdx, 1);
+    next.splice(newIdx, 0, moved!);
+    const renumbered = next.map((o, i) => ({ ...o, position: i }));
+    setOptions(renumbered);
+    reorderOptions(def.id, renumbered.map((o) => o.id));
+  }
 
   const isSelect = def.type === "select" || def.type === "multi-select";
 
@@ -179,7 +235,14 @@ function FieldEditor({ def }: { def: CustomFieldDef }) {
     <div className="rounded-md border border-border-subtle bg-surface-2">
       {/* Header row */}
       <div className="flex items-center gap-2 px-3 py-2">
-        <GripVertical size={14} className="shrink-0 cursor-grab text-text-muted" />
+        <button
+          type="button"
+          aria-label="Drag to reorder field"
+          className="shrink-0 cursor-grab text-text-muted hover:text-text-secondary"
+          {...dragHandleProps}
+        >
+          <GripVertical size={14} />
+        </button>
         <input
           type="text"
           value={name}
@@ -219,14 +282,25 @@ function FieldEditor({ def }: { def: CustomFieldDef }) {
       {expanded && isSelect && (
         <div className="border-t border-border-subtle px-3 pb-2 pt-2 space-y-1">
           <div className="text-overline uppercase text-text-tertiary mb-1">Options</div>
-          {options.map((opt) => (
-            <OptionRow
-              key={opt.id}
-              option={opt}
-              onUpdate={(u) => updateOption(opt.id, u)}
-              onDelete={() => deleteOption(opt.id)}
-            />
-          ))}
+          <DndContext
+            sensors={optionSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleOptionDragEnd}
+          >
+            <SortableContext
+              items={options.map((o) => o.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {options.map((opt) => (
+                <OptionRow
+                  key={opt.id}
+                  option={opt}
+                  onUpdate={(u) => updateOption(opt.id, u)}
+                  onDelete={() => deleteOption(opt.id)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
           <button
             type="button"
             onClick={addOption}
@@ -327,9 +401,39 @@ function CreateFieldForm({ onDone }: { onDone: () => void }) {
 
 // ─── Public component ─────────────────────────────────────────────────────────
 
+function SortableFieldEditor({ def }: { def: CustomFieldDef }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: def.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <FieldEditor def={def} dragHandleProps={{ ...attributes, ...listeners }} />
+    </div>
+  );
+}
+
 export function CustomFieldsSettings() {
   const defs = useCustomFieldDefs();
+  const reorderDefs = useWorkspace((s) => s.reorderCustomFieldDefs);
   const [creating, setCreating] = React.useState(false);
+  const defSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+
+  function handleDefDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = defs.findIndex((d) => d.id === active.id);
+    const newIdx = defs.findIndex((d) => d.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const next = [...defs];
+    const [moved] = next.splice(oldIdx, 1);
+    next.splice(newIdx, 0, moved!);
+    reorderDefs(next.map((d) => d.id));
+  }
 
   return (
     <div className="space-y-3">
@@ -357,11 +461,19 @@ export function CustomFieldsSettings() {
           No custom fields yet. Custom fields let you annotate emails with typed data (text, dates, numbers, dropdowns, and more).
         </p>
       ) : (
-        <div className="space-y-2">
-          {defs.map((def) => (
-            <FieldEditor key={def.id} def={def} />
-          ))}
-        </div>
+        <DndContext
+          sensors={defSensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDefDragEnd}
+        >
+          <SortableContext items={defs.map((d) => d.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-2">
+              {defs.map((def) => (
+                <SortableFieldEditor key={def.id} def={def} />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );

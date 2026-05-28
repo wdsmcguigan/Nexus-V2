@@ -312,10 +312,9 @@ Every change you make is encrypted on your device and pushed to a relay server y
 **To set up sync:**
 
 1. Open **Settings → Relay**
-2. Choose **Self-Hosted** (Nexus-hosted relay is coming soon)
-3. Follow the setup instructions in [docs/relay.md](relay.md) to start a relay server
-4. Enter the relay URL and click **Save**
-5. To add a second device: click **"Generate link code"**, then enter the code on the second device
+2. Follow the setup instructions in [docs/relay.md](relay.md) to start a self-hosted relay server
+3. Enter the relay URL and click **Save**
+4. To add a second device: click **"Generate link code"**, then enter the code on the second device
 
 See [Relay Setup Guide](relay.md) for detailed instructions.
 

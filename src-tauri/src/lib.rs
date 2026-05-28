@@ -68,6 +68,7 @@ pub fn run() {
             commands::discover_imap_settings,
             commands::test_imap_connection,
             commands::add_imap_account,
+            commands::add_jmap_account,
             commands::sync_account_now,
             commands::start_outlook_oauth,
             // EP-7 commands

@@ -1484,6 +1484,37 @@ impl VaultDb {
                     }
                 }
             }
+            "REORDER_RULES" => {
+                if let Some(ids) = p["orderedIds"].as_array() {
+                    for (i, id) in ids.iter().enumerate() {
+                        if let Some(s) = id.as_str() {
+                            self.conn.execute("UPDATE rules SET position = ?1 WHERE id = ?2", params![i as i64, s])?;
+                        }
+                    }
+                }
+            }
+            "REORDER_CUSTOM_FIELD_DEFS" => {
+                if let Some(ids) = p["orderedIds"].as_array() {
+                    for (i, id) in ids.iter().enumerate() {
+                        if let Some(s) = id.as_str() {
+                            self.conn.execute("UPDATE custom_field_defs SET position = ?1 WHERE id = ?2", params![i as i64, s])?;
+                        }
+                    }
+                }
+            }
+            "REORDER_CUSTOM_FIELD_OPTIONS" => {
+                let field_id = p["fieldId"].as_str().unwrap_or_default();
+                if let Some(ids) = p["orderedIds"].as_array() {
+                    for (i, id) in ids.iter().enumerate() {
+                        if let Some(s) = id.as_str() {
+                            self.conn.execute(
+                                "UPDATE custom_field_options SET position = ?1 WHERE id = ?2 AND field_id = ?3",
+                                params![i as i64, s, field_id],
+                            )?;
+                        }
+                    }
+                }
+            }
 
             // ── Flag lifecycle ─────────────────────────────────────
             "SET_FLAG" => {

@@ -3,6 +3,7 @@ pub mod gmail;
 pub mod imap;
 pub mod imap_idle;
 pub mod jmap;
+pub mod jmap_types;
 pub mod outlook_oauth;
 
 use anyhow::Result;

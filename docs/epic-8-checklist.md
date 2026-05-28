@@ -54,12 +54,12 @@ Native iOS client that shares the vault format with the desktop app via the rela
 ### 🟡 Feature parity audit
 
 The desktop app has:
-- 56 IPC commands (`docs/ipc-api-reference.md`)
-- 70 MutationKinds (`src/data/types.ts`)
+- 57 IPC commands (`docs/ipc-api-reference.md`)
+- 72 MutationKinds (`src/data/types.ts`)
 - 15 UI feature areas (`src/components/`)
 
 The iOS app has 15 UI screens but **no audit exists** mapping each desktop feature to its iOS counterpart (or its absence). For example:
-- Does `MutationEngine.swift` handle all 70 mutation kinds? Unknown.
+- Does `MutationEngine.swift` handle all 72 mutation kinds? Unknown.
 - Are custom fields editable on iOS? Unknown.
 - Is the Kanban view fully featured or read-only? Unknown.
 - Are calendar templates supported (EP-13)? Unknown.

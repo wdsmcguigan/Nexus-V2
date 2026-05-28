@@ -74,7 +74,7 @@ graph LR
 
     subgraph Backend["src-tauri/src/ — Rust (28 files)"]
         AppState["AppState<br/>(Mutex<VaultDb>, client_mode, …)"]
-        Commands["commands.rs<br/>(56 IPC commands)"]
+        Commands["commands.rs<br/>(57 IPC commands)"]
         DB["db/queries.rs<br/>(~89 query helpers)"]
         GmailWorker["gmail/sync.rs<br/>(30s tick)"]
         IMAPWorker["providers/imap.rs<br/>+ imap_idle.rs (polling)"]
@@ -539,13 +539,20 @@ Four adapters are shipped. All generate `RECEIVE_FROM_PROVIDER` mutations on inb
   (`historyId` cursor). MIME parsed in Rust. Maps Gmail labels ↔ NEXUS `LBL`.
   Push-back: `messages.modify` for label changes; archive/trash via label ops.
 - **IMAP/SMTP** (shipped EP-6) — autodiscovery via MX + provider lookup; falls
-  back to manual config. **IMAP IDLE is not yet real**: `providers/imap_idle.rs:start_idle_watcher` is a 30-second polling loop, despite its name. TLS / STARTTLS / plain
-  SMTP for outbound. Each IMAP folder maps to a NEXUS `FLD` + `LBL`. Credentials
-  stored in Keychain. See `docs/known-gaps.md` item 3.
+  back to manual config. IMAP IDLE is real (`providers/imap_idle.rs` uses
+  `async-imap` `Session::idle()` with a 28-minute re-arm and exponential-backoff
+  reconnect); the 30-second NOOP/EXAMINE poll loop is the documented fallback
+  for servers without the IDLE capability. TLS / STARTTLS / plain SMTP for
+  outbound. Each IMAP folder maps to a NEXUS `FLD` + `LBL`. Credentials stored
+  in Keychain.
 - **Outlook / Microsoft 365** (shipped EP-6) — Microsoft OAuth 2.0; account auto-
   configured for IMAP/SMTP after auth. Same IMAP/SMTP sync path underneath.
-- **JMAP** (Fastmail, Stalwart, Apache James) — 🟡 **stub only**. Every method in
-  `providers/jmap.rs` returns `Err(anyhow!("JMAP coming in EP7"))`. The `AddAccountModal` JMAP card is correctly marked disabled. Implementation deferred — see `docs/known-gaps.md` item 2.
+- **JMAP** (Fastmail, Stalwart, Apache James) — shipped EP-6 with bearer-token
+  auth. `providers/jmap.rs` implements the full `MailProvider` trait against
+  RFC 8620/8621: discovers `apiUrl` + `accountId` from the session resource,
+  uses `Mailbox/get`, `Email/{query,get,changes}` for sync, and translates
+  Nexus mutations into `Email/set` patches (`keywords/$seen`, `keywords/$flagged`,
+  `mailboxIds/<id>`). OAuth2 flow is a follow-up.
 
 Push-back to provider (`WF-LABEL-PROVIDER-SYNC`):
 - Gmail: `messages.modify`; folder moves are local-only.
@@ -619,7 +626,7 @@ thing we can defer.
 | `EP-3` | FTS index + contacts (web) | Shipped | MiniSearch BM25; body store; contacts panel; 118 tests. | Soundminer-class search |
 | `EP-4` | Tauri shell + Gmail sync (desktop) | Shipped | Tauri 2. SQLCipher vault. `notify` FS watcher. Gmail OAuth + initial/incremental sync. | Local-first thesis |
 | `EP-5` | E2EE relay sync | Shipped | XChaCha20-Poly1305 mutations. Embedded + standalone relay. 30s sync loop. Enrollment codes. | Cross-device |
-| `EP-6` | Multi-provider mail | Shipped (partial) | Gmail History API, IMAP/SMTP, Outlook OAuth, provider autodiscovery. Local-first EML writing. Client mode (traditional / local-first). **IMAP IDLE is currently polling-only; JMAP is a stub.** See `docs/epic-6-checklist.md`. | Real mail |
+| `EP-6` | Multi-provider mail | Shipped | Gmail History API, IMAP/SMTP with real IDLE, Outlook OAuth, JMAP (bearer-token auth), provider autodiscovery. Local-first EML writing. Client mode (traditional / local-first). See `docs/epic-6-checklist.md`. | Real mail |
 | `EP-7` | Native FTS5, rules engine & quick wins | Shipped | SQLite FTS5 with field-prefix operators. Automation rules engine. Email templates. List-Unsubscribe. System notifications. Multi-account From selector. | Power tools |
 | `EP-8` | iOS app | In progress | Swift reimplementation sharing vault format. FileProvider extension. Relay sync over HTTPS. | Phone-first users |
 | `EP-9` | Conflict UI + advanced sync state | Planned | `WSP-CONFLICT-CHIP`; resolve sheet; per-folder sync log. | Edge-case polish |

@@ -188,9 +188,9 @@
 ## Deferred items (for EP-5 / later)
 
 **→ EP-5 (E2EE relay):**
-- CFD option drag-reorder (GripVertical shown in EP-2 but DnD not wired — carried from EP-2)
-- CFD definition drag-reorder
-- Native date picker in FlagPicker (currently `<input type="date">`)
+- CFD option drag-reorder — ✅ shipped post-EP-2 (dnd-kit + `REORDER_CUSTOM_FIELD_OPTIONS`).
+- CFD definition drag-reorder — ✅ shipped post-EP-2 (`REORDER_CUSTOM_FIELD_DEFS`).
+- Native date picker in FlagPicker — ✅ shipped post-EP-2 via `react-day-picker` wrapped by `src/components/ui/DatePickerField.tsx`.
 - Offline body access when `.eml` not yet synced to disk
 - FTS via SQLite-FTS5 (schema table `messages_fts` exists; MiniSearch still used by frontend)
 

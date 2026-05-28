@@ -1177,6 +1177,9 @@ pub async fn add_imap_account(
         username: imap_username,
         password: imap_password,
     };
+    let watcher_config = config.clone();
+    let watcher_app = app.clone();
+    let watcher_account = account_id.clone();
 
     tokio::spawn(async move {
         use crate::providers::MailProvider;
@@ -1205,6 +1208,11 @@ pub async fn add_imap_account(
                 log::info!(
                     "IMAP initial sync complete for {account_id_clone}: {} messages",
                     messages.len()
+                );
+                crate::providers::imap_idle::start_idle_watcher(
+                    watcher_account,
+                    watcher_config,
+                    watcher_app,
                 );
             }
             Err(e) => log::error!("IMAP initial sync failed for {account_id_clone}: {e}"),
@@ -1328,8 +1336,175 @@ pub async fn sync_account_now(
                 updated: 0,
             })
         }
+        "jmap" => {
+            use crate::providers::jmap::{JmapConfig, JmapProvider};
+            use crate::providers::MailProvider;
+            let settings = settings_json.ok_or("No JMAP settings found")?;
+            let settings: serde_json::Value =
+                serde_json::from_str(&settings).map_err(|e| e.to_string())?;
+
+            let encrypted_token = {
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
+                db.get_access_token(&account_id)
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default()
+            };
+            let token = decrypt_credential_for_account(&db_path, &vault_id, &encrypted_token)
+                .map_err(|e| e.to_string())?;
+
+            let jmap_cfg = &settings["jmap"];
+            let config = JmapConfig {
+                session_url: jmap_cfg["sessionUrl"].as_str().unwrap_or("").to_string(),
+                token,
+                account_id: jmap_cfg["primaryAccountId"].as_str().unwrap_or("").to_string(),
+                api_url: jmap_cfg["apiUrl"].as_str().unwrap_or("").to_string(),
+            };
+            let provider_obj =
+                JmapProvider::new(account_id.clone(), vault_id.clone(), config);
+
+            let cursor_str: Option<String> = {
+                let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+                let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
+                db.get_sync_cursor(&account_id).ok().flatten()
+            };
+
+            let (count_fetched, count_updated) = if let Some(cursor) = cursor_str {
+                match provider_obj.fetch_incremental(&cursor).await.map_err(|e| e.to_string())? {
+                    Some(result) => {
+                        let new_count = result.new_messages.len() as u32;
+                        let upd_count = result.label_additions.len() as u32;
+                        if let Ok(db) = crate::db::VaultDb::open(&db_path, "nexus") {
+                            let _ = db.conn.execute_batch("BEGIN IMMEDIATE");
+                            for msg in &result.new_messages {
+                                let _ = db.upsert_message_from_gmail(&vault_id, msg);
+                            }
+                            let _ = db.conn.execute_batch("COMMIT");
+                            let _ = db.update_sync_cursor(&account_id, &result.new_cursor);
+                        }
+                        (new_count, upd_count)
+                    }
+                    None => (0, 0),
+                }
+            } else {
+                let (_, messages, cursor) =
+                    provider_obj.fetch_initial().await.map_err(|e| e.to_string())?;
+                let n = messages.len() as u32;
+                if let Ok(db) = crate::db::VaultDb::open(&db_path, "nexus") {
+                    let _ = db.conn.execute_batch("BEGIN IMMEDIATE");
+                    for msg in &messages {
+                        let _ = db.upsert_message_from_gmail(&vault_id, msg);
+                    }
+                    let _ = db.conn.execute_batch("COMMIT");
+                    if let Some(c) = cursor {
+                        let _ = db.update_sync_cursor(&account_id, &c);
+                    }
+                }
+                (n, 0)
+            };
+
+            let _ = app.emit("vault:hydrate-needed", ());
+            Ok(SyncStats {
+                fetched: count_fetched,
+                inserted: count_fetched,
+                updated: count_updated,
+            })
+        }
         p => Err(format!("Unknown provider: {p}")),
     }
+}
+
+/// Add a JMAP account using a bearer token (e.g. a Fastmail API token).
+/// Discovers the session resource, captures the api url and account id,
+/// then kicks off an initial sync in the background.
+#[tauri::command]
+pub async fn add_jmap_account(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    email: String,
+    display_name: Option<String>,
+    session_url: String,
+    token: String,
+) -> std::result::Result<OAuthResult, String> {
+    use crate::providers::jmap::{JmapConfig, JmapProvider};
+    use crate::providers::MailProvider;
+
+    let (api_url, primary_account_id) = JmapProvider::discover(&session_url, &token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let vault_path = state
+        .vault_path
+        .lock()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
+        .clone()
+        .ok_or("No vault")?;
+    let account_id = format!("acct-{}", uuid::Uuid::new_v4());
+
+    let settings = serde_json::json!({
+        "jmap": {
+            "sessionUrl": session_url,
+            "apiUrl": api_url,
+            "primaryAccountId": primary_account_id,
+        }
+    });
+
+    let db_path = std::path::Path::new(&vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    let encrypted_token = encrypt_credential_for_account(&db_path, &vault_id, &token)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.upsert_account(&account_id, &vault_id, "jmap", &email, display_name.as_deref(), None)
+            .map_err(|e| e.to_string())?;
+        db.save_settings_json(&account_id, &settings.to_string())
+            .map_err(|e| e.to_string())?;
+        db.save_credential(&account_id, &encrypted_token)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let config = JmapConfig {
+        session_url,
+        token,
+        account_id: primary_account_id,
+        api_url,
+    };
+    let account_id_clone = account_id.clone();
+    let vault_id_clone = vault_id.clone();
+    let app_clone = app.clone();
+    let db_path_clone = db_path.clone();
+    tokio::spawn(async move {
+        let provider = JmapProvider::new(account_id_clone.clone(), vault_id_clone.clone(), config);
+        match provider.fetch_initial().await {
+            Ok((_labels, messages, cursor)) => {
+                if let Ok(db) = crate::db::VaultDb::open(&db_path_clone, "nexus") {
+                    let _ = db.conn.execute_batch("BEGIN IMMEDIATE");
+                    for msg in &messages {
+                        let _ = db.upsert_message_from_gmail(&vault_id_clone, msg);
+                    }
+                    let _ = db.conn.execute_batch("COMMIT");
+                    if let Some(c) = cursor {
+                        let _ = db.update_sync_cursor(&account_id_clone, &c);
+                    }
+                }
+                use tauri::Emitter;
+                let _ = app_clone.emit("vault:hydrate-needed", ());
+                log::info!(
+                    "JMAP initial sync complete for {account_id_clone}: {} messages",
+                    messages.len()
+                );
+            }
+            Err(e) => log::error!("JMAP initial sync failed for {account_id_clone}: {e}"),
+        }
+    });
+
+    Ok(OAuthResult { account_id, email })
 }
 
 /// Start Outlook OAuth flow.
@@ -1483,7 +1658,89 @@ async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tau
         log::warn!("Relay init skipped: {e}");
     }
 
+    // Spawn an IMAP IDLE watcher for every existing IMAP account.
+    start_imap_watchers_for_existing_accounts(vault_path, &vault_id, app.clone());
+
     Ok(vault_id)
+}
+
+fn start_imap_watchers_for_existing_accounts(
+    vault_path: &str,
+    vault_id: &str,
+    app: tauri::AppHandle,
+) {
+    let db_path = std::path::Path::new(vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    let accounts: Vec<(String, String, String)> = match crate::db::VaultDb::open(&db_path, "nexus")
+    {
+        Ok(db) => {
+            let mut stmt = match db.conn.prepare(
+                "SELECT id, settings_json, COALESCE(access_token, '')
+                 FROM accounts
+                 WHERE provider = 'imap'",
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("IMAP watcher startup: prepare failed: {e}");
+                    return;
+                }
+            };
+            let rows = stmt
+                .query_map(rusqlite::params![], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        r.get::<_, String>(2)?,
+                    ))
+                })
+                .and_then(|iter| iter.collect::<rusqlite::Result<Vec<_>>>());
+            match rows {
+                Ok(rs) => rs,
+                Err(e) => {
+                    log::warn!("IMAP watcher startup: query failed: {e}");
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("IMAP watcher startup: db open failed: {e}");
+            return;
+        }
+    };
+
+    for (account_id, settings_json, encrypted_pw) in accounts {
+        let settings: serde_json::Value = match serde_json::from_str(&settings_json) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("IMAP watcher: bad settings_json for {account_id}: {e}");
+                continue;
+            }
+        };
+        let imap = &settings["imap"];
+        let security = match imap["security"].as_str().unwrap_or("tls") {
+            "starttls" => Security::StartTls,
+            "plain" => Security::Plain,
+            _ => Security::Tls,
+        };
+        let password = match decrypt_credential_for_account(&db_path, vault_id, &encrypted_pw) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("IMAP watcher: decrypt failed for {account_id}: {e}");
+                continue;
+            }
+        };
+        let config = ImapConfig {
+            host: imap["host"].as_str().unwrap_or("").to_string(),
+            port: imap["port"].as_u64().unwrap_or(993) as u16,
+            security,
+            username: imap["username"].as_str().unwrap_or("").to_string(),
+            password,
+        };
+        crate::providers::imap_idle::start_idle_watcher(account_id, config, app.clone());
+    }
 }
 
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
