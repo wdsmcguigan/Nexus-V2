@@ -211,6 +211,51 @@ type Template = {
   createdAt: number,
 };
 
+// ───── Calendar (EP-11) ─────
+
+// CAL — one per connected Google Calendar
+type Calendar = {
+  id, vaultId, accountId,
+  externalId,              // Google Calendar ID
+  name,
+  color?,
+  enabled: boolean,        // user-controlled visibility toggle
+};
+
+// EVT — single calendar event instance (singleEvents=true pre-expanded; EP-11/EP-12)
+type CalendarEvent = {
+  id, vaultId, accountId, calendarId,
+  externalId,              // Google event ID (used by updateCalendarEvent IPC)
+  iCalUID?,                // RFC 5545 stable UID
+  recurringEventId?,       // parent recurring event ID; drag-to-reschedule disabled when set
+
+  title, startTs, endTs, allDay,
+  description?, location?,
+  attendees: CalendarAttendee[],
+  organizerEmail?, creatorEmail?,
+
+  // EP-12 additions
+  colorId?,                // Google colorId "1"–"11"; see src/lib/calendarColors.ts
+  conferenceUrl?,          // Google Meet / Zoom join URL
+  visibility?,             // "default"|"public"|"private"|"confidential"
+  transparency?,           // "opaque"|"transparent"
+  reminders?,              // CalendarReminder[] — override defaults
+  attachments?,            // CalendarAttachment[] — Drive files, display-only
+
+  status?,                 // "confirmed"|"tentative"|"cancelled"
+  notes?,                  // local-only markdown annotation (not synced to Google)
+  createdAt, updatedAt,    // from Google timestamps, not sync time
+};
+
+// ETMPL — reusable event preset (EP-13)
+type EventTemplate = {
+  id, vaultId, name,
+  title, description?, location?,
+  durationMinutes: number,
+  defaultAttendees: string[],
+  createdAt,
+};
+
 // ───── Mutation log (the sync substrate) ─────
 
 type Mutation = {
@@ -455,9 +500,14 @@ thing we can defer.
 | `EP-8` | iOS app | In progress | Swift reimplementation sharing vault format. FileProvider extension. Relay sync over HTTPS. | Phone-first users |
 | `EP-9` | Conflict UI + advanced sync state | Planned | `WSP-CONFLICT-CHIP`; resolve sheet; per-folder sync log. | Edge-case polish |
 | `EP-10` | Encrypted FTS hardening | Planned | Zero-knowledge encrypted index. Audit. Pen-test. | Trust |
+| `EP-11` | Calendar foundation | Shipped | `calendar_events` + `calendars` DB tables; Google Calendar OAuth + History API sync; `AgendaView`, `MiniMonth`, `EventDetailPopover`, `EventCreateModal`, `EventEditModal`, `CalendarManagementSection`; `UPSERT_CALENDAR_EVENT`, `DELETE_CALENDAR_EVENT`, `UPDATE_CALENDAR_EVENT_NOTES` mutations; WorkspaceChrome calendar nav; CommandPalette calendar commands. | Calendar-first workflow |
+| `EP-12` | Calendar field completeness | Shipped | EP-12 migration (9 new columns on `calendar_events`); `map_event` captures all 25 Google Calendar API fields; `calendarColors.ts` with `eventColor()`; `EventDetailPopover` additions (Join meeting, Drive attachments, lock icon, creator); `EventCreateModal` moved to Workspace root with prefill support; `CalendarDays` toolbar button in composer. | Full Google Calendar fidelity |
+| `EP-13` | Event templates, week/month views, drag-to-reschedule | Shipped | `event_templates` DB table; `EventTemplatesSettings`; "Use template" in `EventCreateModal`; `WeekView` (56px/hour grid, overlap layout, current-time indicator); `MonthView` (42-cell grid); `calendarUtils.ts`; drag-to-reschedule in both views with optimistic rollback. | Power-user calendar editing |
+
+Between EP-8 and EP-11 a set of inter-epic improvements shipped: `ContactHoverCard` on sender/participants, vCard 3.0 import/export (`src/lib/vcard.ts`), tag sidebar navigation (tags as clickable nav items), 21-color label palette, comprehensive email row right-click context menu, and undo/redo with action history modal.
 
 Per-epic detailed checklists live alongside this doc once an epic
-becomes the active focus (e.g. `docs/epic-0-checklist.md`).
+becomes the active focus (e.g. `docs/epic-0-checklist.md`, `docs/epic-11-checklist.md`).
 
 ---
 

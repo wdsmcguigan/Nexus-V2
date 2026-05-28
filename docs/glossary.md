@@ -252,10 +252,31 @@ value_date, value_bool)` for fast indexed filter.
 
 ### TMPL — Email Template
 **Is**: A saved subject + HTML body pair that can be applied to the composer with one click to pre-fill a new message.
-**Is NOT**: A draft (a specific in-progress message); templates are reusable archetypes with no recipients.
+**Is NOT**: A draft (a specific in-progress message); templates are reusable archetypes with no recipients. Not a calendar event template (`ETMPL`).
 **Cardinality / shape**: many per vault; typed `{ id, vaultId, name, subject: string, bodyHtml: string, createdAt: number }`.
 **Lives in**: `src/data/types.ts`, `src-tauri/src/db/queries.rs`, `src/components/settings/TemplatesSettings.tsx`, `src/components/email/EmailComposerPanel.tsx` (picker).
-**See also**: `MSG`.
+**See also**: `MSG`, `ETMPL`.
+
+### CAL — Calendar
+**Is**: A connected Google Calendar (or future CalDAV calendar) belonging to an account. Holds display name, color, and an enabled/disabled toggle for list-view visibility.
+**Is NOT**: A `CalendarEvent` (`EVT`). A vault (`VLT`). An account (`ACT`).
+**Cardinality / shape**: many per account; typed `{ id, vaultId, accountId, externalId, name, color?, enabled: boolean }`.
+**Lives in**: `src/data/types.ts` (EP-11), `calendars` table in `src-tauri/src/db/schema.rs`, `src/components/calendar/CalendarManagementSection.tsx`.
+**See also**: `EVT`, `ACT`.
+
+### EVT — Calendar Event
+**Is**: A single calendar event instance (Google Calendar `singleEvents=true` expansion; recurring series pre-expanded server-side). Holds all Google Calendar API fields captured in EP-12.
+**Is NOT**: A recurring series template (Google handles that). An email message (`MSG`).
+**Cardinality / shape**: many per vault; typed `CalendarEvent` in `src/data/types.ts`. Key fields: `startTs`, `endTs`, `allDay`, `title`, `attendees: CalendarAttendee[]`, `colorId`, `conferenceUrl`, `attachments`, `reminders`, `recurringEventId`, `visibility`, `transparency`, `notes` (local-only).
+**Lives in**: `src/data/types.ts` (EP-11), `calendar_events` DB table with 9 additional columns from EP-12 migration, `localStore.calendarEvents`.
+**See also**: `CAL`, `ETMPL`.
+
+### ETMPL — Event Template
+**Is**: A saved preset that pre-fills `EventCreateModal` with a title, description, location, duration, and default attendees. Reusable across many calendar events.
+**Is NOT**: A `CalendarEvent` (`EVT`) — templates have no dates. An email template (`TMPL`).
+**Cardinality / shape**: many per vault; typed `{ id, vaultId, name, title: string, description?: string, location?: string, durationMinutes: number, defaultAttendees: string[], createdAt: number }`.
+**Lives in**: `src/data/types.ts` (EP-13), `event_templates` DB table (`src-tauri/src/db/schema.rs`), `localStore.eventTemplates`, `src/components/settings/EventTemplatesSettings.tsx`.
+**See also**: `EVT`.
 
 ---
 
@@ -450,6 +471,15 @@ the chip can render. **Always disambiguate** in code/conversation:
 **Is**: Settings surface to create/edit/delete `TMPL`s.
 **Lives in**: `src/components/settings/TemplatesSettings.tsx`.
 
+### Contacts (`CON-*`)
+
+#### CON-HOVER-CARD — Contact hover card
+**Is**: Radix HoverCard (400ms open / 200ms close) triggered by hovering a sender name or participant name. Shows avatar, VIP badge, company, title, email, message count, 3 recent thread links, and "Compose" + "View Contact" action buttons.
+**Is NOT**: The full `ContactCard` (that's the expanded panel view in ContactsPanel). A tooltip.
+**Lives in**: `src/components/contacts/ContactHoverCard.tsx`.
+**Used in**: `EmailViewerPanel.tsx` (sender name/avatar), `InspectorPanel.tsx` (each participant row).
+**See also**: `LST-VIEWER`, `INS-PANEL`.
+
 ### Email body rendering
 
 #### EmailBody — iframe-based HTML email renderer
@@ -457,6 +487,49 @@ the chip can render. **Always disambiguate** in code/conversation:
 **Is NOT**: The full `EmailViewerPanel` (which handles loading state, thread display, metadata). `EmailBody` is only the iframe rendering primitive.
 **Lives in**: `src/components/email/EmailViewerPanel.tsx` (inline component). `bodyHtml` state uses `string | null`: `null` = loading, `""` = no body/show snippet, `string` = render.
 **See also**: `LST-VIEWER`.
+
+### Calendar (`CAL-*`)
+
+#### CAL-PANEL — Calendar panel
+**Is**: The top-level calendar container. Hosts the view mode segmented control (Agenda / Week / Month), prev/next navigation arrows, "Today" shortcut, sync button, new-event button, MiniMonth (agenda mode only), and the active view component.
+**Lives in**: `src/components/calendar/CalendarPanel.tsx`.
+
+#### CAL-AGENDA — Agenda view
+**Is**: Chronological event list grouped by day from the current focus date forward. The default calendar view.
+**Lives in**: `src/components/calendar/AgendaView.tsx`.
+
+#### CAL-WEEK — Week view
+**Is**: 7-column time grid (56 px per hour, Mon–Sun). Uses a greedy two-pass algorithm to layout overlapping events into non-overlapping columns. Shows an all-day strip at the top, a red current-time indicator on today's column, and supports drag-to-reschedule for non-recurring events.
+**Lives in**: `src/components/calendar/WeekView.tsx`.
+
+#### CAL-MONTH — Month view
+**Is**: 42-cell (6×7) month grid starting from the Monday of the week containing the 1st. Shows up to 3 event pills per day with a "+N more" overflow button. Clicking a day navigates to agenda for that date. Supports drag-to-reschedule.
+**Lives in**: `src/components/calendar/MonthView.tsx`.
+
+#### CAL-MINI — Mini month navigator
+**Is**: Compact month grid used in the CalendarPanel sidebar in agenda mode. Event dots use `eventColor(colorId)` to show the first event's Google color per day.
+**Lives in**: `src/components/calendar/MiniMonth.tsx`.
+
+#### CAL-EVENT-POPOVER — Event detail popover
+**Is**: Hover/click popover on an event pill. Shows title, date/time, attendees (with `CON-HOVER-CARD`), location, local notes (editable), "Join meeting" link (when `conferenceUrl` is set), Drive file attachments list, a private lock icon (when `visibility = "private" | "confidential"`), and a creator line (when creator ≠ organizer).
+**Lives in**: `src/components/calendar/EventDetailPopover.tsx`.
+
+#### CAL-CREATE-MODAL — Event create modal
+**Is**: Full-screen modal for creating a new event. Accepts optional prefill props (`prefillDate`, `prefillAttendees`, `prefillTitle`). Renders a "Use template" dropdown when event templates exist. Mounted at Workspace root (not inside CalendarPanel) so it works even when the calendar panel is closed.
+**Lives in**: `src/components/calendar/EventCreateModal.tsx`.
+**See also**: `ETMPL`, `openEventCreateModal()` in `src/state/workspace.ts`.
+
+#### CAL-EDIT-MODAL — Event edit modal
+**Is**: Modal for editing an existing event.
+**Lives in**: `src/components/calendar/EventEditModal.tsx`.
+
+#### SET-CAL-MGMT — Calendar management settings
+**Is**: Per-calendar enable/disable toggles in SettingsPanel.
+**Lives in**: `src/components/calendar/CalendarManagementSection.tsx`.
+
+#### SET-EVENT-TEMPLATES — Event templates settings
+**Is**: CRUD UI for `ETMPL`s (name, title, location, duration, description, default attendees). Follows the same pattern as `SET-TEMPLATES` for email templates.
+**Lives in**: `src/components/settings/EventTemplatesSettings.tsx`.
 
 ---
 
@@ -521,6 +594,8 @@ groupable by any indexed axis.
 
 ## 7. Epics
 
+Between EP-8 and EP-11 a set of inter-epic improvements shipped: `ContactHoverCard` hover card on sender/participants, vCard 3.0 import/export (`src/lib/vcard.ts`), tag sidebar navigation (tags as clickable nav items), 21-color label palette, comprehensive email row right-click context menu, and undo/redo with action history modal.
+
 | ID | Title | Status | Validates |
 |---|---|---|---|
 | **EP-0** | Data model overhaul (web) | Shipped | Power-user mental model + filter speed |
@@ -534,6 +609,9 @@ groupable by any indexed axis.
 | **EP-8** | iOS app (Swift, shares vault format) | In progress | Phone-first users |
 | **EP-9** | Conflict UI + advanced sync state | Planned | Edge-case polish |
 | **EP-10** | Encrypted FTS hardening | Planned | Trust |
+| **EP-11** | Calendar foundation (Google Calendar sync, agenda view, event CRUD, per-calendar toggles) | Shipped | Calendar-first workflow |
+| **EP-12** | Calendar field completeness (all Google API fields, per-event colors, Compose→Event flow) | Shipped | Full Google Calendar fidelity |
+| **EP-13** | Calendar event templates, week/month time-grid views, drag-to-reschedule | Shipped | Power-user calendar editing |
 
 Full per-epic scope lives in `docs/architecture.md`.
 
@@ -577,10 +655,18 @@ the app **requires** adding a kind here.
 - `DELETE_RULE` — Delete a rule by id
 - `REORDER_RULES` — Reorder rules by position
 
-**Templates**
-- `CREATE_TEMPLATE` — Create a new email template
-- `UPDATE_TEMPLATE` — Update an existing template
-- `DELETE_TEMPLATE` — Delete a template by id
+**Email templates**
+- `CREATE_TEMPLATE` — Create a new email template (`TMPL`)
+- `UPDATE_TEMPLATE` — Update an existing email template
+- `DELETE_TEMPLATE` — Delete an email template by id
+
+**Calendar ops**
+- `UPSERT_CALENDAR_EVENT` — Insert or update a `CalendarEvent` in the local store (used by sync worker)
+- `DELETE_CALENDAR_EVENT` — Remove a `CalendarEvent` from the local store
+- `UPDATE_CALENDAR_EVENT_NOTES` — Update local-only notes on a `CalendarEvent`
+- `UPDATE_CALENDAR_EVENT` — Reschedule a `CalendarEvent` (new `startTs`/`endTs`); also pushes the change to Google Calendar
+- `SAVE_EVENT_TEMPLATE` — Create or update an `ETMPL`
+- `DELETE_EVENT_TEMPLATE` — Delete an `ETMPL` by id
 
 **Message ops**
 - `READ` / `UNREAD` / `ARCHIVE` / `SNOOZE` / `DELETE_MESSAGE`
