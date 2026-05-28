@@ -345,6 +345,22 @@ pub const EP12_ALTER_SQL: &[&str] = &[
     "ALTER TABLE calendar_events ADD COLUMN attachments_json TEXT",
 ];
 
+/// EP13 idempotent DDL — calendar event templates.
+pub const EP13_IDEMPOTENT_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS event_templates (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT,
+    location TEXT,
+    duration_minutes INTEGER NOT NULL DEFAULT 60,
+    default_attendees_json TEXT NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_event_templates_vault ON event_templates(vault_id);
+"#;
+
 /// EP11 idempotent DDL — FTS5 index for calendar event search.
 pub const EP11_IDEMPOTENT_SQL: &str = r#"
 CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(

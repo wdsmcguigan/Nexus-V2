@@ -65,6 +65,7 @@ import {
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
+import { EventTemplatesSettings } from "@/components/settings/EventTemplatesSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -1257,7 +1258,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     updatePref("markReadAfterMs", ms);
   }
 
-  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "shortcuts">("accounts");
+  const [activeSection, setActiveSection] = React.useState<"accounts" | "preferences" | "fields" | "relay" | "rules" | "templates" | "calendar" | "shortcuts">("accounts");
   const [rebindingAction, setRebindingAction] = React.useState<ShortcutAction | null>(null);
 
   React.useEffect(() => {
@@ -1272,6 +1273,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
     { id: "fields" as const, label: "Custom Fields", icon: <LayoutList size={14} /> },
     { id: "rules" as const, label: "Rules", icon: <Zap size={14} /> },
     { id: "templates" as const, label: "Templates", icon: <FileText size={14} /> },
+    { id: "calendar" as const, label: "Calendar", icon: <Calendar size={14} /> },
     { id: "shortcuts" as const, label: "Shortcuts", icon: <Keyboard size={14} /> },
     ...(clientMode === "local-first"
       ? [{ id: "relay" as const, label: "Relay", icon: <Server size={14} /> }]
@@ -1775,6 +1777,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
           {activeSection === "rules" && <RulesSettings />}
 
           {activeSection === "templates" && <TemplatesSettings />}
+          {activeSection === "calendar" && <EventTemplatesSettings />}
 
           {activeSection === "shortcuts" && (
             <div>

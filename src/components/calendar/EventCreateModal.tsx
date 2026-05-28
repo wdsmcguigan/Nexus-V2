@@ -1,11 +1,13 @@
 import * as React from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X, Plus, Trash2, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { createCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { localStore } from "@/storage/local";
+import { useEventTemplates } from "@/storage/useStore";
 import { toast } from "sonner";
+import type { EventTemplate } from "@/data/types";
 
 interface Props {
   open: boolean;
@@ -43,6 +45,19 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   const [attendeeInput, setAttendeeInput] = React.useState("");
   const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
   const [submitting, setSubmitting] = React.useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
+
+  const templates = useEventTemplates();
+
+  function applyTemplate(tmpl: EventTemplate) {
+    setTitle(tmpl.title);
+    setDescription(tmpl.description ?? "");
+    setLocation(tmpl.location ?? "");
+    const currentStart = localDatetimeToTs(startVal);
+    setEndVal(toLocalDatetimeValue(currentStart + tmpl.durationMinutes * 60_000));
+    if (tmpl.defaultAttendees.length > 0) setAttendees(tmpl.defaultAttendees);
+    setTemplateMenuOpen(false);
+  }
 
   React.useEffect(() => {
     if (!open) return;
@@ -136,6 +151,36 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
               </div>
 
               <div className="space-y-3">
+                {templates.length > 0 && (
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setTemplateMenuOpen((v) => !v)}
+                    >
+                      Use template
+                      <ChevronDown size={12} />
+                    </Button>
+                    {templateMenuOpen && (
+                      <div className="absolute left-0 top-full z-10 mt-1 w-56 rounded-sm border border-border-default bg-surface-2 shadow-l2 py-1">
+                        {templates.map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            className="w-full px-3 py-2 text-left text-small text-text-primary hover:bg-surface-3"
+                            onClick={() => applyTemplate(t)}
+                          >
+                            <div className="truncate font-medium">{t.name}</div>
+                            <div className="truncate text-caption text-text-tertiary">
+                              {t.title || "(no title)"} · {t.durationMinutes} min
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <input
                   autoFocus
                   value={title}

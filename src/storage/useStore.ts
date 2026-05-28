@@ -230,6 +230,13 @@ export function useCalendarEvents(startTs: number, endTs: number): import("@/dat
   return localStore.getCalendarEventsInRange(startTs, endTs);
 }
 
+export function useEventTemplates(): import("@/data/types").EventTemplate[] {
+  const v = useStoreVersion();
+  void v;
+  return Array.from(localStore.eventTemplates.values())
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
 /** Returns a single message by id, or null. */
 export function useMessage(id: string | null): Message | null {
   // messages.get() returns the same object reference until mutated — stable snapshot.

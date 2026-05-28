@@ -16,6 +16,7 @@ import type {
   ContactGroup,
   CustomFieldDef,
   CustomFieldValue,
+  EventTemplate,
   Folder,
   Label,
   Message,
@@ -46,6 +47,7 @@ interface StorageSnapshot {
   calendarEvents?: CalendarEvent[];
   rules?: Rule[];
   templates?: Template[];
+  eventTemplates?: EventTemplate[];
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -80,6 +82,7 @@ export class LocalStore {
   groupsByContact = new Map<string, Set<string>>();
   rules = new Map<string, Rule>();
   templates = new Map<string, Template>();
+  eventTemplates = new Map<string, EventTemplate>();
   calendarEvents = new Map<string, CalendarEvent>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
@@ -135,6 +138,7 @@ export class LocalStore {
     this.savedViews.clear();
     this.rules.clear();
     this.templates.clear();
+    this.eventTemplates.clear();
     this.mutations = [];
 
     // Clear indexes
@@ -164,6 +168,7 @@ export class LocalStore {
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
+    for (const et of (snap.eventTemplates ?? [])) this.eventTemplates.set(et.id, et);
     for (const g of (snap.contactGroups ?? [])) this.contactGroups.set(g.id, g);
     for (const e of (snap.calendarEvents ?? [])) this.calendarEvents.set(e.id, e);
 
@@ -678,6 +683,20 @@ export class LocalStore {
 
   deleteTemplate(id: string): void {
     this.templates.delete(id);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  // ── Event Template CRUD (EP-13) ──────────────────────────────────
+
+  putEventTemplate(tmpl: EventTemplate): void {
+    this.eventTemplates.set(tmpl.id, tmpl);
+    this._notify();
+    this._schedulePersist();
+  }
+
+  deleteEventTemplate(id: string): void {
+    this.eventTemplates.delete(id);
     this._notify();
     this._schedulePersist();
   }

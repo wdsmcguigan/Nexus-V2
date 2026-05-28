@@ -43,6 +43,7 @@ export interface HydratePayload {
   savedViews: unknown[];
   rules: unknown[];
   templates: unknown[];
+  eventTemplates: unknown[];
 }
 
 export async function loadVaultData(vaultPath: string): Promise<HydratePayload> {
@@ -375,6 +376,18 @@ export async function saveTemplate(vaultId: string, template: Template): Promise
 
 export async function deleteTemplate(id: string, vaultId: string): Promise<void> {
   return invoke<void>("delete_template", { id, vaultId });
+}
+
+export async function getEventTemplates(vaultId: string): Promise<import("@/data/types").EventTemplate[]> {
+  return invoke("get_event_templates", { vaultId });
+}
+
+export async function saveEventTemplate(vaultId: string, template: import("@/data/types").EventTemplate): Promise<void> {
+  return invoke<void>("save_event_template", { vaultId, template });
+}
+
+export async function deleteEventTemplate(id: string, vaultId: string): Promise<void> {
+  return invoke<void>("delete_event_template", { id, vaultId });
 }
 
 /** Returns "posted" if RFC 8058 one-click POST succeeded, or a URL to open in the browser. */

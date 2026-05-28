@@ -28,6 +28,7 @@ pub struct HydratePayload {
     pub rules: Vec<JsonValue>,
     pub templates: Vec<JsonValue>,
     pub calendar_events: Vec<JsonValue>,
+    pub event_templates: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -48,6 +49,7 @@ impl VaultDb {
             saved_views: self.load_saved_views(vault_id)?,
             rules: self.get_rules(vault_id)?,
             templates: self.get_templates(vault_id)?,
+            event_templates: self.get_event_templates(vault_id)?,
             calendar_events: {
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1717,6 +1719,23 @@ impl VaultDb {
                 let notes = p["notes"].as_str();
                 self.update_calendar_event_notes(id, notes)?;
             }
+            "UPDATE_CALENDAR_EVENT" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let start_ts = p["startTs"].as_i64().unwrap_or_default();
+                let end_ts = p["endTs"].as_i64().unwrap_or_default();
+                let now = chrono::Utc::now().timestamp_millis();
+                self.conn.execute(
+                    "UPDATE calendar_events SET start_ts = ?1, end_ts = ?2, updated_at = ?3 WHERE id = ?4",
+                    params![start_ts, end_ts, now, id],
+                )?;
+            }
+            "SAVE_EVENT_TEMPLATE" => {
+                self.upsert_event_template(vault_id, &p)?;
+            }
+            "DELETE_EVENT_TEMPLATE" => {
+                let id = p["templateId"].as_str().unwrap_or_default();
+                self.delete_event_template(id, vault_id)?;
+            }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
                 log::debug!("apply_mutation: unhandled kind '{other}' (recorded in log only)");
@@ -2407,6 +2426,65 @@ impl VaultDb {
 
     pub fn delete_template(&self, id: &str, vault_id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM templates WHERE id = ?1 AND vault_id = ?2", params![id, vault_id])?;
+        Ok(())
+    }
+
+    // ─── EP13: Calendar Event Templates ──────────────────────────────────────
+
+    pub fn get_event_templates(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, name, title, description, location, \
+                    duration_minutes, default_attendees_json, created_at \
+             FROM event_templates WHERE vault_id = ?1 ORDER BY created_at ASC",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            let attendees_str: String = r.get(7)?;
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": r.get::<_, String>(1)?,
+                "name": r.get::<_, String>(2)?,
+                "title": r.get::<_, String>(3)?,
+                "description": r.get::<_, Option<String>>(4)?,
+                "location": r.get::<_, Option<String>>(5)?,
+                "durationMinutes": r.get::<_, i64>(6)?,
+                "defaultAttendees": serde_json::from_str::<JsonValue>(&attendees_str).unwrap_or(serde_json::json!([])),
+                "createdAt": r.get::<_, i64>(8)?,
+            }))
+        })?;
+        rows.map(|r| r.context("loading event_template")).collect()
+    }
+
+    pub fn upsert_event_template(&self, vault_id: &str, tmpl: &JsonValue) -> Result<()> {
+        let id = tmpl["id"].as_str().unwrap_or("").to_string();
+        let name = tmpl["name"].as_str().unwrap_or("").to_string();
+        let title = tmpl["title"].as_str().unwrap_or("").to_string();
+        let description = tmpl["description"].as_str();
+        let location = tmpl["location"].as_str();
+        let duration_minutes = tmpl["durationMinutes"].as_i64().unwrap_or(60);
+        let attendees = tmpl["defaultAttendees"].to_string();
+        let created_at = tmpl["createdAt"].as_i64()
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+        self.conn.execute(
+            "INSERT INTO event_templates \
+               (id, vault_id, name, title, description, location, \
+                duration_minutes, default_attendees_json, created_at) \
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
+             ON CONFLICT(id) DO UPDATE SET \
+               name=excluded.name, title=excluded.title, \
+               description=excluded.description, location=excluded.location, \
+               duration_minutes=excluded.duration_minutes, \
+               default_attendees_json=excluded.default_attendees_json",
+            params![id, vault_id, name, title, description, location,
+                    duration_minutes, attendees, created_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_event_template(&self, id: &str, vault_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM event_templates WHERE id = ?1 AND vault_id = ?2",
+            params![id, vault_id],
+        )?;
         Ok(())
     }
 

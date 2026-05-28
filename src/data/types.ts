@@ -495,7 +495,11 @@ export type MutationKind =
   // Calendar ops (EP-10)
   | "UPSERT_CALENDAR_EVENT"
   | "DELETE_CALENDAR_EVENT"
-  | "UPDATE_CALENDAR_EVENT_NOTES";
+  | "UPDATE_CALENDAR_EVENT_NOTES"
+  | "UPDATE_CALENDAR_EVENT"
+  // Event template ops (EP-13)
+  | "SAVE_EVENT_TEMPLATE"
+  | "DELETE_EVENT_TEMPLATE";
 
 export interface Mutation {
   id: string;
@@ -604,5 +608,20 @@ export interface Template {
   name: string;
   subject: string;
   bodyHtml: string;
+  createdAt: number;
+}
+
+// ─── EP-13: Calendar Event Templates ─────────────────────────────────────────
+
+export interface EventTemplate {
+  id: string;
+  vaultId: string;
+  name: string;
+  title: string;
+  description?: string;
+  location?: string;
+  /** Duration in minutes — auto-computes endTs when creating from template. */
+  durationMinutes: number;
+  defaultAttendees: string[];
   createdAt: number;
 }

@@ -189,6 +189,8 @@ interface WorkspaceState {
   // Calendar panel
   calendarFocusDate: string;
   setCalendarFocusDate: (d: string) => void;
+  calendarViewMode: "agenda" | "week" | "month";
+  setCalendarViewMode: (mode: "agenda" | "week" | "month") => void;
   openCalendarPanel: () => void;
   eventCreateModalOpen: boolean;
   eventCreateModalPrefill: { attendees?: string[]; title?: string; date?: string } | null;
@@ -751,6 +753,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   calendarFocusDate: new Date().toISOString().slice(0, 10),
   setCalendarFocusDate: (d) => set({ calendarFocusDate: d }),
+  calendarViewMode: "agenda",
+  setCalendarViewMode: (mode) => set({ calendarViewMode: mode }),
   openCalendarPanel: () => {
     const api = getDockviewApi();
     if (!api) return;

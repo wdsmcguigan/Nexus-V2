@@ -17,6 +17,7 @@ import {
   type ContactGroup,
   type CustomFieldDef,
   type CustomFieldValue,
+  type EventTemplate,
   type FlagState,
   type Folder,
   type Label,
@@ -780,6 +781,22 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       if (existing) store.putCalendarEvent({ ...existing, notes });
       break;
     }
+    case "UPDATE_CALENDAR_EVENT": {
+      const { id, startTs, endTs } = m.payload as { id: string; startTs: number; endTs: number };
+      const existing = store.calendarEvents.get(id);
+      if (existing) store.putCalendarEvent({ ...existing, startTs, endTs, updatedAt: Date.now() });
+      break;
+    }
+    case "SAVE_EVENT_TEMPLATE": {
+      const tmpl = m.payload as EventTemplate;
+      store.putEventTemplate(tmpl);
+      break;
+    }
+    case "DELETE_EVENT_TEMPLATE": {
+      const { templateId } = m.payload as { templateId: string };
+      store.deleteEventTemplate(templateId);
+      break;
+    }
   }
 }
 
@@ -1031,4 +1048,23 @@ export function saveTemplateMutation(template: Template, store: LocalStore = _de
 
 export function deleteTemplateMutation(templateId: string, store: LocalStore = _defaultStore): void {
   recordMutation("DELETE_TEMPLATE", { templateId }, store);
+}
+
+// ── Event template ops ────────────────────────────────────────────────────────
+
+export function saveEventTemplateMutation(tmpl: EventTemplate, store: LocalStore = _defaultStore): void {
+  recordMutation("SAVE_EVENT_TEMPLATE", tmpl, store);
+}
+
+export function deleteEventTemplateMutation(templateId: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_EVENT_TEMPLATE", { templateId }, store);
+}
+
+export function rescheduleCalendarEvent(
+  store: LocalStore,
+  eventId: string,
+  newStartTs: number,
+  newEndTs: number,
+): void {
+  recordMutation("UPDATE_CALENDAR_EVENT", { id: eventId, startTs: newStartTs, endTs: newEndTs }, store);
 }

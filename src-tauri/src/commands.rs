@@ -1756,6 +1756,38 @@ pub async fn delete_template(
 }
 
 #[tauri::command]
+pub async fn get_event_templates(
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<Vec<JsonValue>, String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.get_event_templates(&vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_event_template(
+    vault_id: String,
+    template: JsonValue,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.upsert_event_template(&vault_id, &template).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_event_template(
+    id: String,
+    vault_id: String,
+    state: State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+    let db = db_guard.as_ref().ok_or_else(|| "no vault open".to_string())?;
+    db.delete_event_template(&id, &vault_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn send_unsubscribe(
     message_id: String,
     state: State<'_, AppState>,

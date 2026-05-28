@@ -54,6 +54,8 @@ impl VaultDb {
             .context("running EP11 column migrations")?;
         self.run_ep12_migrations()
             .context("running EP12 column migrations")?;
+        self.run_ep13_migrations()
+            .context("running EP13 calendar template migrations")?;
         Ok(())
     }
 
@@ -182,6 +184,14 @@ impl VaultDb {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Apply EP13 migrations (calendar event templates table).
+    fn run_ep13_migrations(&self) -> Result<()> {
+        self.conn
+            .execute_batch(schema::EP13_IDEMPOTENT_SQL)
+            .context("EP13 idempotent DDL")?;
         Ok(())
     }
 }
