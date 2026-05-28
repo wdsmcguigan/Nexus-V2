@@ -36,6 +36,7 @@ import {
   RotateCcw,
   X as XIcon,
   Users,
+  Calendar,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -56,6 +57,7 @@ import {
   resetVault,
   setNotificationPref,
   syncGoogleContacts,
+  syncGoogleCalendar,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -1051,6 +1053,67 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
 
 // ─── Contacts sync section (EP-9) ────────────────────────────────────────────
 
+function CalendarSyncSection({ accountId }: { accountId: string }) {
+  const prefs = getAppPreferences();
+  const enabled = prefs.calendarSyncEnabled[accountId] ?? true;
+  const [syncing, setSyncing] = React.useState(false);
+  const [lastCount, setLastCount] = React.useState<number | null>(null);
+
+  const handleSyncNow = async () => {
+    if (!isTauri()) return;
+    setSyncing(true);
+    try {
+      const n = await syncGoogleCalendar(accountId);
+      setLastCount(n);
+    } catch (e) {
+      console.warn("sync_google_calendar error:", e);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const toggleEnabled = () => {
+    saveAppPreferences({
+      calendarSyncEnabled: { ...prefs.calendarSyncEnabled, [accountId]: !enabled },
+    });
+  };
+
+  return (
+    <div className="border-t border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+        <Calendar size={11} />
+        Calendar
+      </div>
+      <div className="flex items-center justify-between">
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={toggleEnabled}
+            className="accent-accent"
+          />
+          Sync Google Calendar
+        </label>
+        {enabled && isTauri() && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={handleSyncNow}
+            disabled={syncing}
+          >
+            {syncing ? (
+              <Loader2 size={11} className="animate-spin" />
+            ) : (
+              <RefreshCw size={11} />
+            )}
+            {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ContactsSyncSection({ accountId }: { accountId: string }) {
   const prefs = getAppPreferences();
   const enabled = prefs.contactsSyncEnabled[accountId] ?? true;
@@ -1246,6 +1309,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                       <AccountPrefsSection accountId={acc.id} />
                       <VacationResponderSection accountId={acc.id} />
                       <ContactsSyncSection accountId={acc.id} />
+                      <CalendarSyncSection accountId={acc.id} />
                     </div>
                   ))}
                 </div>

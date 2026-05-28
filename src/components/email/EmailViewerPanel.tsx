@@ -59,6 +59,8 @@ import { getAccountPreferences, type AccountPreferences } from "@/storage/tauri"
 import { formatAbsoluteTime } from "@/lib/utils";
 import type { Message } from "@/data/types";
 import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
+import { parseIcsInvite, buildIcalReply } from "@/lib/icalUtils";
+import { Calendar, CheckCircle, HelpCircle, XCircle } from "lucide-react";
 
 // ─── Shared email body renderer ──────────────────────────────────────────────
 // Uses contentDocument.write() + useLayoutEffect so height is measured
@@ -203,6 +205,129 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         ) : (
           <EmailBody html={body} title={`Email from ${msg.fromAddr.name}`} imagesShown={false} />
         )
+      )}
+    </div>
+  );
+}
+
+// ─── Calendar invite card ─────────────────────────────────────────────────────
+
+function CalendarInviteCard({ msg }: { msg: Message }) {
+  const openComposer = useWorkspace((s) => s.openComposer);
+  const [rsvped, setRsvped] = React.useState<"ACCEPTED" | "DECLINED" | "TENTATIVE" | null>(null);
+
+  const invite = React.useMemo(
+    () => (msg.icalData ? parseIcsInvite(msg.icalData) : null),
+    [msg.icalData],
+  );
+
+  if (!invite || invite.method === "REPLY") return null;
+
+  const account = Array.from(localStore.accounts.values())[0];
+  const userEmail = account?.email ?? "";
+
+  function formatInviteTime(): string {
+    if (invite!.allDay) {
+      return new Date(invite!.startTs).toLocaleDateString("default", {
+        weekday: "short", month: "short", day: "numeric",
+      });
+    }
+    const start = new Date(invite!.startTs);
+    const end = new Date(invite!.endTs);
+    const date = start.toLocaleDateString("default", { weekday: "short", month: "short", day: "numeric" });
+    const s = start.toLocaleTimeString("default", { hour: "numeric", minute: "2-digit" });
+    const e = end.toLocaleTimeString("default", { hour: "numeric", minute: "2-digit" });
+    return `${date} · ${s} – ${e}`;
+  }
+
+  function handleRsvp(partstat: "ACCEPTED" | "DECLINED" | "TENTATIVE") {
+    if (!invite) return;
+    setRsvped(partstat);
+    const event = {
+      id: `cal-${invite.uid}`,
+      vaultId: localStore.vault?.id ?? "local",
+      accountId: account?.id ?? "local",
+      calendarId: "primary",
+      externalId: invite.uid,
+      title: invite.title,
+      description: invite.description,
+      location: invite.location,
+      startTs: invite.startTs,
+      endTs: invite.endTs,
+      allDay: invite.allDay,
+      status: "confirmed" as const,
+      organizerEmail: invite.organizer,
+      attendees: invite.attendees.map((a) => ({
+        email: a.email,
+        name: a.name,
+        responseStatus: a.partstat?.toLowerCase() === "accepted" ? "accepted" as const
+          : a.partstat?.toLowerCase() === "declined" ? "declined" as const
+          : a.partstat?.toLowerCase() === "tentative" ? "tentative" as const
+          : "needsAction" as const,
+        self: a.email.toLowerCase() === userEmail.toLowerCase(),
+        organizer: a.email.toLowerCase() === invite!.organizer.toLowerCase(),
+      })),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    Mut.recordMutation("UPSERT_CALENDAR_EVENT", { event });
+    const replyIcs = buildIcalReply(invite, userEmail, partstat);
+    openComposer({
+      prefilledTo: [invite.organizer],
+      icalReply: replyIcs,
+    });
+  }
+
+  return (
+    <div className="mx-4 mt-4 shrink-0 rounded-md border border-border-default bg-surface-2 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <Calendar size={20} className="mt-0.5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <p className="font-sans text-body-strong text-text-primary leading-snug">{invite.title}</p>
+          <p className="mt-0.5 font-sans text-small text-text-secondary">{formatInviteTime()}</p>
+          {invite.location && (
+            <p className="mt-0.5 font-sans text-small text-text-tertiary truncate">{invite.location}</p>
+          )}
+          <p className="mt-0.5 font-sans text-caption text-text-muted">
+            {invite.organizer} · {invite.attendees.length} attendee{invite.attendees.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+      </div>
+      {rsvped ? (
+        <p className={cn(
+          "mt-2 font-sans text-small",
+          rsvped === "ACCEPTED" ? "text-success" : rsvped === "DECLINED" ? "text-danger" : "text-amber-500",
+        )}>
+          {rsvped === "ACCEPTED" ? "✓ Accepted" : rsvped === "DECLINED" ? "✗ Declined" : "? Tentative"}
+          {" — reply composer opened"}
+        </p>
+      ) : (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => handleRsvp("ACCEPTED")}
+            className="inline-flex items-center gap-1 rounded-sm border border-success px-2.5 py-1 font-sans text-small text-success hover:bg-success hover:text-white transition-colors"
+          >
+            <CheckCircle size={13} />
+            Accept
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRsvp("TENTATIVE")}
+            className="inline-flex items-center gap-1 rounded-sm border border-amber-500 px-2.5 py-1 font-sans text-small text-amber-500 hover:bg-amber-500 hover:text-white transition-colors"
+          >
+            <HelpCircle size={13} />
+            Tentative
+          </button>
+          <button
+            type="button"
+            onClick={() => handleRsvp("DECLINED")}
+            className="inline-flex items-center gap-1 rounded-sm border border-danger px-2.5 py-1 font-sans text-small text-danger hover:bg-danger hover:text-white transition-colors"
+          >
+            <XCircle size={13} />
+            Decline
+          </button>
+        </div>
       )}
     </div>
   );
@@ -771,6 +896,9 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
             </div>
           </div>
         )}
+
+        {/* Calendar invite card */}
+        {msg.icalData && <CalendarInviteCard msg={msg} />}
 
         {/* Iframe sandbox boundary */}
         <div data-scroll className="nx-scroll min-h-0 flex-1 overflow-auto bg-canvas">

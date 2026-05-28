@@ -23,6 +23,7 @@ pub struct ParsedMessage {
     pub attachments: Vec<ParsedAttachment>,
     pub list_unsubscribe: Option<String>,
     pub list_unsubscribe_post: Option<String>,
+    pub ical_data: Option<String>,
 }
 
 /// Minimal Gmail API message list entry
@@ -99,7 +100,9 @@ pub struct ParsedAttachment {
 
 impl ParsedAttachment {
     pub fn from_gmail(name: String, size: i64, mime_type: &str, attachment_id: String) -> Self {
-        let att_type = if mime_type == "application/pdf" {
+        let att_type = if mime_type == "text/calendar" || name.ends_with(".ics") {
+            "calendar"
+        } else if mime_type == "application/pdf" {
             "pdf"
         } else if mime_type.starts_with("image/") {
             "image"

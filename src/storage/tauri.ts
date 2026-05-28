@@ -39,6 +39,7 @@ export interface HydratePayload {
   mutations: unknown[];
   contacts: unknown[];
   contactGroups: unknown[];
+  calendarEvents: unknown[];
   savedViews: unknown[];
   rules: unknown[];
   templates: unknown[];
@@ -382,6 +383,10 @@ export async function sendUnsubscribe(messageId: string): Promise<string> {
 
 export async function syncGoogleContacts(accountId: string): Promise<number> {
   return invoke<number>("sync_google_contacts", { accountId });
+}
+
+export async function syncGoogleCalendar(accountId: string): Promise<number> {
+  return invoke<number>("sync_google_calendar", { accountId });
 }
 
 function encodeRfc2047(text: string): string {

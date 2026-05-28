@@ -2002,3 +2002,87 @@ pub async fn sync_google_contacts(
     log::info!("sync_google_contacts: upserted {count} contacts for account {account_id}");
     Ok(count)
 }
+
+#[tauri::command]
+pub async fn sync_google_calendar(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<u32, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+
+    // Load existing sync token for delta sync
+    let sync_token: Option<String> = {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.get_calendar_sync(&account_id).map_err(|e| e.to_string())?
+    };
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let day_ms: i64 = 86_400_000;
+    let time_min = chrono::DateTime::from_timestamp_millis(now_ms - 14 * day_ms)
+        .unwrap_or_default()
+        .format("%Y-%m-%dT00:00:00Z")
+        .to_string();
+    let time_max = chrono::DateTime::from_timestamp_millis(now_ms + 90 * day_ms)
+        .unwrap_or_default()
+        .format("%Y-%m-%dT00:00:00Z")
+        .to_string();
+
+    let http = reqwest::Client::new();
+    let fetch_result = crate::gmail::calendar::fetch_google_calendar_events(
+        &http,
+        &access_token,
+        &vault_id,
+        &account_id,
+        sync_token.as_deref(),
+        &time_min,
+        &time_max,
+    ).await;
+
+    // If the syncToken expired (410 Gone), retry with a full sync
+    let (events, next_sync_token) = match fetch_result {
+        Ok(r) => r,
+        Err(e) if e.to_string().contains("syncToken expired") => {
+            log::info!("sync_google_calendar: syncToken expired, falling back to full sync");
+            crate::gmail::calendar::fetch_google_calendar_events(
+                &http, &access_token, &vault_id, &account_id,
+                None, &time_min, &time_max,
+            ).await.map_err(|e| e.to_string())?
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let count = events.len() as u32;
+    {
+        let db = crate::db::VaultDb::open(&vault_path, "nexus")
+            .map_err(|e| e.to_string())?;
+        for event in &events {
+            if event["status"].as_str() == Some("cancelled") {
+                let id = event["id"].as_str().unwrap_or_default();
+                db.delete_calendar_event(id).map_err(|e| e.to_string())?;
+            } else {
+                db.upsert_calendar_event(&vault_id, event).map_err(|e| e.to_string())?;
+            }
+        }
+        db.upsert_calendar_sync(&account_id, next_sync_token.as_deref(), now_ms)
+            .map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    log::info!("sync_google_calendar: processed {count} events for account {account_id}");
+    Ok(count)
+}

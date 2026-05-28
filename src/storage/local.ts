@@ -11,6 +11,7 @@
 
 import type {
   Account,
+  CalendarEvent,
   Contact,
   ContactGroup,
   CustomFieldDef,
@@ -42,6 +43,7 @@ interface StorageSnapshot {
   mutations: Mutation[];
   contacts?: Contact[];
   contactGroups?: ContactGroup[];
+  calendarEvents?: CalendarEvent[];
   rules?: Rule[];
   templates?: Template[];
 }
@@ -78,6 +80,7 @@ export class LocalStore {
   groupsByContact = new Map<string, Set<string>>();
   rules = new Map<string, Rule>();
   templates = new Map<string, Template>();
+  calendarEvents = new Map<string, CalendarEvent>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -148,6 +151,7 @@ export class LocalStore {
     this.groupsByContact.clear();
     this.emailIndex.clear();
     this.messagesByContact.clear();
+    this.calendarEvents.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -161,6 +165,7 @@ export class LocalStore {
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
     for (const g of (snap.contactGroups ?? [])) this.contactGroups.set(g.id, g);
+    for (const e of (snap.calendarEvents ?? [])) this.calendarEvents.set(e.id, e);
 
     // Load explicit contacts from snapshot
     for (const c of (snap.contacts ?? [])) {
@@ -216,6 +221,7 @@ export class LocalStore {
       mutations: this.mutations,
       contacts: Array.from(this.contacts.values()),
       contactGroups: Array.from(this.contactGroups.values()),
+      calendarEvents: Array.from(this.calendarEvents.values()),
     };
   }
 
@@ -604,6 +610,24 @@ export class LocalStore {
 
   getGroupsForContact(contactId: string): string[] {
     return Array.from(this.groupsByContact.get(contactId) ?? []);
+  }
+
+  // ── Calendar event CRUD (EP-10) ─────────────────────────────────
+
+  putCalendarEvent(event: CalendarEvent): void {
+    this.calendarEvents.set(event.id, event);
+    this._notify();
+  }
+
+  deleteCalendarEvent(id: string): void {
+    this.calendarEvents.delete(id);
+    this._notify();
+  }
+
+  getCalendarEventsInRange(startTs: number, endTs: number): CalendarEvent[] {
+    return Array.from(this.calendarEvents.values())
+      .filter((e) => e.endTs >= startTs && e.startTs <= endTs)
+      .sort((a, b) => a.startTs - b.startTs);
   }
 
   // ── SavedView CRUD (EP-1) ────────────────────────────────────────

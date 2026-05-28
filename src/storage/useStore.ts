@@ -224,6 +224,12 @@ export function useContactMessages(contactId: string, limit = 5): Message[] {
     .slice(0, limit);
 }
 
+export function useCalendarEvents(startTs: number, endTs: number): import("@/data/types").CalendarEvent[] {
+  const v = useStoreVersion();
+  void v;
+  return localStore.getCalendarEventsInRange(startTs, endTs);
+}
+
 /** Returns a single message by id, or null. */
 export function useMessage(id: string | null): Message | null {
   // messages.get() returns the same object reference until mutated — stable snapshot.

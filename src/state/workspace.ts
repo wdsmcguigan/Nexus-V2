@@ -55,6 +55,8 @@ export interface ComposerContext {
   replyToMessage?: Message;
   /** Pre-fill To: field for new compose (no replyToMessage needed). */
   prefilledTo?: string[];
+  /** iTIP REPLY ICS string to attach to the outgoing message. */
+  icalReply?: string;
 }
 
 // ─── Default layout capture ───────────────────────────────────────────────────
@@ -183,6 +185,11 @@ interface WorkspaceState {
   // Preferences
   filteredViewBehavior: "replace" | "new-panel";
   setFilteredViewBehavior: (v: "replace" | "new-panel") => void;
+
+  // Calendar panel
+  calendarFocusDate: string;
+  setCalendarFocusDate: (d: string) => void;
+  openCalendarPanel: () => void;
 
   // Settings panel
   openSettingsPanel: () => void;
@@ -733,6 +740,25 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         component: "list",
         title: "Mail",
         minimumWidth: 280,
+        position: { direction: "right" },
+      });
+    }
+  },
+
+  calendarFocusDate: new Date().toISOString().slice(0, 10),
+  setCalendarFocusDate: (d) => set({ calendarFocusDate: d }),
+  openCalendarPanel: () => {
+    const api = getDockviewApi();
+    if (!api) return;
+    const existing = api.panels.find((p) => p.id === "calendar");
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      api.addPanel({
+        id: "calendar",
+        component: "calendar",
+        title: "Calendar",
+        minimumWidth: 480,
         position: { direction: "right" },
       });
     }

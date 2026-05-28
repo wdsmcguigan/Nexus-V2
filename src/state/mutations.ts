@@ -12,6 +12,7 @@
  */
 
 import {
+  type CalendarEvent,
   type Contact,
   type ContactGroup,
   type CustomFieldDef,
@@ -759,6 +760,18 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
     case "DELETE_TEMPLATE": {
       const { templateId } = m.payload as { templateId: string };
       store.deleteTemplate(templateId);
+      break;
+    }
+
+    // ── Calendar ops ──────────────────────────────────────────────
+    case "UPSERT_CALENDAR_EVENT": {
+      const event = m.payload as CalendarEvent;
+      store.putCalendarEvent(event);
+      break;
+    }
+    case "DELETE_CALENDAR_EVENT": {
+      const { eventId } = m.payload as { eventId: string };
+      store.deleteCalendarEvent(eventId);
       break;
     }
   }

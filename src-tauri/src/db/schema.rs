@@ -320,6 +320,12 @@ CREATE TABLE IF NOT EXISTS calendar_sync (
 );
 "#;
 
+/// EP10 column migrations — calendar html_link and message ical_data.
+pub const EP10_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN html_link TEXT",
+    "ALTER TABLE messages ADD COLUMN ical_data TEXT",
+];
+
 /// EP7 (Stage 4) idempotent DDL — vacation responder table.
 pub const EP7_STAGE4_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS vacation_responders (

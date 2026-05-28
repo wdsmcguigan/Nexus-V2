@@ -48,6 +48,8 @@ impl VaultDb {
             .context("running EP8 column migrations")?;
         self.run_ep9_migrations()
             .context("running EP9 column migrations")?;
+        self.run_ep10_migrations()
+            .context("running EP10 column migrations")?;
         Ok(())
     }
 
@@ -134,6 +136,18 @@ impl VaultDb {
         self.conn
             .execute_batch(schema::EP9_IDEMPOTENT_SQL)
             .context("EP9 idempotent DDL")?;
+        Ok(())
+    }
+
+    /// Apply EP10 migrations (calendar html_link, messages ical_data).
+    fn run_ep10_migrations(&self) -> Result<()> {
+        for &sql in schema::EP10_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
         Ok(())
     }
 }

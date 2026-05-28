@@ -27,6 +27,7 @@ pub struct HydratePayload {
     pub saved_views: Vec<JsonValue>,
     pub rules: Vec<JsonValue>,
     pub templates: Vec<JsonValue>,
+    pub calendar_events: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -47,6 +48,14 @@ impl VaultDb {
             saved_views: self.load_saved_views(vault_id)?,
             rules: self.get_rules(vault_id)?,
             templates: self.get_templates(vault_id)?,
+            calendar_events: {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as i64;
+                let day_ms: i64 = 86_400_000;
+                self.load_calendar_events(vault_id, now_ms - 14 * day_ms, now_ms + 90 * day_ms)?
+            },
         })
     }
 
@@ -244,7 +253,8 @@ impl VaultDb {
                     status_id, priority, star, pinned, muted, notes, flag_json,
                     from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                     attachment_refs_json, custom_fields_json,
-                    flags_read, flags_answered, flags_draft, flags_flagged
+                    flags_read, flags_answered, flags_draft, flags_flagged,
+                    ical_data
              FROM messages WHERE vault_id = ?1
              ORDER BY received_at DESC LIMIT 2000",
         )?;
@@ -293,6 +303,7 @@ impl VaultDb {
                     "draft": r.get::<_, bool>(22)?,
                     "flagged": r.get::<_, bool>(23)?
                 },
+                "icalData": r.get::<_, Option<String>>(24)?,
                 "labelIds": [],
                 "tags": []
             });
@@ -1058,12 +1069,14 @@ impl VaultDb {
                 from_addr_json, to_addrs_json, cc_addrs_json, bcc_addrs_json,
                 attachment_refs_json, custom_fields_json,
                 flags_read, flags_answered, flags_draft, flags_flagged,
-                provider_id, provider_account_id, eml_path, list_unsubscribe_json, star
+                provider_id, provider_account_id, eml_path, list_unsubscribe_json, star,
+                ical_data
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
                 ?9, ?10, ?11, ?12, ?13, '{}',
                 ?14, 0, 0, 0,
-                ?15, ?16, ?17, ?18, ?19
+                ?15, ?16, ?17, ?18, ?19,
+                ?20
             )",
             params![
                 msg.id, vault_id, msg.folder_id, msg.thread_id,
@@ -1077,7 +1090,8 @@ impl VaultDb {
                 msg.provider_id, msg.account_id,
                 msg.eml_path,
                 list_unsubscribe_json,
-                initial_star
+                initial_star,
+                msg.ical_data
             ],
         )?;
 
@@ -1689,6 +1703,14 @@ impl VaultDb {
                 let group_id = p["groupId"].as_str().unwrap_or_default();
                 let contact_id = p["contactId"].as_str().unwrap_or_default();
                 self.remove_contact_from_group(group_id, contact_id)?;
+            }
+            "UPSERT_CALENDAR_EVENT" => {
+                let event = p.get("event").ok_or_else(|| anyhow::anyhow!("missing event"))?;
+                self.upsert_calendar_event(vault_id, event)?;
+            }
+            "DELETE_CALENDAR_EVENT" => {
+                let id = p["eventId"].as_str().unwrap_or_default();
+                self.delete_calendar_event(id)?;
             }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
@@ -2478,6 +2500,110 @@ fn decode_hex(s: &str) -> Result<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!("hex decode: {e}")))
         .collect()
+}
+
+// ─── Calendar queries ─────────────────────────────────────────────────────────
+
+impl VaultDb {
+    pub fn load_calendar_events(&self, vault_id: &str, start_ts: i64, end_ts: i64) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, account_id, calendar_id, external_id, title, description, location,
+                    start_ts, end_ts, all_day, rrule, status, organizer_email,
+                    attendees_json, html_link, created_at, updated_at
+             FROM calendar_events
+             WHERE vault_id = ?1 AND end_ts >= ?2 AND start_ts <= ?3
+             ORDER BY start_ts ASC",
+        )?;
+        stmt.query_map(params![vault_id, start_ts, end_ts], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "accountId": r.get::<_, String>(1)?,
+                "calendarId": r.get::<_, String>(2)?,
+                "externalId": r.get::<_, Option<String>>(3)?,
+                "title": r.get::<_, String>(4)?,
+                "description": r.get::<_, Option<String>>(5)?,
+                "location": r.get::<_, Option<String>>(6)?,
+                "startTs": r.get::<_, i64>(7)?,
+                "endTs": r.get::<_, i64>(8)?,
+                "allDay": r.get::<_, bool>(9)?,
+                "rrule": r.get::<_, Option<String>>(10)?,
+                "status": r.get::<_, String>(11)?,
+                "organizerEmail": r.get::<_, Option<String>>(12)?,
+                "attendees": serde_json::from_str::<JsonValue>(
+                    &r.get::<_, Option<String>>(13)?.unwrap_or_else(|| "[]".into())
+                ).unwrap_or_default(),
+                "htmlLink": r.get::<_, Option<String>>(14)?,
+                "createdAt": r.get::<_, i64>(15)?,
+                "updatedAt": r.get::<_, i64>(16)?,
+            }))
+        })?.map(|r| r.context("loading calendar_events row")).collect()
+    }
+
+    pub fn upsert_calendar_event(&self, vault_id: &str, event: &JsonValue) -> Result<()> {
+        let id = event["id"].as_str().unwrap_or_default();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.conn.execute(
+            "INSERT INTO calendar_events
+               (id, vault_id, account_id, calendar_id, external_id, title, description,
+                location, start_ts, end_ts, all_day, rrule, status, organizer_email,
+                attendees_json, html_link, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+             ON CONFLICT(id) DO UPDATE SET
+               title=excluded.title, description=excluded.description, location=excluded.location,
+               start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
+               rrule=excluded.rrule, status=excluded.status, organizer_email=excluded.organizer_email,
+               attendees_json=excluded.attendees_json, html_link=excluded.html_link,
+               updated_at=excluded.updated_at",
+            params![
+                id,
+                vault_id,
+                event["accountId"].as_str().unwrap_or(""),
+                event["calendarId"].as_str().unwrap_or("primary"),
+                event["externalId"].as_str(),
+                event["title"].as_str().unwrap_or(""),
+                event["description"].as_str(),
+                event["location"].as_str(),
+                event["startTs"].as_i64().unwrap_or(0),
+                event["endTs"].as_i64().unwrap_or(0),
+                event["allDay"].as_bool().unwrap_or(false),
+                event["rrule"].as_str(),
+                event["status"].as_str().unwrap_or("confirmed"),
+                event["organizerEmail"].as_str(),
+                event["attendees"].to_string(),
+                event["htmlLink"].as_str(),
+                event["createdAt"].as_i64().unwrap_or(now),
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_calendar_event(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM calendar_events WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_calendar_sync(&self, account_id: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT sync_token FROM calendar_sync WHERE account_id = ?1",
+        )?;
+        stmt.query_row(params![account_id], |r| r.get(0)).optional()
+    }
+
+    pub fn upsert_calendar_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO calendar_sync(account_id, sync_token, last_synced_at)
+             VALUES(?1,?2,?3)
+             ON CONFLICT(account_id) DO UPDATE SET
+               sync_token=excluded.sync_token, last_synced_at=excluded.last_synced_at",
+            params![account_id, sync_token, last_synced_at],
+        )?;
+        Ok(())
+    }
 }
 
 // Allow rusqlite's optional() on queries returning no rows

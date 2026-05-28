@@ -17,6 +17,7 @@ import { EmailComposerPanel } from "@/components/email/EmailComposerPanel";
 import { HudStrip } from "@/components/hud/HudStrip";
 import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
@@ -36,6 +37,7 @@ const ViewerPanel = (props: IDockviewPanelProps) => {
 const InspPanel = (props: IDockviewPanelProps) => <InspectorPanel panelId={props.api.id} />;
 const ContactsPanelWrapper = (props: IDockviewPanelProps) => <ContactsPanel panelId={props.api.id} />;
 const SettingsPanelWrapper = (props: IDockviewPanelProps) => <SettingsPanel panelId={props.api.id} />;
+const CalendarPanelWrapper = (_: IDockviewPanelProps) => <CalendarPanel />;
 
 const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
   nav: NavPanel,
@@ -44,6 +46,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
   inspector: InspPanel,
   contacts: ContactsPanelWrapper,
   settings: SettingsPanelWrapper,
+  calendar: CalendarPanelWrapper,
 };
 
 // ─── Custom tab component ─────────────────────────────────────────────────────

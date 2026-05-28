@@ -270,7 +270,7 @@ export interface MessageFlags {
 export interface AttachmentRef {
   name: string;
   size: number;
-  type: "pdf" | "image" | "doc" | "archive" | "other";
+  type: "pdf" | "image" | "doc" | "archive" | "calendar" | "other";
   /** Hash for deduplication. */
   hash?: string;
   /** Provider-specific attachment ID (e.g. Gmail part ID for downloading). */
@@ -338,6 +338,39 @@ export interface Message {
   attachmentRefs: AttachmentRef[];
   /** Parsed List-Unsubscribe header JSON: { link?: string; post?: string } */
   listUnsubscribeJson?: string;
+  /** Raw ICS text from a text/calendar MIME part or .ics attachment. */
+  icalData?: string;
+}
+
+// ─── CAL — Calendar events ───────────────────────────────────────────────────
+
+export interface CalendarAttendee {
+  email: string;
+  name?: string;
+  responseStatus: "accepted" | "declined" | "tentative" | "needsAction";
+  self?: boolean;
+  organizer?: boolean;
+}
+
+export interface CalendarEvent {
+  id: string;
+  vaultId: string;
+  accountId: string;
+  calendarId: string;
+  externalId?: string;
+  title: string;
+  description?: string;
+  location?: string;
+  startTs: number;
+  endTs: number;
+  allDay: boolean;
+  rrule?: string;
+  status: "confirmed" | "tentative" | "cancelled";
+  organizerEmail?: string;
+  attendees: CalendarAttendee[];
+  htmlLink?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ─── VW-SAVED — Saved view ───────────────────────────────────────────────────
@@ -433,7 +466,10 @@ export type MutationKind =
   // Template ops (EP-7)
   | "CREATE_TEMPLATE"
   | "UPDATE_TEMPLATE"
-  | "DELETE_TEMPLATE";
+  | "DELETE_TEMPLATE"
+  // Calendar ops (EP-10)
+  | "UPSERT_CALENDAR_EVENT"
+  | "DELETE_CALENDAR_EVENT";
 
 export interface Mutation {
   id: string;

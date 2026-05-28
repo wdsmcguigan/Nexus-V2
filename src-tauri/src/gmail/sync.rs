@@ -665,9 +665,9 @@ fn parse_gmail_message_full(
     let to_addrs = parse_addresses_json(&to_raw);
     let cc_addrs = parse_addresses_json(&cc_raw);
 
-    let (body_text, body_html) = payload
+    let (body_text, body_html, ical_data) = payload
         .map(extract_body_from_payload)
-        .unwrap_or((None, None));
+        .unwrap_or((None, None, None));
 
     let label_ids: Vec<String> = meta
         .label_ids
@@ -718,6 +718,7 @@ fn parse_gmail_message_full(
         attachments,
         list_unsubscribe,
         list_unsubscribe_post,
+        ical_data,
     })
 }
 
@@ -727,11 +728,12 @@ fn get_payload_header(payload: &GmailPayload, name: &str) -> Option<String> {
         .map(|h| h.value.clone())
 }
 
-fn extract_body_from_payload(payload: &GmailPayload) -> (Option<String>, Option<String>) {
+fn extract_body_from_payload(payload: &GmailPayload) -> (Option<String>, Option<String>, Option<String>) {
     let mut text = None;
     let mut html = None;
-    collect_body_from_payload(payload, &mut text, &mut html);
-    (text, html)
+    let mut ical = None;
+    collect_body_from_payload(payload, &mut text, &mut html, &mut ical);
+    (text, html, ical)
 }
 
 fn decode_b64url(data: &str) -> Option<Vec<u8>> {
@@ -745,6 +747,7 @@ fn collect_body_from_payload(
     payload: &GmailPayload,
     text: &mut Option<String>,
     html: &mut Option<String>,
+    ical: &mut Option<String>,
 ) {
     let mime = payload.mime_type.as_deref().unwrap_or("").to_lowercase();
 
@@ -768,10 +771,20 @@ fn collect_body_from_payload(
                 }
             }
         }
+    } else if mime == "text/calendar" && ical.is_none() {
+        if let Some(data) = payload.body.as_ref().and_then(|b| b.data.as_ref()) {
+            if let Some(bytes) = decode_b64url(data) {
+                let s = String::from_utf8(bytes.clone())
+                    .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned());
+                if !s.trim().is_empty() {
+                    *ical = Some(s);
+                }
+            }
+        }
     }
 
     for part in payload.parts.as_deref().unwrap_or_default() {
-        collect_body_from_payload(part, text, html);
+        collect_body_from_payload(part, text, html, ical);
     }
 }
 

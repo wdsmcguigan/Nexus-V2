@@ -44,7 +44,7 @@ export interface Label {
 export interface Attachment {
   name: string;
   size: number;
-  type: "pdf" | "image" | "doc" | "archive" | "other";
+  type: "pdf" | "image" | "doc" | "archive" | "calendar" | "other";
 }
 
 export interface Email {
