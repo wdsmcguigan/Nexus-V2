@@ -1177,6 +1177,9 @@ pub async fn add_imap_account(
         username: imap_username,
         password: imap_password,
     };
+    let watcher_config = config.clone();
+    let watcher_app = app.clone();
+    let watcher_account = account_id.clone();
 
     tokio::spawn(async move {
         use crate::providers::MailProvider;
@@ -1205,6 +1208,11 @@ pub async fn add_imap_account(
                 log::info!(
                     "IMAP initial sync complete for {account_id_clone}: {} messages",
                     messages.len()
+                );
+                crate::providers::imap_idle::start_idle_watcher(
+                    watcher_account,
+                    watcher_config,
+                    watcher_app,
                 );
             }
             Err(e) => log::error!("IMAP initial sync failed for {account_id_clone}: {e}"),
@@ -1483,7 +1491,89 @@ async fn init_vault_inner_with_app(state: &AppState, vault_path: &str, app: &tau
         log::warn!("Relay init skipped: {e}");
     }
 
+    // Spawn an IMAP IDLE watcher for every existing IMAP account.
+    start_imap_watchers_for_existing_accounts(vault_path, &vault_id, app.clone());
+
     Ok(vault_id)
+}
+
+fn start_imap_watchers_for_existing_accounts(
+    vault_path: &str,
+    vault_id: &str,
+    app: tauri::AppHandle,
+) {
+    let db_path = std::path::Path::new(vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    let accounts: Vec<(String, String, String)> = match crate::db::VaultDb::open(&db_path, "nexus")
+    {
+        Ok(db) => {
+            let mut stmt = match db.conn.prepare(
+                "SELECT id, settings_json, COALESCE(access_token, '')
+                 FROM accounts
+                 WHERE provider = 'imap'",
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    log::warn!("IMAP watcher startup: prepare failed: {e}");
+                    return;
+                }
+            };
+            let rows = stmt
+                .query_map(rusqlite::params![], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                        r.get::<_, String>(2)?,
+                    ))
+                })
+                .and_then(|iter| iter.collect::<rusqlite::Result<Vec<_>>>());
+            match rows {
+                Ok(rs) => rs,
+                Err(e) => {
+                    log::warn!("IMAP watcher startup: query failed: {e}");
+                    return;
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("IMAP watcher startup: db open failed: {e}");
+            return;
+        }
+    };
+
+    for (account_id, settings_json, encrypted_pw) in accounts {
+        let settings: serde_json::Value = match serde_json::from_str(&settings_json) {
+            Ok(v) => v,
+            Err(e) => {
+                log::warn!("IMAP watcher: bad settings_json for {account_id}: {e}");
+                continue;
+            }
+        };
+        let imap = &settings["imap"];
+        let security = match imap["security"].as_str().unwrap_or("tls") {
+            "starttls" => Security::StartTls,
+            "plain" => Security::Plain,
+            _ => Security::Tls,
+        };
+        let password = match decrypt_credential_for_account(&db_path, vault_id, &encrypted_pw) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("IMAP watcher: decrypt failed for {account_id}: {e}");
+                continue;
+            }
+        };
+        let config = ImapConfig {
+            host: imap["host"].as_str().unwrap_or("").to_string(),
+            port: imap["port"].as_u64().unwrap_or(993) as u16,
+            security,
+            username: imap["username"].as_str().unwrap_or("").to_string(),
+            password,
+        };
+        crate::providers::imap_idle::start_idle_watcher(account_id, config, app.clone());
+    }
 }
 
 pub async fn init_vault(app: &tauri::AppHandle, vault_path: &str) -> Result<()> {
