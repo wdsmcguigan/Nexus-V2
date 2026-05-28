@@ -42,6 +42,7 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.9"
 rrule = "0.12"
 icalendar = "0.16"
+quick-xml = "0.36"
 anyhow = "1"
 log = "0.4"
 chacha20poly1305 = "0.10"

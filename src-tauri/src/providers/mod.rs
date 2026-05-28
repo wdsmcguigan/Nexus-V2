@@ -1,4 +1,5 @@
 pub mod autodiscovery;
+pub mod calendar;
 pub mod gmail;
 pub mod imap;
 pub mod imap_idle;

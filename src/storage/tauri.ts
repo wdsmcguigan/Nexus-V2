@@ -550,3 +550,19 @@ export async function getCalendarList(accountId: string): Promise<CalendarListEn
 export async function searchCalendarEvents(query: string, vaultId: string, limit = 50): Promise<string[]> {
   return invoke<string[]>("search_calendar_events", { query, vaultId, limit });
 }
+
+export interface CaldavCalendarInfo {
+  externalId: string;
+  name: string;
+  color?: string;
+  readOnly: boolean;
+}
+
+/** Discover and list a CalDAV server's calendars (EP-14 Phase 3). */
+export async function discoverCaldav(
+  serverUrl: string,
+  username: string,
+  password: string,
+): Promise<CaldavCalendarInfo[]> {
+  return invoke<CaldavCalendarInfo[]>("discover_caldav", { serverUrl, username, password });
+}

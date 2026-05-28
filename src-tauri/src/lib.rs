@@ -105,6 +105,8 @@ pub fn run() {
             commands::update_calendar_event,
             commands::get_calendar_list,
             commands::search_calendar_events,
+            // EP14 CalDAV discovery
+            commands::discover_caldav,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously.

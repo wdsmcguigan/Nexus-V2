@@ -2493,3 +2493,27 @@ pub async fn search_calendar_events(
     db.search_calendar_fts5(&query, &vault_id, limit)
         .map_err(|e| e.to_string())
 }
+
+/// Discover and list a CalDAV server's calendars (EP-14 Phase 3).
+/// Validates credentials and returns the available calendar collections. Full
+/// account persistence + ongoing sync is the next step (see epic-14 checklist).
+#[tauri::command]
+pub async fn discover_caldav(
+    server_url: String,
+    username: String,
+    password: String,
+) -> std::result::Result<Vec<crate::providers::calendar::CalendarInfo>, String> {
+    use crate::providers::calendar::{caldav, CalendarProvider};
+    let client = reqwest::Client::new();
+    let calendar_home = caldav::discover_calendar_home(&client, &server_url, &username, &password)
+        .await
+        .map_err(|e| e.to_string())?;
+    let provider = caldav::CaldavCalendarProvider {
+        client,
+        base_url: server_url,
+        username,
+        password,
+        calendar_home,
+    };
+    provider.list_calendars().await.map_err(|e| e.to_string())
+}

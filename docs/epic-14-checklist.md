@@ -1,6 +1,6 @@
 # EP-14 — Standalone, Provider-Independent Calendar — Execution Checklist
 
-**Status:** In progress
+**Status:** Phases 0–3 implemented (Rust unverified — see note); polish items deferred
 **Plan:** `~/.claude/plans/maybe-we-should-document-valiant-sky.md` (approved)
 **Reference docs:** `docs/prior-art.md`, `docs/architecture.md`, `docs/glossary.md`
 
@@ -51,12 +51,17 @@ license constraints.
 
 ## Phase 3 — CalDAV provider abstraction
 
-- [ ] `providers/calendar/mod.rs` — `CalendarProvider` trait (mirrors `MailProvider`)
-- [ ] `providers/calendar/google.rs` — wrap existing `gmail/calendar.rs`
-- [ ] `providers/calendar/caldav.rs` — CalDAV client (evaluate `reqwest_dav` vs hand-rolled REPORT); ETag/ctag/sync-token delta sync
-- [ ] `providers/calendar/{factory,autodiscovery}.rs` — discovery (Fastmail/iCloud/Yahoo); adapt velo's Apache-2.0 structure **with attribution**
-- [ ] Commands `add_caldav_account`, `discover_caldav`, `sync_caldav_calendar`; drainer dispatch by `provider`
-- [ ] CalDAV round-trip test behind a feature flag
+- [x] `providers/calendar/mod.rs` — `CalendarProvider` trait (mirrors `MailProvider`) + `CalendarInfo`/`RawEvent`/`RemoteRef`/`FetchResult`
+- [x] `providers/calendar/google.rs` — `GoogleCalendarProvider` wraps `gmail/calendar.rs` (list + fetch + delete; writes documented as going through the JSON command path)
+- [x] `providers/calendar/caldav.rs` — hand-rolled CalDAV over `reqwest` + `quick-xml`: discovery (`discover_calendar_home`), `calendar-query` REPORT, ETag-guarded PUT/DELETE, multistatus parser (with unit tests)
+- [x] Discovery folded into `caldav.rs` (`.well-known/caldav` → principal → calendar-home-set); adapts velo's Apache-2.0 structure **with attribution** noted in the file header
+- [x] Command `discover_caldav` (registered in `lib.rs`, wrapper in `tauri.ts`) — validates creds + lists calendars
+- [ ] `add_caldav_account` / `sync_caldav_calendar` + drainer dispatch by `provider` — *deferred* (needs account/secret persistence)
+- [ ] CalDAV round-trip test against a live server — *deferred* (parser has unit tests; wire protocol unvalidated)
+
+> **Phase 3 is a foundation, not a finished CalDAV client.** The request/response
+> shapes follow RFC 4791 but were written without a live server to test against;
+> validate against Fastmail/iCloud/Radicale before relying on sync.
 
 ## Cross-cutting — docs
 
