@@ -289,6 +289,8 @@ interface WorkspaceState {
   deleteCustomField: (fieldId: string) => void;
   setCustomFieldValue: (messageId: string, fieldId: string, value: CustomFieldValue) => void;
   clearCustomFieldValue: (messageId: string, fieldId: string) => void;
+  reorderCustomFieldDefs: (orderedIds: string[]) => void;
+  reorderCustomFieldOptions: (fieldId: string, orderedIds: string[]) => void;
 
   // Message ops
   archive: (messageId: string) => void;
@@ -938,6 +940,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
   clearCustomFieldValue: (messageId, fieldId) => {
     Mut.clearCustomFieldValue(localStore, messageId, fieldId);
+  },
+  reorderCustomFieldDefs: (orderedIds) => {
+    Mut.reorderCustomFieldDefs(localStore, orderedIds);
+  },
+  reorderCustomFieldOptions: (fieldId, orderedIds) => {
+    Mut.reorderCustomFieldOptions(localStore, fieldId, orderedIds);
   },
 
   archive: (messageId) => { Mut.archiveMessage(localStore, messageId); },

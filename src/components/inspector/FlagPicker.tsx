@@ -7,26 +7,13 @@ import * as React from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { Flag, FlagOff, Check, X, Calendar, Bell } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
+import { DatePickerField } from "@/components/ui/DatePickerField";
 import { cn, formatAbsoluteTime } from "@/lib/utils";
 import type { FlagState } from "@/data/types";
 
 interface FlagPickerProps {
   messageId: string;
   flag: FlagState | null;
-}
-
-// ─── Helper: unix-ms → <input type="date"> string (YYYY-MM-DD local) ─────────
-
-function msToDateInput(ms: number): string {
-  const d = new Date(ms);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function dateInputToMs(val: string): number {
-  return new Date(val).getTime();
 }
 
 // ─── Flag status label ────────────────────────────────────────────────────────
@@ -51,20 +38,14 @@ function FlagEditor({ messageId, flag, onClose }: { messageId: string; flag: Fla
   const completeFlag = useWorkspace((s) => s.completeFlag);
   const clearFlag = useWorkspace((s) => s.clearFlag);
 
-  const [dueDate, setDueDate] = React.useState<string>(
-    flag?.dueAt ? msToDateInput(flag.dueAt) : "",
-  );
-  const [reminderDate, setReminderDate] = React.useState<string>(
-    flag?.reminderAt ? msToDateInput(flag.reminderAt) : "",
-  );
+  const [dueDate, setDueDate] = React.useState<number | undefined>(flag?.dueAt);
+  const [reminderDate, setReminderDate] = React.useState<number | undefined>(flag?.reminderAt);
 
   function handleSave() {
-    const dueAt = dueDate ? dateInputToMs(dueDate) : undefined;
-    const reminderAt = reminderDate ? dateInputToMs(reminderDate) : undefined;
     if (!flag) {
-      setFlag(messageId, { setAt: Date.now(), dueAt, reminderAt });
+      setFlag(messageId, { setAt: Date.now(), dueAt: dueDate, reminderAt: reminderDate });
     } else {
-      updateFlag(messageId, { dueAt, reminderAt });
+      updateFlag(messageId, { dueAt: dueDate, reminderAt: reminderDate });
     }
     onClose();
   }
@@ -94,16 +75,7 @@ function FlagEditor({ messageId, flag, onClose }: { messageId: string; flag: Fla
           <Calendar size={11} />
           Due date
         </label>
-        <input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          className={cn(
-            "h-7 w-full rounded-xs border border-border-subtle bg-surface-1 px-2",
-            "font-mono text-mono-sm text-text-primary outline-none",
-            "focus:border-accent focus:shadow-focus",
-          )}
-        />
+        <DatePickerField value={dueDate} onChange={setDueDate} placeholder="No due date" />
       </div>
 
       {/* Reminder */}
@@ -112,16 +84,7 @@ function FlagEditor({ messageId, flag, onClose }: { messageId: string; flag: Fla
           <Bell size={11} />
           Reminder
         </label>
-        <input
-          type="date"
-          value={reminderDate}
-          onChange={(e) => setReminderDate(e.target.value)}
-          className={cn(
-            "h-7 w-full rounded-xs border border-border-subtle bg-surface-1 px-2",
-            "font-mono text-mono-sm text-text-primary outline-none",
-            "focus:border-accent focus:shadow-focus",
-          )}
-        />
+        <DatePickerField value={reminderDate} onChange={setReminderDate} placeholder="No reminder" />
       </div>
 
       {/* Actions */}

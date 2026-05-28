@@ -16,6 +16,7 @@ import {
   type Contact,
   type ContactGroup,
   type CustomFieldDef,
+  type CustomFieldOption,
   type CustomFieldValue,
   type EventTemplate,
   type FlagState,
@@ -625,6 +626,27 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       }
       break;
     }
+    case "REORDER_CUSTOM_FIELD_DEFS": {
+      const { orderedIds } = m.payload as { orderedIds: string[] };
+      for (let i = 0; i < orderedIds.length; i++) {
+        const def = store.customFieldDefs.get(orderedIds[i]!);
+        if (def) store.customFieldDefs.set(def.id, { ...def, position: i });
+      }
+      break;
+    }
+    case "REORDER_CUSTOM_FIELD_OPTIONS": {
+      const { fieldId, orderedIds } = m.payload as { fieldId: string; orderedIds: string[] };
+      const def = store.customFieldDefs.get(fieldId);
+      if (!def?.options) break;
+      const byId = new Map(def.options.map((o) => [o.id, o]));
+      const reordered: CustomFieldOption[] = [];
+      for (let i = 0; i < orderedIds.length; i++) {
+        const opt = byId.get(orderedIds[i]!);
+        if (opt) reordered.push({ ...opt, position: i });
+      }
+      store.customFieldDefs.set(def.id, { ...def, options: reordered });
+      break;
+    }
 
     // ── Message ops ──────────────────────────────────────────────
     case "READ": {
@@ -748,6 +770,14 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
     case "DELETE_RULE": {
       const { ruleId } = m.payload as { ruleId: string };
       store.deleteRule(ruleId);
+      break;
+    }
+    case "REORDER_RULES": {
+      const { orderedIds } = m.payload as { orderedIds: string[] };
+      for (let i = 0; i < orderedIds.length; i++) {
+        const r = store.rules.get(orderedIds[i]!);
+        if (r) store.putRule({ ...r, position: i });
+      }
       break;
     }
 
@@ -897,6 +927,11 @@ export const setCustomFieldValue = (
 ) => recordMutation("SET_CUSTOM_FIELD_VALUE", { messageId, fieldId, value }, s);
 export const clearCustomFieldValue = (s: LocalStore, messageId: string, fieldId: string) =>
   recordMutation("CLEAR_CUSTOM_FIELD_VALUE", { messageId, fieldId }, s);
+export const reorderCustomFieldDefs = (s: LocalStore, orderedIds: string[]) =>
+  recordMutation("REORDER_CUSTOM_FIELD_DEFS", { orderedIds }, s);
+export const reorderCustomFieldOptions = (
+  s: LocalStore, fieldId: string, orderedIds: string[],
+) => recordMutation("REORDER_CUSTOM_FIELD_OPTIONS", { fieldId, orderedIds }, s);
 
 // Message ops
 export const readMessage = (s: LocalStore, messageId: string) =>
@@ -1037,6 +1072,10 @@ export function saveRuleMutation(rule: Rule, store: LocalStore = _defaultStore):
 
 export function deleteRuleMutation(ruleId: string, store: LocalStore = _defaultStore): void {
   recordMutation("DELETE_RULE", { ruleId }, store);
+}
+
+export function reorderRulesMutation(orderedIds: string[], store: LocalStore = _defaultStore): void {
+  recordMutation("REORDER_RULES", { orderedIds }, store);
 }
 
 // ── Template ops ──────────────────────────────────────────────────────────────
