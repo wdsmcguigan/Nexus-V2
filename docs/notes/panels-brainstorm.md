@@ -14,5 +14,6 @@ integrations Apple, Google, Microsoft, asana, slack, discord, etc
 other features
 email templates -
 Auto responder -
-
+RSS reader
+other repos from here? https://www.instagram.com/p/DYUNymcknjE/?img_index=4&igsh=NTc4MTIwNjQ2YQ==
 panel position layouts horizontal/vertical and  header integrations (for clock/agenda etc)
