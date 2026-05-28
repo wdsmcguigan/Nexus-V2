@@ -8,6 +8,7 @@ import {
   Settings,
   Loader2,
   WifiOff,
+  History,
 } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
@@ -82,7 +83,11 @@ function SyncIndicator() {
 
 // ─── Chrome ────────────────────────────────────────────────────────────────────
 
-export function WorkspaceChrome() {
+interface ChromeProps {
+  onShowHistory?: () => void;
+}
+
+export function WorkspaceChrome({ onShowHistory }: ChromeProps) {
   const theme = useWorkspace((s) => s.theme);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const setPaletteOpen = useWorkspace((s) => s.setPaletteOpen);
@@ -129,6 +134,11 @@ export function WorkspaceChrome() {
       </button>
 
       {/* Right cluster */}
+      <Tooltip label="Undo/redo history" shortcut="Z / ⇧Z">
+        <Button variant="ghost" size="sm" iconOnly aria-label="Action history" onClick={onShowHistory}>
+          <History />
+        </Button>
+      </Tooltip>
       <Tooltip label="Run command" shortcut="⌘K">
         <Button
           variant="ghost"

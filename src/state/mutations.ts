@@ -47,21 +47,52 @@ export function currentDeviceId(): string {
 // ─── Undo stack ──────────────────────────────────────────────────────────────
 
 interface UndoEntry {
-  steps: Array<{ kind: MutationKind; payload: unknown }>;
+  /** The original mutation(s) — replayed to redo. */
+  forwardSteps: Array<{ kind: MutationKind; payload: unknown }>;
+  /** The inverse mutation(s) — replayed to undo. */
+  reverseSteps: Array<{ kind: MutationKind; payload: unknown }>;
   description: string;
 }
 
 const _undoStack: UndoEntry[] = [];
+const _redoStack: UndoEntry[] = [];
 const UNDO_MAX = 20;
+
+// When true, recordMutation skips stack push/clear (used during undo/redo replay).
+let _skipStack = false;
 
 /** Undo the last undoable mutation. Returns a human-readable description, or null if stack is empty. */
 export function undoLastMutation(store: LocalStore = _defaultStore): string | null {
   const entry = _undoStack.pop();
   if (!entry) return null;
-  for (const step of entry.steps) {
-    recordMutation(step.kind, step.payload, store);
-  }
+  _redoStack.push(entry);
+  if (_redoStack.length > UNDO_MAX) _redoStack.shift();
+  _skipStack = true;
+  for (const step of entry.reverseSteps) recordMutation(step.kind, step.payload, store);
+  _skipStack = false;
   return entry.description;
+}
+
+/** Redo the last undone mutation. Returns a human-readable description, or null if nothing to redo. */
+export function redoLastMutation(store: LocalStore = _defaultStore): string | null {
+  const entry = _redoStack.pop();
+  if (!entry) return null;
+  _undoStack.push(entry);
+  if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+  _skipStack = true;
+  for (const step of entry.forwardSteps) recordMutation(step.kind, step.payload, store);
+  _skipStack = false;
+  return entry.description;
+}
+
+/** Returns the undo history with the most-recent action first. */
+export function getUndoHistory(): Array<{ description: string }> {
+  return [..._undoStack].reverse().map((e) => ({ description: e.description }));
+}
+
+/** Returns the redo history with the next-to-redo action first. */
+export function getRedoHistory(): Array<{ description: string }> {
+  return [..._redoStack].reverse().map((e) => ({ description: e.description }));
 }
 
 function _buildReverseEntry(
@@ -70,22 +101,23 @@ function _buildReverseEntry(
   store: LocalStore,
 ): UndoEntry | null {
   type Step = { kind: MutationKind; payload: unknown };
+  const forward: Step[] = [{ kind, payload }];
 
   switch (kind) {
     case "ADD_LABEL":
-      return { steps: [{ kind: "REMOVE_LABEL", payload }], description: "Add label" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "REMOVE_LABEL", payload }], description: "Add label" };
 
     case "REMOVE_LABEL":
-      return { steps: [{ kind: "ADD_LABEL", payload }], description: "Remove label" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "ADD_LABEL", payload }], description: "Remove label" };
 
     case "READ": {
       const { messageId } = payload as { messageId: string };
-      return { steps: [{ kind: "UNREAD", payload: { messageId } }], description: "Mark read" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "UNREAD", payload: { messageId } }], description: "Mark read" };
     }
 
     case "UNREAD": {
       const { messageId } = payload as { messageId: string };
-      return { steps: [{ kind: "READ", payload: { messageId } }], description: "Mark unread" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "READ", payload: { messageId } }], description: "Mark unread" };
     }
 
     case "ARCHIVE": {
@@ -93,9 +125,9 @@ function _buildReverseEntry(
       const inboxId = _systemLabelId(store, "inbox");
       const archiveId = _systemLabelId(store, "archive");
       if (!inboxId) return null;
-      const steps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
-      if (archiveId) steps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: archiveId } });
-      return { steps, description: "Archive" };
+      const reverseSteps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (archiveId) reverseSteps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: archiveId } });
+      return { forwardSteps: forward, reverseSteps, description: "Archive" };
     }
 
     case "TRASH": {
@@ -103,76 +135,76 @@ function _buildReverseEntry(
       const inboxId = _systemLabelId(store, "inbox");
       const trashId = _systemLabelId(store, "trash");
       if (!inboxId) return null;
-      const steps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
-      if (trashId) steps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: trashId } });
-      return { steps, description: "Move to trash" };
+      const reverseSteps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (trashId) reverseSteps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: trashId } });
+      return { forwardSteps: forward, reverseSteps, description: "Move to trash" };
     }
 
     case "SET_STAR": {
       const { messageId } = payload as { messageId: string; star: StarStyle };
-      return { steps: [{ kind: "CLEAR_STAR", payload: { messageId } }], description: "Star" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "CLEAR_STAR", payload: { messageId } }], description: "Star" };
     }
 
     case "CLEAR_STAR": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
       if (!msg?.star) return null;
-      return { steps: [{ kind: "SET_STAR", payload: { messageId, star: msg.star } }], description: "Unstar" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_STAR", payload: { messageId, star: msg.star } }], description: "Unstar" };
     }
 
     case "SET_PINNED": {
       const { messageId, pinned } = payload as { messageId: string; pinned: boolean };
-      return { steps: [{ kind: "SET_PINNED", payload: { messageId, pinned: !pinned } }], description: pinned ? "Pin" : "Unpin" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PINNED", payload: { messageId, pinned: !pinned } }], description: pinned ? "Pin" : "Unpin" };
     }
 
     case "SET_MUTED": {
       const { messageId, muted } = payload as { messageId: string; muted: boolean };
-      return { steps: [{ kind: "SET_MUTED", payload: { messageId, muted: !muted } }], description: muted ? "Mute" : "Unmute" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_MUTED", payload: { messageId, muted: !muted } }], description: muted ? "Mute" : "Unmute" };
     }
 
     case "SET_NOTE": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
-      return { steps: [{ kind: "SET_NOTE", payload: { messageId, notes: msg?.notes ?? null } }], description: "Set note" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_NOTE", payload: { messageId, notes: msg?.notes ?? null } }], description: "Set note" };
     }
 
     case "MOVE_TO_FOLDER": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
       if (!msg?.folderId) return null;
-      return { steps: [{ kind: "MOVE_TO_FOLDER", payload: { messageId, folderId: msg.folderId } }], description: "Move to folder" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "MOVE_TO_FOLDER", payload: { messageId, folderId: msg.folderId } }], description: "Move to folder" };
     }
 
     case "SET_STATUS": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
-      if (msg?.statusId) {
-        return { steps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Set status" };
-      }
-      return { steps: [{ kind: "CLEAR_STATUS", payload: { messageId } }], description: "Set status" };
+      const reverseSteps: Step[] = msg?.statusId
+        ? [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }]
+        : [{ kind: "CLEAR_STATUS", payload: { messageId } }];
+      return { forwardSteps: forward, reverseSteps, description: "Set status" };
     }
 
     case "CLEAR_STATUS": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
       if (!msg?.statusId) return null;
-      return { steps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Clear status" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Clear status" };
     }
 
     case "SET_PRIORITY": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
-      if (msg?.priority) {
-        return { steps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Set priority" };
-      }
-      return { steps: [{ kind: "CLEAR_PRIORITY", payload: { messageId } }], description: "Set priority" };
+      const reverseSteps: Step[] = msg?.priority
+        ? [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }]
+        : [{ kind: "CLEAR_PRIORITY", payload: { messageId } }];
+      return { forwardSteps: forward, reverseSteps, description: "Set priority" };
     }
 
     case "CLEAR_PRIORITY": {
       const { messageId } = payload as { messageId: string };
       const msg = store.messages.get(messageId);
       if (!msg?.priority) return null;
-      return { steps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
+      return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
     }
 
     default:
@@ -198,14 +230,17 @@ export function recordMutation(
     payload,
   };
   // Capture reverse entry before applyMutation modifies the store.
-  const undoEntry = _buildReverseEntry(kind, payload, store);
+  const undoEntry = _skipStack ? null : _buildReverseEntry(kind, payload, store);
 
   store.appendMutation(mutation);
   applyMutation(mutation, store);
 
-  if (undoEntry) {
-    _undoStack.push(undoEntry);
-    if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+  if (!_skipStack) {
+    if (undoEntry) {
+      _undoStack.push(undoEntry);
+      if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    }
+    _redoStack.length = 0;
   }
 
   // Fire-and-forget persistence to SQLite in Tauri mode

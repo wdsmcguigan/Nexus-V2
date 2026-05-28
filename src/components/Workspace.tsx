@@ -8,6 +8,7 @@ import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
 import { StatusBar } from "@/components/chrome/StatusBar";
 import { CommandPalette } from "@/components/palette/CommandPalette";
 import { ShortcutHelpModal } from "@/components/chrome/ShortcutHelpModal";
+import { UndoHistoryModal } from "@/components/chrome/UndoHistoryModal";
 import { NavigationPanel } from "@/components/nav/NavigationPanel";
 import { EmailListPanel } from "@/components/email/EmailListPanel";
 import { EmailViewerPanel } from "@/components/email/EmailViewerPanel";
@@ -19,7 +20,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
-import { undoLastMutation } from "@/state/mutations";
+import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
@@ -163,6 +164,11 @@ function initLayout(event: DockviewReadyEvent) {
  */
 export function Workspace() {
   const [helpOpen, setHelpOpen] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  // Incrementing this forces re-reads of the module-level undo/redo stacks.
+  const [, setStackVersion] = React.useState(0);
+  const bumpStack = React.useCallback(() => setStackVersion((v) => v + 1), []);
+
   const unread = useTotalInboxUnread();
 
   // Update document title with unread badge
@@ -198,21 +204,26 @@ export function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Global `z` key undoes the last mutation
+  // Global `z` = undo, `Z` (Shift+z) = redo
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const tag = (document.activeElement as HTMLElement)?.tagName;
       const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
-      if (e.key === "z" && tag !== "INPUT" && tag !== "TEXTAREA" && !isEditable) {
+      if (tag === "INPUT" || tag === "TEXTAREA" || isEditable) return;
+      if (e.key === "z") {
         e.preventDefault();
         const description = undoLastMutation(localStore);
-        if (description) toast(`Undone: ${description}`);
+        if (description) { toast(`Undone: ${description}`); bumpStack(); }
+      } else if (e.key === "Z") {
+        e.preventDefault();
+        const description = redoLastMutation(localStore);
+        if (description) { toast(`Redone: ${description}`); bumpStack(); }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [bumpStack]);
 
   // Global navigation chords: "g" then a key (gi, gs, gt, gd, gb, ga, gc).
   // Works from any panel. The list panel's own handler defers to this one
@@ -280,7 +291,7 @@ export function Workspace() {
           }
         }}
       >
-        <WorkspaceChrome />
+        <WorkspaceChrome onShowHistory={() => setHistoryOpen(true)} />
 
         <div className="relative min-h-0 flex-1">
           <DockviewReact
@@ -298,6 +309,14 @@ export function Workspace() {
         <StatusBar />
         <CommandPalette />
         <ShortcutHelpModal open={helpOpen} onClose={() => setHelpOpen(false)} />
+        <UndoHistoryModal
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          undoHistory={getUndoHistory()}
+          redoHistory={getRedoHistory()}
+          onUndoSteps={(n) => { for (let i = 0; i < n; i++) undoLastMutation(localStore); bumpStack(); }}
+          onRedoSteps={(n) => { for (let i = 0; i < n; i++) redoLastMutation(localStore); bumpStack(); }}
+        />
 
         <Toaster
           position="bottom-right"
