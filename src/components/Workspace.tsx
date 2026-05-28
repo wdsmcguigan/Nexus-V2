@@ -2,7 +2,7 @@ import * as React from "react";
 import { DockviewReact, DockviewDefaultTab } from "dockview";
 import type { DockviewReadyEvent, IDockviewPanelProps, IDockviewPanelHeaderProps } from "dockview";
 import { GripVertical, X } from "lucide-react";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
 import { StatusBar } from "@/components/chrome/StatusBar";
@@ -19,6 +19,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
+import { undoLastMutation } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
@@ -191,6 +192,22 @@ export function Workspace() {
       if (e.key === "?" && tag !== "INPUT" && tag !== "TEXTAREA") {
         e.preventDefault();
         setHelpOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Global `z` key undoes the last mutation
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+      if (e.key === "z" && tag !== "INPUT" && tag !== "TEXTAREA" && !isEditable) {
+        e.preventDefault();
+        const description = undoLastMutation(localStore);
+        if (description) toast(`Undone: ${description}`);
       }
     }
     window.addEventListener("keydown", onKey);

@@ -44,6 +44,142 @@ export function currentDeviceId(): string {
   return _deviceId;
 }
 
+// ─── Undo stack ──────────────────────────────────────────────────────────────
+
+interface UndoEntry {
+  steps: Array<{ kind: MutationKind; payload: unknown }>;
+  description: string;
+}
+
+const _undoStack: UndoEntry[] = [];
+const UNDO_MAX = 20;
+
+/** Undo the last undoable mutation. Returns a human-readable description, or null if stack is empty. */
+export function undoLastMutation(store: LocalStore = _defaultStore): string | null {
+  const entry = _undoStack.pop();
+  if (!entry) return null;
+  for (const step of entry.steps) {
+    recordMutation(step.kind, step.payload, store);
+  }
+  return entry.description;
+}
+
+function _buildReverseEntry(
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore,
+): UndoEntry | null {
+  type Step = { kind: MutationKind; payload: unknown };
+
+  switch (kind) {
+    case "ADD_LABEL":
+      return { steps: [{ kind: "REMOVE_LABEL", payload }], description: "Add label" };
+
+    case "REMOVE_LABEL":
+      return { steps: [{ kind: "ADD_LABEL", payload }], description: "Remove label" };
+
+    case "READ": {
+      const { messageId } = payload as { messageId: string };
+      return { steps: [{ kind: "UNREAD", payload: { messageId } }], description: "Mark read" };
+    }
+
+    case "UNREAD": {
+      const { messageId } = payload as { messageId: string };
+      return { steps: [{ kind: "READ", payload: { messageId } }], description: "Mark unread" };
+    }
+
+    case "ARCHIVE": {
+      const { messageId } = payload as { messageId: string };
+      const inboxId = _systemLabelId(store, "inbox");
+      const archiveId = _systemLabelId(store, "archive");
+      if (!inboxId) return null;
+      const steps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (archiveId) steps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: archiveId } });
+      return { steps, description: "Archive" };
+    }
+
+    case "TRASH": {
+      const { messageId } = payload as { messageId: string };
+      const inboxId = _systemLabelId(store, "inbox");
+      const trashId = _systemLabelId(store, "trash");
+      if (!inboxId) return null;
+      const steps: Step[] = [{ kind: "ADD_LABEL", payload: { messageId, labelId: inboxId } }];
+      if (trashId) steps.push({ kind: "REMOVE_LABEL", payload: { messageId, labelId: trashId } });
+      return { steps, description: "Move to trash" };
+    }
+
+    case "SET_STAR": {
+      const { messageId } = payload as { messageId: string; star: StarStyle };
+      return { steps: [{ kind: "CLEAR_STAR", payload: { messageId } }], description: "Star" };
+    }
+
+    case "CLEAR_STAR": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.star) return null;
+      return { steps: [{ kind: "SET_STAR", payload: { messageId, star: msg.star } }], description: "Unstar" };
+    }
+
+    case "SET_PINNED": {
+      const { messageId, pinned } = payload as { messageId: string; pinned: boolean };
+      return { steps: [{ kind: "SET_PINNED", payload: { messageId, pinned: !pinned } }], description: pinned ? "Pin" : "Unpin" };
+    }
+
+    case "SET_MUTED": {
+      const { messageId, muted } = payload as { messageId: string; muted: boolean };
+      return { steps: [{ kind: "SET_MUTED", payload: { messageId, muted: !muted } }], description: muted ? "Mute" : "Unmute" };
+    }
+
+    case "SET_NOTE": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      return { steps: [{ kind: "SET_NOTE", payload: { messageId, notes: msg?.notes ?? null } }], description: "Set note" };
+    }
+
+    case "MOVE_TO_FOLDER": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.folderId) return null;
+      return { steps: [{ kind: "MOVE_TO_FOLDER", payload: { messageId, folderId: msg.folderId } }], description: "Move to folder" };
+    }
+
+    case "SET_STATUS": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (msg?.statusId) {
+        return { steps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Set status" };
+      }
+      return { steps: [{ kind: "CLEAR_STATUS", payload: { messageId } }], description: "Set status" };
+    }
+
+    case "CLEAR_STATUS": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.statusId) return null;
+      return { steps: [{ kind: "SET_STATUS", payload: { messageId, statusId: msg.statusId } }], description: "Clear status" };
+    }
+
+    case "SET_PRIORITY": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (msg?.priority) {
+        return { steps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Set priority" };
+      }
+      return { steps: [{ kind: "CLEAR_PRIORITY", payload: { messageId } }], description: "Set priority" };
+    }
+
+    case "CLEAR_PRIORITY": {
+      const { messageId } = payload as { messageId: string };
+      const msg = store.messages.get(messageId);
+      if (!msg?.priority) return null;
+      return { steps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
+    }
+
+    default:
+      return null;
+  }
+}
+
 // ─── Core record function ────────────────────────────────────────────────────
 
 export function recordMutation(
@@ -61,8 +197,16 @@ export function recordMutation(
     kind,
     payload,
   };
+  // Capture reverse entry before applyMutation modifies the store.
+  const undoEntry = _buildReverseEntry(kind, payload, store);
+
   store.appendMutation(mutation);
   applyMutation(mutation, store);
+
+  if (undoEntry) {
+    _undoStack.push(undoEntry);
+    if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+  }
 
   // Fire-and-forget persistence to SQLite in Tauri mode
   if (isTauri()) {

@@ -85,6 +85,7 @@ export function ShortcutHelpModal({ open, onClose }: Props) {
       items: [
         { keys: ["⌘,"], label: "Open Settings" },
         { keys: ["?"], label: "Show this help" },
+        { keys: ["Z"], label: "Undo last action" },
       ],
     },
   ];
