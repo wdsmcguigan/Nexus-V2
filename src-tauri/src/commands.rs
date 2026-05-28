@@ -2388,6 +2388,7 @@ pub async fn create_calendar_event(
     location: Option<String>,
     description: Option<String>,
     attendee_emails: Vec<String>,
+    time_zone: Option<String>,
 ) -> std::result::Result<String, String> {
     let (vault_path, vault_id) = {
         let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
@@ -2409,6 +2410,7 @@ pub async fn create_calendar_event(
         &client, &access_token, &vault_id, &account_id,
         &title, start_ts, end_ts, all_day,
         location.as_deref(), description.as_deref(), &attendee_emails,
+        time_zone.as_deref(),
     ).await.map_err(|e| e.to_string())?;
 
     let event_id = event["id"].as_str().unwrap_or("").to_owned();
@@ -2433,6 +2435,7 @@ pub async fn update_calendar_event(
     location: Option<String>,
     description: Option<String>,
     attendee_emails: Option<Vec<String>>,
+    time_zone: Option<String>,
 ) -> std::result::Result<(), String> {
     let (vault_path, vault_id) = {
         let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
@@ -2456,6 +2459,7 @@ pub async fn update_calendar_event(
         title.as_deref(), start_ts, end_ts, all_day,
         location.as_deref(), description.as_deref(),
         attendee_emails.as_deref(),
+        time_zone.as_deref(),
     ).await.map_err(|e| e.to_string())?;
 
     let db = crate::db::VaultDb::open(&vault_path, "nexus").map_err(|e| e.to_string())?;

@@ -357,8 +357,10 @@ pub const EP14_ALTER_SQL: &[&str] = &[
     "ALTER TABLE calendar_events ADD COLUMN end_tzid TEXT",
     // Phase 2 — recurrence. Full VCALENDAR (master + inline RECURRENCE-ID
     // exceptions + EXDATE) is the source of truth; start_ts/end_ts remain the
-    // indexed range key.
+    // indexed range key. `exdates_json` holds a JSON array of excluded
+    // occurrence starts (epoch ms) for the master, written by edit-occurrence.
     "ALTER TABLE calendar_events ADD COLUMN ical_raw TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN exdates_json TEXT",
     // Phase 3 — CalDAV resource identity for ETag-based delta sync.
     "ALTER TABLE calendar_events ADD COLUMN href TEXT",
     "ALTER TABLE calendar_events ADD COLUMN etag TEXT",

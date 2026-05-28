@@ -19,32 +19,35 @@ license constraints.
 - [x] `schema.rs` — `EP14_IDEMPOTENT_SQL`: `CREATE TABLE calendars` (id, vault_id, account_id NULL=local, external_id, name, color, enabled, read_only, provider, sync_token, ctag, timestamps) + `idx_calendars_vault`
 - [x] `schema.rs` — `EP14_ALTER_SQL` on `calendar_events`: `calendar_local_id`, `dirty` (Phase 0); `start_tzid`, `end_tzid` (Phase 1); `ical_raw` (Phase 2); `href`, `etag` (Phase 3)
 - [x] `db/mod.rs` — `run_ep14_migrations()` wired into `run_migrations()` after EP13
-- [ ] `db/queries.rs` — `calendars` CRUD (`load_calendars`, `upsert_calendar`, `delete_calendar`); seed a `provider='local'` default calendar
-- [ ] `db/queries.rs` — `upsert_calendar_event` persists `calendar_local_id` / `dirty`; `load_calendar_events` returns them
-- [ ] Drainer push: `gmail/mutations.rs` handles `UPSERT/DELETE/UPDATE_CALENDAR_EVENT` — push to Google when the calendar resolves to a provider account and `external_id IS NULL`, then back-write `external_id`
+- [x] `db/queries.rs` — `calendars` CRUD (`load_calendars`, `upsert_calendar`, `delete_calendar`); `ensure_default_calendar` seeds a `provider='local'` default
+- [x] `db/queries.rs` — `upsert_calendar_event` persists `calendar_local_id` / `dirty` / tzids / `ical_raw`; `load_calendar_events` returns them
+- [x] Drainer push: `gmail/mutations.rs` `drain_calendar_event` handles `UPSERT/DELETE/UPDATE_CALENDAR_EVENT` — pushes to Google when the account is Google and `external_id IS NULL`, then back-writes `external_id`
 
 ### Frontend
 
 - [x] `EventCreateModal.tsx` — removed the hard Gmail gate; events are created locally via `UPSERT_CALENDAR_EVENT` (client UUID, `externalId` undefined) when no account is connected; Google push retained when an account exists
-- [ ] `EventEditModal.tsx` — identify events by **internal id**, not `externalId` (local events have none)
-- [ ] `types.ts` / `mutations.ts` / `tauri.ts` — `Calendar` type + `UPSERT_CALENDAR` / `DELETE_CALENDAR` / `UPDATE_CALENDAR` mutation kinds
-- [ ] `useStore.ts` — `useCalendars()` hook + store map; loaded in `loadVaultData`; calendar picker in create/edit modals
+- [ ] `EventEditModal.tsx` — identify events by **internal id**, not `externalId` (local events have none) — *deferred*
+- [x] `types.ts` / `mutations.ts` / `tauri.ts` — `Calendar` type + `UPSERT_CALENDAR` / `DELETE_CALENDAR` / `UPDATE_CALENDAR` mutation kinds
+- [x] `useStore.ts` — `useCalendars()` hook + `calendars` store map; loaded in `loadVaultData`
+- [ ] Calendar picker in create/edit modals — *deferred* (defaults to `local-default`)
 
 ## Phase 1 — Timezone correctness
 
-- [ ] `gmail/calendar.rs` — fix all-day parse (floating DATE, not midnight UTC); capture `start.timeZone` into `start_tzid`; write path sends originating TZID, not hard-coded `"UTC"`
-- [ ] User default-tz preference (EP-7 `preferences_json` precedent)
-- [ ] Frontend — add `luxon`; route `calendarUtils.ts` + modals + `EventDetailPopover.tsx` through tz-aware rendering; floating all-day rendered by date components
-- [ ] **Regression test:** all-day `2026-06-01` in `America/Los_Angeles` renders June 1 (not May 31)
+- [x] `gmail/calendar.rs` — all-day parsed as floating (UTC-anchored, no offset shift); `parse_google_datetime` captures `timeZone` into `start_tzid`/`end_tzid`; write path threads originating TZID (param), not hard-coded `"UTC"`
+- [~] User default-tz preference — create modal sends `Intl…timeZone`; a stored per-account default is *deferred*
+- [x] Frontend — added `luxon`; `calendarUtils` gained `allDayDateKey`/`formatAllDayDate` (UTC components); `EventDetailPopover` renders all-day by UTC date
+- [x] **Regression test:** `src/lib/__tests__/calendarUtils.test.ts` — all-day 2026-06-01 renders June 1 (not May 31)
 
 ## Phase 2 — Recurrence engine (Rust)
 
-- [ ] `Cargo.toml` — add `rrule` + `icalendar` crates (spike TZID/floating semantics first)
-- [ ] `src-tauri/src/calendar/recurrence.rs` — `parse_ics`, `expand(master, window)` (EXDATE + RECURRENCE-ID overlay), `edit_this_occurrence`, `edit_all`; `edit_this_and_following` → typed `Unsupported`
-- [ ] `queries.rs:load_calendar_events` — expand `ical_raw`/`rrule` rows within window; tag instances `masterId` + `occurrenceStart`
-- [ ] Mutation kinds `EDIT_EVENT_OCCURRENCE` / `EDIT_EVENT_SERIES`; relax the recurring-event drag guard once occurrence-edit is proven
-- [ ] Switch Google fetch to `singleEvents=false` (masters + recurrence), behind a flag
-- [ ] Rust unit tests: expansion, COUNT/UNTIL, EXDATE, exception overlay, **DST**, `edit_all` delta
+- [x] `Cargo.toml` — added `rrule`, `icalendar`, `chrono-tz`
+- [x] `src-tauri/src/calendar/recurrence.rs` — `expand_rrule(master, window)` with EXDATE exclusion; `lib.rs` registers `mod calendar`
+- [x] `queries.rs` — `edit_event_occurrence` (detached exception + master EXDATE), `edit_event_series` (merge into master); `EDIT_EVENT_OCCURRENCE`/`EDIT_EVENT_SERIES` mutation kinds + dispatch + frontend helpers
+- [x] `queries.rs:load_calendar_events` — expands recurring masters within the window; instances tagged `masterId` + `occurrenceStart`, keyed `${masterId}::${occStart}`
+- [x] Rust unit tests: weekly expansion, COUNT bound, EXDATE, **DST** (9am stays 9am across the transition)
+- [ ] `edit_this_and_following` → typed `Unsupported` — *deferred* (Mailspring defers it too)
+- [ ] Switch Google fetch to `singleEvents=false` behind a flag — *deferred* (larger refactor; still uses `singleEvents=true`)
+- [ ] Relax recurring-event drag guard once occurrence-edit is proven — *deferred*
 
 ## Phase 3 — CalDAV provider abstraction
 

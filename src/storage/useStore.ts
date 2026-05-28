@@ -237,6 +237,12 @@ export function useEventTemplates(): import("@/data/types").EventTemplate[] {
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
+export function useCalendars(): import("@/data/types").Calendar[] {
+  const v = useStoreVersion();
+  void v;
+  return localStore.getCalendarsSorted();
+}
+
 /** Returns a single message by id, or null. */
 export function useMessage(id: string | null): Message | null {
   // messages.get() returns the same object reference until mutated — stable snapshot.

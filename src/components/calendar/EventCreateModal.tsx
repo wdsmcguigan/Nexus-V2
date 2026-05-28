@@ -97,6 +97,9 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
     // through the mutation pipeline regardless of whether an account is connected.
     // A connected Gmail account is an optional sync target, not a prerequisite.
     const vaultId = gmailAccount?.vaultId ?? localStore.vault?.id ?? "local";
+    // Timed events carry the user's IANA timezone (Phase 1); all-day events are
+    // floating (no tzid).
+    const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     setSubmitting(true);
     try {
@@ -115,6 +118,7 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           location: location.trim() || undefined,
           description: description.trim() || undefined,
           attendeeEmails: attendees,
+          timeZone: tzid,
         });
         externalId = eventId;
       } else {
@@ -126,11 +130,14 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           vaultId,
           accountId: gmailAccount?.id ?? "local",
           calendarId: "primary",
+          calendarLocalId: "local-default",
           externalId,
           title: title.trim(),
           startTs,
           endTs,
           allDay,
+          startTzid: tzid,
+          endTzid: tzid,
           location: location.trim() || undefined,
           description: description.trim() || undefined,
           status: "confirmed",

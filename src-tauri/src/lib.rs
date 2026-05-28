@@ -1,3 +1,4 @@
+mod calendar;
 mod commands;
 pub mod crypto;
 mod db;

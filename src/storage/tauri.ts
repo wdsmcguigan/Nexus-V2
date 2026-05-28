@@ -40,6 +40,7 @@ export interface HydratePayload {
   contacts: unknown[];
   contactGroups: unknown[];
   calendarEvents: unknown[];
+  calendars: unknown[];
   savedViews: unknown[];
   rules: unknown[];
   templates: unknown[];
@@ -522,6 +523,7 @@ export async function createCalendarEvent(params: {
   location?: string;
   description?: string;
   attendeeEmails: string[];
+  timeZone?: string;
 }): Promise<string> {
   return invoke<string>("create_calendar_event", params);
 }
@@ -536,6 +538,7 @@ export async function updateCalendarEvent(params: {
   location?: string;
   description?: string;
   attendeeEmails?: string[];
+  timeZone?: string;
 }): Promise<void> {
   return invoke<void>("update_calendar_event", params);
 }

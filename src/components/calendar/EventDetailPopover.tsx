@@ -7,6 +7,7 @@ import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
 import { EventEditModal } from "./EventEditModal";
 import * as Mut from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
+import { formatAllDayDate } from "@/lib/calendarUtils";
 
 interface Props {
   event: CalendarEvent;
@@ -15,9 +16,9 @@ interface Props {
 
 function formatDateRange(e: CalendarEvent): string {
   if (e.allDay) {
-    return new Date(e.startTs).toLocaleDateString("default", {
-      weekday: "short", month: "short", day: "numeric",
-    });
+    // All-day events are floating — format by UTC date components so the day
+    // does not shift with the viewer's timezone (EP-14 Phase 1).
+    return formatAllDayDate(e.startTs);
   }
   const start = new Date(e.startTs);
   const end = new Date(e.endTs);
