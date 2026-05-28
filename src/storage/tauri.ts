@@ -335,6 +335,7 @@ export async function sendMessage(params: {
   bodyHtml: string;
   replyToMessageId?: string;
   attachments?: AttachmentPayload[];
+  icalReply?: string;
 }): Promise<string> {
   const raw = buildRfc822(params);
   const b64 = btoa(unescape(encodeURIComponent(raw)))
@@ -405,6 +406,7 @@ function buildRfc822(params: {
   bodyHtml: string;
   replyToMessageId?: string;
   attachments?: AttachmentPayload[];
+  icalReply?: string;
 }): string {
   const hdrs: string[] = [];
   hdrs.push(`From: ${params.from}`);
@@ -418,7 +420,10 @@ function buildRfc822(params: {
     hdrs.push(`References: ${params.replyToMessageId}`);
   }
 
-  if (!params.attachments?.length) {
+  const hasAttachments = !!params.attachments?.length;
+  const hasIcal = !!params.icalReply;
+
+  if (!hasAttachments && !hasIcal) {
     hdrs.push(`Content-Type: text/html; charset=UTF-8`);
     hdrs.push(`Content-Transfer-Encoding: 8bit`);
     hdrs.push("");
@@ -440,8 +445,21 @@ function buildRfc822(params: {
   parts.push(params.bodyHtml);
   parts.push("");
 
+  // iTIP calendar reply part
+  if (hasIcal) {
+    const icalB64 = btoa(unescape(encodeURIComponent(params.icalReply!)));
+    const wrapped = icalB64.replace(/(.{76})/g, "$1\r\n");
+    parts.push(`--${boundary}`);
+    parts.push(`Content-Type: text/calendar; method=REPLY; charset=UTF-8`);
+    parts.push(`Content-Disposition: attachment; filename="reply.ics"`);
+    parts.push(`Content-Transfer-Encoding: base64`);
+    parts.push("");
+    parts.push(wrapped);
+    parts.push("");
+  }
+
   // Attachment parts — base64 data wrapped at 76 chars per RFC 2045
-  for (const att of params.attachments) {
+  for (const att of params.attachments ?? []) {
     const mime = att.mimeType || "application/octet-stream";
     const name = att.name.replace(/"/g, "'"); // sanitise filename for header
     parts.push(`--${boundary}`);
@@ -457,4 +475,48 @@ function buildRfc822(params: {
 
   parts.push(`--${boundary}--`);
   return [...hdrs, ...parts].join("\r\n");
+}
+
+// ─── EP11: Calendar write API + multi-calendar ────────────────────────────────
+
+export interface CalendarListEntry {
+  id: string;
+  summary: string;
+  backgroundColor: string;
+  selected: boolean;
+}
+
+export async function createCalendarEvent(params: {
+  accountId: string;
+  title: string;
+  startTs: number;
+  endTs: number;
+  allDay: boolean;
+  location?: string;
+  description?: string;
+  attendeeEmails: string[];
+}): Promise<string> {
+  return invoke<string>("create_calendar_event", params);
+}
+
+export async function updateCalendarEvent(params: {
+  accountId: string;
+  externalId: string;
+  title?: string;
+  startTs?: number;
+  endTs?: number;
+  allDay?: boolean;
+  location?: string;
+  description?: string;
+  attendeeEmails?: string[];
+}): Promise<void> {
+  return invoke<void>("update_calendar_event", params);
+}
+
+export async function getCalendarList(accountId: string): Promise<CalendarListEntry[]> {
+  return invoke<CalendarListEntry[]>("get_calendar_list", { accountId });
+}
+
+export async function searchCalendarEvents(query: string, vaultId: string, limit = 50): Promise<string[]> {
+  return invoke<string[]>("search_calendar_events", { query, vaultId, limit });
 }

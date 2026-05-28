@@ -326,6 +326,25 @@ pub const EP10_ALTER_SQL: &[&str] = &[
     "ALTER TABLE messages ADD COLUMN ical_data TEXT",
 ];
 
+/// EP11 column migrations — local notes and source email link on calendar events.
+pub const EP11_ALTER_SQL: &[&str] = &[
+    "ALTER TABLE calendar_events ADD COLUMN notes TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN source_message_id TEXT",
+];
+
+/// EP11 idempotent DDL — FTS5 index for calendar event search.
+pub const EP11_IDEMPOTENT_SQL: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS calendar_events_fts USING fts5(
+    event_id UNINDEXED,
+    title,
+    description,
+    location,
+    organizer_email,
+    content='calendar_events',
+    content_rowid='rowid'
+);
+"#;
+
 /// EP7 (Stage 4) idempotent DDL — vacation responder table.
 pub const EP7_STAGE4_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS vacation_responders (

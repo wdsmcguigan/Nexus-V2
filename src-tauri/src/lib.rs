@@ -95,6 +95,11 @@ pub fn run() {
             commands::sync_google_contacts,
             // EP10 calendar sync
             commands::sync_google_calendar,
+            // EP11 calendar write + multi-calendar + FTS
+            commands::create_calendar_event,
+            commands::update_calendar_event,
+            commands::get_calendar_list,
+            commands::search_calendar_events,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously.

@@ -91,7 +91,8 @@ export function actionForKey(
 
 export type NavTarget =
   | { kind: "folder"; systemKind: SystemLabelKind }
-  | { kind: "contacts" };
+  | { kind: "contacts" }
+  | { kind: "calendar" };
 
 export interface NavSequence {
   /** The second key pressed after the "g" prefix. */
@@ -110,6 +111,7 @@ export const NAV_SEQUENCES: NavSequence[] = [
   { key: "b", label: "Go to Snoozed",   target: { kind: "folder", systemKind: "snoozed" } },
   { key: "a", label: "Go to All mail",  target: { kind: "folder", systemKind: "archive" } },
   { key: "c", label: "Go to Contacts",  target: { kind: "contacts" } },
+  { key: "l", label: "Go to Calendar", target: { kind: "calendar" } },
 ];
 
 export function navTargetForKey(key: string): NavTarget | null {

@@ -136,6 +136,153 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
     }))
 }
 
+/// Create a new event on the user's primary Google Calendar.
+/// Returns the created event mapped to our schema (same shape as `map_event` output).
+pub async fn create_google_calendar_event(
+    client: &reqwest::Client,
+    access_token: &str,
+    vault_id: &str,
+    account_id: &str,
+    title: &str,
+    start_ts: i64,
+    end_ts: i64,
+    all_day: bool,
+    location: Option<&str>,
+    description: Option<&str>,
+    attendee_emails: &[String],
+) -> Result<serde_json::Value> {
+    let (start_val, end_val) = if all_day {
+        let start_date = ms_to_date_str(start_ts);
+        let end_date = ms_to_date_str(end_ts);
+        (serde_json::json!({ "date": start_date }), serde_json::json!({ "date": end_date }))
+    } else {
+        let start_dt = ms_to_rfc3339(start_ts);
+        let end_dt = ms_to_rfc3339(end_ts);
+        (serde_json::json!({ "dateTime": start_dt, "timeZone": "UTC" }), serde_json::json!({ "dateTime": end_dt, "timeZone": "UTC" }))
+    };
+
+    let attendees: Vec<serde_json::Value> = attendee_emails
+        .iter()
+        .map(|e| serde_json::json!({ "email": e }))
+        .collect();
+
+    let mut body = serde_json::json!({
+        "summary": title,
+        "start": start_val,
+        "end": end_val,
+        "attendees": attendees,
+    });
+    if let Some(loc) = location { body["location"] = serde_json::Value::String(loc.to_owned()); }
+    if let Some(desc) = description { body["description"] = serde_json::Value::String(desc.to_owned()); }
+
+    let resp = client
+        .post("https://www.googleapis.com/calendar/v3/calendars/primary/events")
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await?;
+
+    let item: serde_json::Value = resp.error_for_status()?.json().await?;
+    map_event(&item, vault_id, account_id)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse created event"))
+}
+
+/// Update an existing event on the user's primary Google Calendar via PATCH.
+/// Returns the updated event mapped to our schema.
+pub async fn update_google_calendar_event(
+    client: &reqwest::Client,
+    access_token: &str,
+    vault_id: &str,
+    account_id: &str,
+    external_id: &str,
+    title: Option<&str>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    all_day: Option<bool>,
+    location: Option<&str>,
+    description: Option<&str>,
+    attendee_emails: Option<&[String]>,
+) -> Result<serde_json::Value> {
+    let mut body = serde_json::json!({});
+
+    if let Some(t) = title { body["summary"] = serde_json::Value::String(t.to_owned()); }
+    if let Some(loc) = location { body["location"] = serde_json::Value::String(loc.to_owned()); }
+    if let Some(desc) = description { body["description"] = serde_json::Value::String(desc.to_owned()); }
+    if let Some(emails) = attendee_emails {
+        let attendees: Vec<serde_json::Value> = emails.iter().map(|e| serde_json::json!({ "email": e })).collect();
+        body["attendees"] = serde_json::Value::Array(attendees);
+    }
+
+    if let (Some(s), Some(e)) = (start_ts, end_ts) {
+        let is_all_day = all_day.unwrap_or(false);
+        if is_all_day {
+            body["start"] = serde_json::json!({ "date": ms_to_date_str(s) });
+            body["end"] = serde_json::json!({ "date": ms_to_date_str(e) });
+        } else {
+            body["start"] = serde_json::json!({ "dateTime": ms_to_rfc3339(s), "timeZone": "UTC" });
+            body["end"] = serde_json::json!({ "dateTime": ms_to_rfc3339(e), "timeZone": "UTC" });
+        }
+    }
+
+    let encoded_id: String = url::form_urlencoded::byte_serialize(external_id.as_bytes()).collect();
+    let url = format!(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events/{encoded_id}"
+    );
+
+    let resp = client
+        .patch(&url)
+        .bearer_auth(access_token)
+        .json(&body)
+        .send()
+        .await?;
+
+    let item: serde_json::Value = resp.error_for_status()?.json().await?;
+    map_event(&item, vault_id, account_id)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse updated event"))
+}
+
+/// Fetch the list of calendars the user has access to.
+pub async fn fetch_google_calendar_list(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Vec<serde_json::Value>> {
+    let resp = client
+        .get("https://www.googleapis.com/calendar/v3/users/me/calendarList")
+        .bearer_auth(access_token)
+        .send()
+        .await?;
+
+    let body: serde_json::Value = resp.error_for_status()?.json().await?;
+    let items = body["items"]
+        .as_array()
+        .map(|arr| {
+            arr.iter().map(|c| serde_json::json!({
+                "id": c["id"].as_str().unwrap_or(""),
+                "summary": c["summary"].as_str().unwrap_or(""),
+                "backgroundColor": c["backgroundColor"].as_str().unwrap_or("#4285f4"),
+                "selected": c["selected"].as_bool().unwrap_or(false),
+            })).collect()
+        })
+        .unwrap_or_default();
+    Ok(items)
+}
+
+fn ms_to_rfc3339(ms: i64) -> String {
+    use chrono::{TimeZone, Utc};
+    Utc.timestamp_millis_opt(ms)
+        .single()
+        .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .unwrap_or_default()
+}
+
+fn ms_to_date_str(ms: i64) -> String {
+    use chrono::{TimeZone, Utc};
+    Utc.timestamp_millis_opt(ms)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .unwrap_or_default()
+}
+
 /// Parse a Google Calendar datetime object (`{ dateTime: "...", date: "..." }`).
 /// Returns `(unix_ms, is_all_day)`.
 fn parse_google_datetime(dt: &serde_json::Value) -> Option<(i64, bool)> {

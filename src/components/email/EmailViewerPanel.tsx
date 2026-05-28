@@ -267,6 +267,7 @@ function CalendarInviteCard({ msg }: { msg: Message }) {
         self: a.email.toLowerCase() === userEmail.toLowerCase(),
         organizer: a.email.toLowerCase() === invite!.organizer.toLowerCase(),
       })),
+      sourceMessageId: msg.id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

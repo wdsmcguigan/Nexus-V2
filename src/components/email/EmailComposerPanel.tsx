@@ -410,6 +410,7 @@ export function EmailComposerPanel() {
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
           attachments: attachmentPayloads,
+          icalReply: composerContext?.icalReply,
         });
         clearDraft(_draftKey);
         toast.success("Sent");

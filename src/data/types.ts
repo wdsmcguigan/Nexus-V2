@@ -369,6 +369,8 @@ export interface CalendarEvent {
   organizerEmail?: string;
   attendees: CalendarAttendee[];
   htmlLink?: string;
+  notes?: string;
+  sourceMessageId?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -469,7 +471,8 @@ export type MutationKind =
   | "DELETE_TEMPLATE"
   // Calendar ops (EP-10)
   | "UPSERT_CALENDAR_EVENT"
-  | "DELETE_CALENDAR_EVENT";
+  | "DELETE_CALENDAR_EVENT"
+  | "UPDATE_CALENDAR_EVENT_NOTES";
 
 export interface Mutation {
   id: string;

@@ -1712,6 +1712,11 @@ impl VaultDb {
                 let id = p["eventId"].as_str().unwrap_or_default();
                 self.delete_calendar_event(id)?;
             }
+            "UPDATE_CALENDAR_EVENT_NOTES" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let notes = p["notes"].as_str();
+                self.update_calendar_event_notes(id, notes)?;
+            }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
                 log::debug!("apply_mutation: unhandled kind '{other}' (recorded in log only)");
@@ -2509,7 +2514,8 @@ impl VaultDb {
         let mut stmt = self.conn.prepare(
             "SELECT id, account_id, calendar_id, external_id, title, description, location,
                     start_ts, end_ts, all_day, rrule, status, organizer_email,
-                    attendees_json, html_link, created_at, updated_at
+                    attendees_json, html_link, created_at, updated_at,
+                    notes, source_message_id
              FROM calendar_events
              WHERE vault_id = ?1 AND end_ts >= ?2 AND start_ts <= ?3
              ORDER BY start_ts ASC",
@@ -2536,6 +2542,8 @@ impl VaultDb {
                 "htmlLink": r.get::<_, Option<String>>(14)?,
                 "createdAt": r.get::<_, i64>(15)?,
                 "updatedAt": r.get::<_, i64>(16)?,
+                "notes": r.get::<_, Option<String>>(17)?,
+                "sourceMessageId": r.get::<_, Option<String>>(18)?,
             }))
         })?.map(|r| r.context("loading calendar_events row")).collect()
     }
@@ -2550,13 +2558,14 @@ impl VaultDb {
             "INSERT INTO calendar_events
                (id, vault_id, account_id, calendar_id, external_id, title, description,
                 location, start_ts, end_ts, all_day, rrule, status, organizer_email,
-                attendees_json, html_link, created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+                attendees_json, html_link, created_at, updated_at, notes, source_message_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
              ON CONFLICT(id) DO UPDATE SET
                title=excluded.title, description=excluded.description, location=excluded.location,
                start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
                rrule=excluded.rrule, status=excluded.status, organizer_email=excluded.organizer_email,
                attendees_json=excluded.attendees_json, html_link=excluded.html_link,
+               source_message_id=COALESCE(excluded.source_message_id, calendar_events.source_message_id),
                updated_at=excluded.updated_at",
             params![
                 id,
@@ -2577,9 +2586,57 @@ impl VaultDb {
                 event["htmlLink"].as_str(),
                 event["createdAt"].as_i64().unwrap_or(now),
                 now,
+                event["notes"].as_str(),
+                event["sourceMessageId"].as_str(),
             ],
         )?;
         Ok(())
+    }
+
+    pub fn update_calendar_event_notes(&self, id: &str, notes: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE calendar_events SET notes = ?1 WHERE id = ?2",
+            params![notes, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_calendar_fts5(&self, query: &str, vault_id: &str, limit: usize) -> Result<Vec<String>> {
+        // Sanitize for FTS5: wrap in quotes to treat as phrase, escape internal quotes
+        let safe_query = format!("\"{}\"", query.replace('"', "\"\""));
+        let mut stmt = self.conn.prepare(
+            "SELECT cf.event_id FROM calendar_events_fts cf
+              JOIN calendar_events e ON e.id = cf.event_id
+              WHERE e.vault_id = ?1 AND calendar_events_fts MATCH ?2
+              ORDER BY rank
+              LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![vault_id, safe_query, limit as i64], |r| {
+            r.get::<_, String>(0)
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            match row {
+                Ok(id) => results.push(id),
+                Err(_) => break,
+            }
+        }
+        // Fallback to LIKE if FTS5 matched nothing (handles short/special queries)
+        if results.is_empty() {
+            let like = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+            let mut stmt2 = self.conn.prepare(
+                "SELECT id FROM calendar_events WHERE vault_id = ?1
+                  AND (title LIKE ?2 ESCAPE '\\' OR description LIKE ?2 ESCAPE '\\' OR location LIKE ?2 ESCAPE '\\')
+                  LIMIT ?3",
+            )?;
+            let rows2 = stmt2.query_map(params![vault_id, like, limit as i64], |r| {
+                r.get::<_, String>(0)
+            })?;
+            for row in rows2 {
+                if let Ok(id) = row { results.push(id); }
+            }
+        }
+        Ok(results)
     }
 
     pub fn delete_calendar_event(&self, id: &str) -> Result<()> {

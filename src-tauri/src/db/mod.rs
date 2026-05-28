@@ -50,6 +50,8 @@ impl VaultDb {
             .context("running EP9 column migrations")?;
         self.run_ep10_migrations()
             .context("running EP10 column migrations")?;
+        self.run_ep11_migrations()
+            .context("running EP11 column migrations")?;
         Ok(())
     }
 
@@ -148,6 +150,24 @@ impl VaultDb {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Apply EP11 migrations (calendar notes, source_message_id; calendar_events_fts).
+    fn run_ep11_migrations(&self) -> Result<()> {
+        for &sql in schema::EP11_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP11_IDEMPOTENT_SQL)
+            .context("EP11 idempotent DDL")?;
+        let _ = self.conn.execute_batch(
+            "INSERT INTO calendar_events_fts(calendar_events_fts) VALUES('rebuild');",
+        );
         Ok(())
     }
 }

@@ -264,6 +264,7 @@ export function Workspace() {
           e.preventDefault();
           if (target.kind === "folder") goToSystemFolder(target.systemKind);
           else if (target.kind === "contacts") useWorkspace.getState().openContactsPanel();
+          else if (target.kind === "calendar") useWorkspace.getState().openCalendarPanel();
         }
         // Keep the guard set through the end of this event so the list handler
         // ignores this key regardless of window-listener ordering, then clear.

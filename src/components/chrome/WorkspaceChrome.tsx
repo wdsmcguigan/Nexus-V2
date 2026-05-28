@@ -9,6 +9,8 @@ import {
   Loader2,
   WifiOff,
   History,
+  Users,
+  Calendar,
 } from "lucide-react";
 import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
@@ -92,6 +94,8 @@ export function WorkspaceChrome({ onShowHistory }: ChromeProps) {
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
   const setPaletteOpen = useWorkspace((s) => s.setPaletteOpen);
   const openSettingsPanel = useWorkspace((s) => s.openSettingsPanel);
+  const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
+  const openCalendarPanel = useWorkspace((s) => s.openCalendarPanel);
 
   return (
     <header
@@ -148,6 +152,16 @@ export function WorkspaceChrome({ onShowHistory }: ChromeProps) {
           onClick={() => setPaletteOpen(true)}
         >
           <CommandIcon />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Contacts">
+        <Button variant="ghost" size="sm" iconOnly aria-label="Contacts" onClick={() => openContactsPanel()}>
+          <Users />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Calendar">
+        <Button variant="ghost" size="sm" iconOnly aria-label="Calendar" onClick={openCalendarPanel}>
+          <Calendar />
         </Button>
       </Tooltip>
       <Tooltip label="Settings" shortcut="⌘,">

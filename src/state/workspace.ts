@@ -190,6 +190,9 @@ interface WorkspaceState {
   calendarFocusDate: string;
   setCalendarFocusDate: (d: string) => void;
   openCalendarPanel: () => void;
+  eventCreateModalOpen: boolean;
+  openEventCreateModal: () => void;
+  closeEventCreateModal: () => void;
 
   // Settings panel
   openSettingsPanel: () => void;
@@ -763,6 +766,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       });
     }
   },
+
+  eventCreateModalOpen: false,
+  openEventCreateModal: () => set({ eventCreateModalOpen: true }),
+  closeEventCreateModal: () => set({ eventCreateModalOpen: false }),
 
   openSettingsPanel: () => {
     const api = getDockviewApi();

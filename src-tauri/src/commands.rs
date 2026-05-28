@@ -2086,3 +2086,117 @@ pub async fn sync_google_calendar(
     log::info!("sync_google_calendar: processed {count} events for account {account_id}");
     Ok(count)
 }
+
+#[tauri::command]
+pub async fn create_calendar_event(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+    title: String,
+    start_ts: i64,
+    end_ts: i64,
+    all_day: bool,
+    location: Option<String>,
+    description: Option<String>,
+    attendee_emails: Vec<String>,
+) -> std::result::Result<String, String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+
+    let event = crate::gmail::calendar::create_google_calendar_event(
+        &client, &access_token, &vault_id, &account_id,
+        &title, start_ts, end_ts, all_day,
+        location.as_deref(), description.as_deref(), &attendee_emails,
+    ).await.map_err(|e| e.to_string())?;
+
+    let event_id = event["id"].as_str().unwrap_or("").to_owned();
+
+    let db = crate::db::VaultDb::open(&vault_path, "nexus").map_err(|e| e.to_string())?;
+    db.upsert_calendar_event(&vault_id, &event).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(event_id)
+}
+
+#[tauri::command]
+pub async fn update_calendar_event(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+    external_id: String,
+    title: Option<String>,
+    start_ts: Option<i64>,
+    end_ts: Option<i64>,
+    all_day: Option<bool>,
+    location: Option<String>,
+    description: Option<String>,
+    attendee_emails: Option<Vec<String>>,
+) -> std::result::Result<(), String> {
+    let (vault_path, vault_id) = {
+        let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
+            .clone().ok_or("No vault loaded")?;
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        let accounts = db.all_gmail_accounts().map_err(|e| e.to_string())?;
+        let vid = accounts.into_iter()
+            .find(|(aid, _)| aid == &account_id)
+            .map(|(_, vid)| vid)
+            .ok_or_else(|| format!("account {account_id} not found"))?;
+        (vp, vid)
+    };
+
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+
+    let event = crate::gmail::calendar::update_google_calendar_event(
+        &client, &access_token, &vault_id, &account_id,
+        &external_id,
+        title.as_deref(), start_ts, end_ts, all_day,
+        location.as_deref(), description.as_deref(),
+        attendee_emails.as_deref(),
+    ).await.map_err(|e| e.to_string())?;
+
+    let db = crate::db::VaultDb::open(&vault_path, "nexus").map_err(|e| e.to_string())?;
+    db.upsert_calendar_event(&vault_id, &event).map_err(|e| e.to_string())?;
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_calendar_list(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> std::result::Result<Vec<serde_json::Value>, String> {
+    let access_token = get_valid_token(&state, &account_id).await?;
+    let client = reqwest::Client::new();
+    crate::gmail::calendar::fetch_google_calendar_list(&client, &access_token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_calendar_events(
+    state: State<'_, AppState>,
+    query: String,
+    vault_id: String,
+    limit: usize,
+) -> std::result::Result<Vec<String>, String> {
+    let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+    let db = guard.as_ref().ok_or("Vault not open")?;
+    db.search_calendar_fts5(&query, &vault_id, limit)
+        .map_err(|e| e.to_string())
+}

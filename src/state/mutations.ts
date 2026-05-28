@@ -774,6 +774,12 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.deleteCalendarEvent(eventId);
       break;
     }
+    case "UPDATE_CALENDAR_EVENT_NOTES": {
+      const { id, notes } = m.payload as { id: string; notes: string | undefined };
+      const existing = store.calendarEvents.get(id);
+      if (existing) store.putCalendarEvent({ ...existing, notes });
+      break;
+    }
   }
 }
 

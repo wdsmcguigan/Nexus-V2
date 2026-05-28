@@ -58,6 +58,8 @@ import {
   setNotificationPref,
   syncGoogleContacts,
   syncGoogleCalendar,
+  getCalendarList,
+  type CalendarListEntry,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
@@ -1055,9 +1057,26 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
 
 function CalendarSyncSection({ accountId }: { accountId: string }) {
   const prefs = getAppPreferences();
-  const enabled = prefs.calendarSyncEnabled[accountId] ?? true;
   const [syncing, setSyncing] = React.useState(false);
   const [lastCount, setLastCount] = React.useState<number | null>(null);
+  const [calendars, setCalendars] = React.useState<CalendarListEntry[] | null>(null);
+
+  React.useEffect(() => {
+    if (!isTauri()) return;
+    getCalendarList(accountId).then(setCalendars).catch(() => setCalendars([]));
+  }, [accountId]);
+
+  const isCalendarEnabled = (calId: string) =>
+    prefs.calendarSyncEnabled[`${accountId}:${calId}`] ?? true;
+
+  const toggleCalendar = (calId: string) => {
+    saveAppPreferences({
+      calendarSyncEnabled: {
+        ...prefs.calendarSyncEnabled,
+        [`${accountId}:${calId}`]: !isCalendarEnabled(calId),
+      },
+    });
+  };
 
   const handleSyncNow = async () => {
     if (!isTauri()) return;
@@ -1072,44 +1091,51 @@ function CalendarSyncSection({ accountId }: { accountId: string }) {
     }
   };
 
-  const toggleEnabled = () => {
-    saveAppPreferences({
-      calendarSyncEnabled: { ...prefs.calendarSyncEnabled, [accountId]: !enabled },
-    });
-  };
-
   return (
     <div className="border-t border-border-subtle px-4 py-3">
-      <div className="mb-2 flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
-        <Calendar size={11} />
-        Calendar
-      </div>
-      <div className="flex items-center justify-between">
-        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={toggleEnabled}
-            className="accent-accent"
-          />
-          Sync Google Calendar
-        </label>
-        {enabled && isTauri() && (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={handleSyncNow}
-            disabled={syncing}
-          >
-            {syncing ? (
-              <Loader2 size={11} className="animate-spin" />
-            ) : (
-              <RefreshCw size={11} />
-            )}
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+          <Calendar size={11} />
+          Calendar
+        </div>
+        {isTauri() && (
+          <Button variant="ghost" size="xs" onClick={handleSyncNow} disabled={syncing}>
+            {syncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
             {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
           </Button>
         )}
       </div>
+      {calendars === null ? (
+        <p className="text-small text-text-muted">Loading calendars…</p>
+      ) : calendars.length === 0 ? (
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input
+            type="checkbox"
+            checked={isCalendarEnabled("primary")}
+            onChange={() => toggleCalendar("primary")}
+            className="accent-accent"
+          />
+          Sync Google Calendar
+        </label>
+      ) : (
+        <div className="space-y-1.5">
+          {calendars.map((cal) => (
+            <label key={cal.id} className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+              <input
+                type="checkbox"
+                checked={isCalendarEnabled(cal.id)}
+                onChange={() => toggleCalendar(cal.id)}
+                className="accent-accent"
+              />
+              <span
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: cal.backgroundColor }}
+              />
+              <span className="truncate">{cal.summary}</span>
+            </label>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
