@@ -79,16 +79,18 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 | Docs | CLAUDE.md, README.md, `docs/relay.md`, `docs/developer-guide.md`, `docs/user-guide.md` |
 | Bug fixes | ~32 missing Rust mutation handlers; SAVE_VIEW family store replay; BCC/CC wiring in composer |
 
-### EP-6 — Multi-provider mail support
+### EP-6 — Multi-provider mail support — **shipped (partial)**
+
+> See `docs/epic-6-checklist.md` for the full checklist, and `docs/known-gaps.md` items 2 + 3 for the explicit gaps.
 
 | Area | What shipped |
 |------|-------------|
-| IMAP | ImapProvider: IMAP/IDLE push notifications, folder sync, flag sync |
+| IMAP | `ImapProvider`: folder sync, flag sync, message fetch. **IMAP IDLE is polling-only** despite the file name `imap_idle.rs` — see `docs/known-gaps.md` item 3. |
 | SMTP | SMTP outbound send (with TLS, STARTTLS, plain) |
-| Outlook | Microsoft OAuth 2.0 flow; Outlook/Exchange account support |
-| Autodiscovery | Provider autodiscovery (MX records → known provider config lookup) |
-| JMAP stub | JMAP provider skeleton (foundation for Fastmail/Stalwart) |
-| IPC | `add_imap_account`, `start_outlook_oauth`, `sync_account_now` commands |
+| Outlook | Microsoft OAuth 2.0 flow; Outlook/Exchange account support (rides on IMAP plumbing) |
+| Autodiscovery | Mozilla autoconfig + DNS SRV (`providers/autodiscovery.rs`) |
+| JMAP | **🟡 Stub only** — every method returns `Err("JMAP coming in EP7")`. AddAccountModal card correctly disabled. See `docs/known-gaps.md` item 2. |
+| IPC | `discover_imap_settings`, `test_imap_connection`, `add_imap_account`, `start_outlook_oauth`, `sync_account_now` |
 
 ### EP-7 — Native FTS5, rules engine & quick wins
 
@@ -118,16 +120,17 @@ Single reference for shipped work, confirmed deferred items, and upcoming epics.
 
 ## Confirmed Planned Gaps
 
-These are known deferred items from completed epics. None block current function; all are tracked for future work.
+> **Canonical register has moved.** See `docs/known-gaps.md` for the up-to-date list of everything broken, stubbed, partial, or planned-but-not-shipped. The summary below is preserved for context only.
 
-| # | Item | Details | Relevant file(s) |
-|---|------|---------|-----------------|
-| 1 | **Nexus-hosted cloud relay** | "Coming soon" stub in relay settings. The `nexus-relay` binary is already provider-agnostic; this is an infrastructure/ops step with no additional client code needed. EP-5 scope was self-hosted only. | `src/components/settings/` |
-| 2 | **CFD option drag-reorder** | GripVertical icon is rendered but drag-and-drop is not wired. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
-| 3 | **CFD definition drag-reorder** | Same as above for field-level ordering. Deferred from EP-2. | `src/components/settings/CustomFieldsSettings.tsx` |
-| 4 | **Native date picker in FlagPicker** | Currently uses `<input type="date">` / `<input type="datetime-local">`. A styled calendar picker (react-day-picker or similar) is a cosmetic upgrade. Deferred from EP-2. | `src/components/` |
-| 5 | **Android shell** | iOS app is in progress (EP-8, Swift reimplementation sharing vault format). Android to follow. | — |
-| 6 | **Conflict resolution UI** | Conflicts are currently silent last-write-wins via Lamport ordering. No user-visible conflict chips or resolution UI. Planned for EP-9. | — |
+Highlights:
+- **Multi-provider (EP-6) shipped partial** — Gmail / IMAP / Outlook usable; JMAP is a stub; IMAP IDLE is polling-only (misnamed).
+- **`REORDER_RULES` mutation** is defined but has no handler anywhere.
+- **CFD drag-reorder** (option-level and definition-level) — UI grip rendered, dnd-kit not wired.
+- **Native date picker** in FlagPicker — uses raw HTML inputs.
+- **Hosted "Nexus Relay"** option — UI stub only; no infra.
+- **Conflict resolution UI** — planned EP-9; design draft at `docs/conflict-resolution-design.md`.
+- **Encrypted FTS hardening** — planned EP-10.
+- **Android shell** — after iOS parity.
 
 ---
 
@@ -165,12 +168,21 @@ These are known deferred items from completed epics. None block current function
 | Doc | Audience | Location |
 |-----|----------|----------|
 | This roadmap | Everyone — what's built, what's next | `docs/roadmap.md` |
+| **Known gaps register** | **Everyone — what's broken/unfinished** | **`docs/known-gaps.md`** |
 | CLAUDE.md | AI agents + new contributors | `CLAUDE.md` |
 | README | GitHub visitors, evaluators | `README.md` |
-| Architecture | Engineers — design rationale + commitments | `docs/architecture.md` |
+| Architecture | Engineers — design rationale + commitments + system diagrams | `docs/architecture.md` |
 | Glossary | Engineers — stable IDs for every concept | `docs/glossary.md` |
 | Developer guide | Engineers — day-to-day how-to recipes | `docs/developer-guide.md` |
+| Contributing | Contributors — PR checklist + style | `docs/CONTRIBUTING.md` |
+| IPC API reference | Engineers — all 56 IPC commands | `docs/ipc-api-reference.md` |
+| Database reference | Engineers — 30 tables + ERD + migration model | `docs/database-reference.md` |
+| Security model | Engineers + security reviewers — threat model + crypto | `docs/security-model.md` |
 | User guide | End users | `docs/user-guide.md` |
 | Relay setup | End users setting up sync | `docs/relay.md` |
+| Relay deployment | Operators / self-hosters | `docs/nexus-relay-deployment.md` |
 | UI design system | Frontend engineers + designers | `docs/UI-DESIGN-SYSTEM-SPEC.md` |
-| Epic checklists | Historical reference | `docs/epic-{0,1,2,3,4,5,6,7}-checklist.md` |
+| Conflict resolution design | EP-9 contributors (draft) | `docs/conflict-resolution-design.md` |
+| Epic checklists | Historical reference | `docs/epic-{0,1,2,3,4,5,6,7,8,11,12,13}-checklist.md` |
+| macOS 15 crash investigation | Historical incident report | `docs/macos15-crash-investigation.md` |
+| Informal notes / external analyses | Non-canonical reference | `docs/notes/` |

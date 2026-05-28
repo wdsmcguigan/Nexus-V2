@@ -10,6 +10,28 @@ When you make a change in Nexus (archive a message, add a label, change a status
 
 The relay never sees the vault key. It's a dumb forwarder of encrypted bytes.
 
+```mermaid
+sequenceDiagram
+    participant DevA as Device A
+    participant Relay as Relay
+    participant DevB as Device B
+
+    Note over DevA: Every 30s
+    DevA->>DevA: SELECT mutations WHERE relay_seq IS NULL
+    DevA->>DevA: XChaCha20-Poly1305 encrypt with vault key
+    DevA->>Relay: POST /api/v1/mutations<br/>{vault_id, ciphertext}
+    Relay-->>DevA: relay_seq = N
+    DevA->>DevA: UPDATE mutations SET relay_seq = N
+
+    Note over DevB: Every 30s
+    DevB->>Relay: GET /api/v1/mutations?since=last_seq
+    Relay-->>DevB: [{relay_seq, ciphertext}, ...]
+    DevB->>DevB: Decrypt + applyMutation (idempotent on id PK)
+    DevB->>DevB: UPDATE relay_state SET last_seq
+```
+
+> **Important**: the diagram is what's actually shipped. For the deep cryptographic threat model, see `docs/security-model.md`.
+
 ---
 
 ## Setup Options
@@ -145,6 +167,30 @@ Once both devices have Nexus installed and you have a relay running:
 5. Nexus downloads and decrypts the vault key, then immediately pulls all history from the relay
 
 After enrollment, both devices will sync every 30 seconds automatically.
+
+```mermaid
+sequenceDiagram
+    participant New as New device
+    participant Existing as Existing device
+    participant Relay
+
+    Note over Existing: User clicks "Generate link code"
+    Existing->>Existing: code = 6 random digits
+    Existing->>Existing: code_key = BLAKE3.derive("nexus-enroll-v1", code)
+    Existing->>Existing: encrypted_vault_key = XChaCha20.encrypt(code_key, vault_key)
+    Existing->>Relay: POST /api/v1/enroll<br/>{code_hash=SHA256(code),<br/> encrypted_vault_key, expires_at=+10min}
+    Note over Existing: Shows 6-digit code to user
+
+    Note over New: User types code
+    New->>New: code_hash = SHA256(code)
+    New->>Relay: GET /api/v1/enroll/<code_hash>
+    Relay-->>New: encrypted_vault_key + vault_id
+    New->>New: code_key = BLAKE3.derive("nexus-enroll-v1", code)
+    New->>New: vault_key = XChaCha20.decrypt(code_key, encrypted_vault_key)
+    Note over New: Now has vault key; full sync proceeds
+```
+
+The 6-digit code itself **never crosses the wire** — only its SHA-256 hash. The vault key is pre-encrypted by the existing device under a key derived from the code, so the relay cannot decrypt it. See `docs/security-model.md` for the full threat analysis.
 
 **Notes:**
 - The code expires after 10 minutes

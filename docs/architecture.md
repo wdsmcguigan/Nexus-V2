@@ -25,6 +25,131 @@ are non-negotiable; the **phasing** of how we deliver them is flexible.
 
 ---
 
+## 1.5 System at a glance (diagrams)
+
+Four mermaid diagrams that compress the rest of this document into one screen each. Read these first; the prose below justifies the shapes.
+
+### System context
+
+```mermaid
+graph TB
+    subgraph User["User's environment"]
+        Desktop["Nexus Desktop<br/>(Tauri 2 + React)"]
+        IOS["Nexus iOS<br/>(SwiftUI)"]
+        FS["Local filesystem<br/>(.eml files in local-first mode)"]
+        Vault[("SQLCipher Vault<br/>(30 tables + 2 FTS5)")]
+        Desktop --> Vault
+        Desktop --> FS
+        IOS --> Vault
+    end
+
+    subgraph Providers["Mail providers"]
+        Gmail["Gmail API"]
+        Outlook["Outlook IMAP<br/>(OAuth)"]
+        IMAP["Generic IMAP/SMTP<br/>(Fastmail, iCloud, …)"]
+    end
+
+    subgraph Relay["Optional cross-device sync"]
+        RelayServer["nexus-relay binary<br/>(stores only E2EE ciphertext)"]
+    end
+
+    Desktop <--> Gmail
+    Desktop <--> Outlook
+    Desktop <--> IMAP
+    Desktop <--> RelayServer
+    IOS <--> Gmail
+    IOS <--> RelayServer
+```
+
+### Container diagram (desktop)
+
+```mermaid
+graph LR
+    subgraph Frontend["src/ — React + TypeScript (98 files)"]
+        UI["UI components<br/>(15 feature areas)"]
+        Store["Zustand store"]
+        MutLib["state/mutations.ts<br/>recordMutation()"]
+        TauriIPC["storage/tauri.ts<br/>(56 typed wrappers)"]
+    end
+
+    subgraph Backend["src-tauri/src/ — Rust (28 files)"]
+        AppState["AppState<br/>(Mutex<VaultDb>, client_mode, …)"]
+        Commands["commands.rs<br/>(56 IPC commands)"]
+        DB["db/queries.rs<br/>(~89 query helpers)"]
+        GmailWorker["gmail/sync.rs<br/>(30s tick)"]
+        IMAPWorker["providers/imap.rs<br/>+ imap_idle.rs (polling)"]
+        Watcher["watcher/<br/>(notify, 2s poll)"]
+        Drainer["relay/<br/>(30s drainer)"]
+        Crypto["crypto.rs<br/>XChaCha20-Poly1305 + BLAKE3"]
+    end
+
+    Vault[(SQLCipher Vault)]
+
+    UI --> MutLib --> Store
+    MutLib --> TauriIPC --> Commands
+    Commands --> DB --> Vault
+    GmailWorker --> DB
+    IMAPWorker --> DB
+    Watcher --> Commands
+    Drainer --> Crypto
+    Drainer --> DB
+```
+
+### Outbound mutation pipeline
+
+```mermaid
+sequenceDiagram
+    participant UI
+    participant Mut as state/mutations.ts
+    participant Store as Zustand
+    participant Tauri as storage/tauri.ts
+    participant Cmd as commands.rs<br/>apply_mutation
+    participant DB
+    participant FS as apply_local_first_fs
+    participant Drainer as relay drainer<br/>(30s)
+    participant Relay
+
+    UI->>Mut: recordMutation(kind, payload)
+    Mut->>Store: optimistic update
+    Mut->>Tauri: applyMutationIpc(kind, payload, deviceId, lamport)
+    Tauri->>Cmd: IPC
+    Cmd->>DB: INSERT mutations (relay_seq=NULL)
+    alt local-first mode
+        Cmd->>FS: fs::rename / create_dir_all (+ cookie suppresses watcher)
+    end
+    Cmd-->>Tauri: ok
+    Note over Drainer: every 30s
+    Drainer->>DB: SELECT WHERE relay_seq IS NULL
+    Drainer->>Relay: POST encrypted blob
+    Relay-->>Drainer: relay_seq=N
+    Drainer->>DB: UPDATE mutations SET relay_seq=N
+```
+
+### Client-mode state
+
+```mermaid
+stateDiagram-v2
+    [*] --> Traditional: First launch
+    Traditional --> LocalFirst: VaultSetup picks "Local-First"
+    LocalFirst --> Traditional: VaultSetup picks "Traditional"
+    note left of Traditional
+        client_mode = "traditional"
+        DB-only writes
+        No FS side-effects
+        No watcher events generate mutations
+    end note
+    note right of LocalFirst
+        client_mode = "local-first"
+        DB writes + apply_local_first_fs
+        Watcher generates mutations on external .eml changes
+        Cookies (5s TTL) suppress self-induced events
+    end note
+```
+
+Mode is persisted to `{vault_path}/.nexus-mode` and held in `AppState.client_mode: Mutex<String>`.
+
+---
+
 ## 2. Architectural commitments
 
 1. **Folders (`FLD`) are local file structure** — bidirectional with the
@@ -414,14 +539,13 @@ Four adapters are shipped. All generate `RECEIVE_FROM_PROVIDER` mutations on inb
   (`historyId` cursor). MIME parsed in Rust. Maps Gmail labels ↔ NEXUS `LBL`.
   Push-back: `messages.modify` for label changes; archive/trash via label ops.
 - **IMAP/SMTP** (shipped EP-6) — autodiscovery via MX + provider lookup; falls
-  back to manual config. IMAP IDLE for push notifications. TLS / STARTTLS / plain
+  back to manual config. **IMAP IDLE is not yet real**: `providers/imap_idle.rs:start_idle_watcher` is a 30-second polling loop, despite its name. TLS / STARTTLS / plain
   SMTP for outbound. Each IMAP folder maps to a NEXUS `FLD` + `LBL`. Credentials
-  stored in Keychain.
+  stored in Keychain. See `docs/known-gaps.md` item 3.
 - **Outlook / Microsoft 365** (shipped EP-6) — Microsoft OAuth 2.0; account auto-
   configured for IMAP/SMTP after auth. Same IMAP/SMTP sync path underneath.
-- **JMAP** (Fastmail, Stalwart, Apache James) — skeleton only (EP-6 stub).
-  Full implementation planned. Native multi-mailbox semantics align perfectly
-  with NEXUS `LBL` model.
+- **JMAP** (Fastmail, Stalwart, Apache James) — 🟡 **stub only**. Every method in
+  `providers/jmap.rs` returns `Err(anyhow!("JMAP coming in EP7"))`. The `AddAccountModal` JMAP card is correctly marked disabled. Implementation deferred — see `docs/known-gaps.md` item 2.
 
 Push-back to provider (`WF-LABEL-PROVIDER-SYNC`):
 - Gmail: `messages.modify`; folder moves are local-only.
@@ -495,7 +619,7 @@ thing we can defer.
 | `EP-3` | FTS index + contacts (web) | Shipped | MiniSearch BM25; body store; contacts panel; 118 tests. | Soundminer-class search |
 | `EP-4` | Tauri shell + Gmail sync (desktop) | Shipped | Tauri 2. SQLCipher vault. `notify` FS watcher. Gmail OAuth + initial/incremental sync. | Local-first thesis |
 | `EP-5` | E2EE relay sync | Shipped | XChaCha20-Poly1305 mutations. Embedded + standalone relay. 30s sync loop. Enrollment codes. | Cross-device |
-| `EP-6` | Multi-provider mail | Shipped | Gmail History API, IMAP/IDLE/SMTP, Outlook OAuth, provider autodiscovery. Local-first EML writing. Client mode (traditional / local-first). | Real mail |
+| `EP-6` | Multi-provider mail | Shipped (partial) | Gmail History API, IMAP/SMTP, Outlook OAuth, provider autodiscovery. Local-first EML writing. Client mode (traditional / local-first). **IMAP IDLE is currently polling-only; JMAP is a stub.** See `docs/epic-6-checklist.md`. | Real mail |
 | `EP-7` | Native FTS5, rules engine & quick wins | Shipped | SQLite FTS5 with field-prefix operators. Automation rules engine. Email templates. List-Unsubscribe. System notifications. Multi-account From selector. | Power tools |
 | `EP-8` | iOS app | In progress | Swift reimplementation sharing vault format. FileProvider extension. Relay sync over HTTPS. | Phone-first users |
 | `EP-9` | Conflict UI + advanced sync state | Planned | `WSP-CONFLICT-CHIP`; resolve sheet; per-folder sync log. | Edge-case polish |
@@ -507,7 +631,7 @@ thing we can defer.
 Between EP-8 and EP-11 a set of inter-epic improvements shipped: `ContactHoverCard` on sender/participants, vCard 3.0 import/export (`src/lib/vcard.ts`), tag sidebar navigation (tags as clickable nav items), 21-color label palette, comprehensive email row right-click context menu, and undo/redo with action history modal.
 
 Per-epic detailed checklists live alongside this doc once an epic
-becomes the active focus (e.g. `docs/epic-0-checklist.md`, `docs/epic-11-checklist.md`).
+becomes the active focus (e.g. `docs/epic-0-checklist.md`, `docs/epic-11-checklist.md`). The full list of stubbed, partial, and planned items is in `docs/known-gaps.md`.
 
 ---
 
