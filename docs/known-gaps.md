@@ -25,7 +25,9 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 ## 🔴 Broken or incorrect
 
-_(none — all entries closed.)_
+| # | Item | Where | Symptom | Definition of done | Effort |
+|---|---|---|---|---|---|
+| 28 | `FTSIndex > prefix search works` test fails | `src/storage/__tests__/ep3.test.ts:119-122` | `pnpm test` reports 1 failed / 117 passed. The MiniSearch prefix search for `"plan"` no longer returns the seeded message `m2` whose body contains "Planning". Failure is reproducible on a clean checkout (predates the known-gaps closure work). | Either fix the prefix-match behavior in `src/storage/fts.ts` so the assertion passes, or update the test to reflect the intended search semantics. Whichever way it goes, the test suite needs to be green. | S |
 
 ---
 
@@ -46,6 +48,7 @@ _(none — all entries closed.)_
 | 12 | Encrypted FTS hardening | EP-10 | Move from at-rest encryption (SQLCipher of the whole `messages_fts` table) to true zero-knowledge encrypted index (e.g., blind index for subject/notes). |
 | 13 | Sync state UI (per-folder progress, error surfacing) | EP-9 or later | `relay_state.last_error` is captured (`src-tauri/src/relay/mod.rs`) but no per-folder progress surface exists. |
 | 14 | Sender reputation / spam panel | Future | Mentioned in `docs/notes/panels-brainstorm.md` only. |
+| 29 | JMAP OAuth2 + PKCE flow | EP-6 follow-up | JMAP auth today is bearer-token only (user pastes an API token in `JmapFlow`). Add an OAuth2 + PKCE flow mirroring `start_outlook_oauth` so Fastmail / Stalwart users don't have to generate tokens manually. Provider impl in `src-tauri/src/providers/jmap.rs` is unchanged — only the onboarding + token refresh layer needs work. |
 
 ---
 
