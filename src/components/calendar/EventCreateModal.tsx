@@ -90,29 +90,43 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) { toast.error("Title is required"); return; }
-    if (!gmailAccount) { toast.error("No Gmail account connected"); return; }
 
     const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
     const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
+    // The calendar is standalone (EP-14): events are created locally and persisted
+    // through the mutation pipeline regardless of whether an account is connected.
+    // A connected Gmail account is an optional sync target, not a prerequisite.
+    const vaultId = gmailAccount?.vaultId ?? localStore.vault?.id ?? "local";
 
     setSubmitting(true);
     try {
-      const eventId = await createCalendarEvent({
-        accountId: gmailAccount.id,
-        title: title.trim(),
-        startTs,
-        endTs,
-        allDay,
-        location: location.trim() || undefined,
-        description: description.trim() || undefined,
-        attendeeEmails: attendees,
-      });
+      // When a Gmail account exists, push to Google and key the local row by the
+      // returned Google event id; otherwise create a local-only event with a
+      // client-generated id (externalId stays undefined until it is synced).
+      let eventId: string;
+      let externalId: string | undefined;
+      if (gmailAccount) {
+        eventId = await createCalendarEvent({
+          accountId: gmailAccount.id,
+          title: title.trim(),
+          startTs,
+          endTs,
+          allDay,
+          location: location.trim() || undefined,
+          description: description.trim() || undefined,
+          attendeeEmails: attendees,
+        });
+        externalId = eventId;
+      } else {
+        eventId = crypto.randomUUID();
+      }
       Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
         event: {
           id: eventId,
-          vaultId: gmailAccount.vaultId,
-          accountId: gmailAccount.id,
+          vaultId,
+          accountId: gmailAccount?.id ?? "local",
           calendarId: "primary",
+          externalId,
           title: title.trim(),
           startTs,
           endTs,
