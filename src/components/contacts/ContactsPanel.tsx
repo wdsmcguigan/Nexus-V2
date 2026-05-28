@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Search, UserPlus, Users, ChevronLeft } from "lucide-react";
+import { Search, UserPlus, Users, ChevronLeft, Upload, Download } from "lucide-react";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
 import { PanelEmpty } from "@/components/panel/PanelEmpty";
@@ -12,9 +12,11 @@ import { useContacts, useContactGroups, useContactMessageCount } from "@/storage
 import { useWorkspace } from "@/state/workspace";
 import { upsertContact, recordMutation } from "@/state/mutations";
 import { localStore } from "@/storage/local";
+import { isTauri, saveFileToDownloads } from "@/storage/tauri";
 import type { Contact } from "@/data/types";
 import { pickPanelLink } from "@/design-system/tokens";
 import { cn } from "@/lib/utils";
+import { parseVcf, serializeVcf } from "@/lib/vcard";
 
 // ─── Row component ────────────────────────────────────────────────────────────
 
@@ -206,12 +208,95 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
     if (selectedGroupId === id) setSelectedGroupId(null);
   };
 
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+  const [importStatus, setImportStatus] = React.useState<string | null>(null);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const parsed = parseVcf(text);
+    let count = 0;
+    for (const partial of parsed) {
+      if (!partial.name && !(partial.emails ?? []).length) continue;
+      const primaryEmail = (partial.emails ?? [])[0] ?? "";
+      const id = `contact-vcf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      upsertContact({
+        id,
+        vaultId: localStore.vault?.id ?? "local",
+        name: partial.name ?? primaryEmail,
+        emails: partial.emails ?? [],
+        phones: partial.phones ?? [],
+        tags: partial.tags ?? [],
+        socialProfiles: partial.socialProfiles ?? [],
+        addresses: partial.addresses ?? [],
+        source: "manual",
+        importance: partial.importance ?? "normal",
+        birthday: partial.birthday,
+        title: partial.title,
+        company: partial.company,
+        website: partial.website,
+        notes: partial.notes,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      count++;
+    }
+    setImportStatus(`Imported ${count} contact${count !== 1 ? "s" : ""}`);
+    setTimeout(() => setImportStatus(null), 3000);
+    // Reset file input so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const handleExport = async () => {
+    const toExport = filteredContacts.length > 0 ? filteredContacts : contacts;
+    const vcf = serializeVcf(toExport);
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `nexus-contacts-${date}.vcf`;
+    if (isTauri()) {
+      await saveFileToDownloads({ filename, content: vcf });
+    } else {
+      const blob = new Blob([vcf], { type: "text/vcard" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
   const effectivePanelId = panelId ?? "contacts";
 
   const headerActions = (
-    <Button variant="ghost" size="sm" iconOnly aria-label="New contact" onClick={handleNewContact}>
-      <UserPlus />
-    </Button>
+    <div className="flex items-center gap-1">
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".vcf"
+        onChange={handleImport}
+        className="hidden"
+      />
+      <Tooltip label={importStatus ?? "Import .vcf"}>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Import contacts"
+          onClick={() => importInputRef.current?.click()}
+        >
+          <Upload />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Export .vcf">
+        <Button variant="ghost" size="sm" iconOnly aria-label="Export contacts" onClick={handleExport}>
+          <Download />
+        </Button>
+      </Tooltip>
+      <Button variant="ghost" size="sm" iconOnly aria-label="New contact" onClick={handleNewContact}>
+        <UserPlus />
+      </Button>
+    </div>
   );
 
   if (!isScoped && contacts.length === 0) {

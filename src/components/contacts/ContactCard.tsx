@@ -18,12 +18,12 @@ import {
 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
-import { useContactByEmail, useContactMessageCount } from "@/storage/useStore";
+import { useContactByEmail, useContactMessageCount, useContactMessages } from "@/storage/useStore";
 import { useWorkspace } from "@/state/workspace";
 import { updateContact, upsertContact } from "@/state/mutations";
 import { localStore } from "@/storage/local";
 import { pickPanelLink } from "@/design-system/tokens";
-import { cn } from "@/lib/utils";
+import { cn, formatRelativeTime } from "@/lib/utils";
 import type { Contact } from "@/data/types";
 
 // ─── Inline editable field ────────────────────────────────────────────────────
@@ -502,6 +502,9 @@ function FoundContactCard({
         </button>
       </div>
 
+      {/* Recent threads */}
+      <RecentThreadsSection contact={contact} />
+
       {/* Notes */}
       <div className="flex flex-col gap-1">
         <div className="text-overline uppercase text-text-tertiary">Notes</div>
@@ -511,6 +514,48 @@ function FoundContactCard({
           onSave={(v) => save({ notes: v || undefined })}
         />
       </div>
+    </div>
+  );
+}
+
+function RecentThreadsSection({ contact }: { contact: Contact }) {
+  const msgCount = useContactMessageCount(contact.id);
+  const recentMsgs = useContactMessages(contact.id, 5);
+  const openContactMessages = useWorkspace((s) => s.openContactMessages);
+  const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
+  const now = React.useMemo(() => new Date(), []);
+
+  if (msgCount === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="text-overline uppercase text-text-tertiary">Recent Threads</div>
+      <div className="space-y-0.5">
+        {recentMsgs.map((msg) => (
+          <button
+            key={msg.id}
+            type="button"
+            onClick={() => setSelectedEmail(msg.id)}
+            className="flex w-full items-baseline gap-2 rounded-xs px-1 py-0.5 text-left hover:bg-surface-2 transition-colors"
+          >
+            <span className="flex-1 truncate text-small text-text-secondary">
+              {msg.subject || "(no subject)"}
+            </span>
+            <span className="shrink-0 text-caption text-text-muted">
+              {formatRelativeTime(new Date(msg.receivedAt), now)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {msgCount > recentMsgs.length && (
+        <button
+          type="button"
+          onClick={() => openContactMessages(contact.id)}
+          className="mt-0.5 self-end text-caption text-text-tertiary hover:text-accent hover:underline transition-colors"
+        >
+          View all {msgCount} →
+        </button>
+      )}
     </div>
   );
 }
