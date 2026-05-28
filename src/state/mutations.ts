@@ -52,6 +52,8 @@ interface UndoEntry {
   /** The inverse mutation(s) — replayed to undo. */
   reverseSteps: Array<{ kind: MutationKind; payload: unknown }>;
   description: string;
+  /** False for actions that are visible in history but cannot be reversed (e.g. sent email). */
+  canUndo: boolean;
 }
 
 const _undoStack: UndoEntry[] = [];
@@ -61,10 +63,12 @@ const UNDO_MAX = 20;
 // When true, recordMutation skips stack push/clear (used during undo/redo replay).
 let _skipStack = false;
 
-/** Undo the last undoable mutation. Returns a human-readable description, or null if stack is empty. */
+/** Undo the last undoable mutation. Returns a human-readable description, or null if nothing can be undone. */
 export function undoLastMutation(store: LocalStore = _defaultStore): string | null {
-  const entry = _undoStack.pop();
-  if (!entry) return null;
+  // A non-undoable entry at the top of the stack acts as a barrier — z does nothing.
+  const top = _undoStack[_undoStack.length - 1];
+  if (!top?.canUndo) return null;
+  const entry = _undoStack.pop()!;
   _redoStack.push(entry);
   if (_redoStack.length > UNDO_MAX) _redoStack.shift();
   _skipStack = true;
@@ -85,14 +89,40 @@ export function redoLastMutation(store: LocalStore = _defaultStore): string | nu
   return entry.description;
 }
 
+export interface HistoryEntry {
+  description: string;
+  canUndo: boolean;
+  /** True when a non-undoable barrier exists between this item and "Now", making it unreachable. */
+  blocked: boolean;
+}
+
 /** Returns the undo history with the most-recent action first. */
-export function getUndoHistory(): Array<{ description: string }> {
-  return [..._undoStack].reverse().map((e) => ({ description: e.description }));
+export function getUndoHistory(): HistoryEntry[] {
+  const items = [..._undoStack].reverse();
+  let barrier = false;
+  return items.map((e) => {
+    const entry: HistoryEntry = { description: e.description, canUndo: e.canUndo, blocked: barrier };
+    if (!e.canUndo) barrier = true;
+    return entry;
+  });
 }
 
 /** Returns the redo history with the next-to-redo action first. */
-export function getRedoHistory(): Array<{ description: string }> {
-  return [..._redoStack].reverse().map((e) => ({ description: e.description }));
+export function getRedoHistory(): HistoryEntry[] {
+  return [..._redoStack].reverse().map((e) => ({ description: e.description, canUndo: e.canUndo, blocked: false }));
+}
+
+/** Entries for actions that appear in history but cannot be reversed. */
+function _buildNonUndoableEntry(kind: MutationKind, payload: unknown): UndoEntry | null {
+  const forward = [{ kind, payload }];
+  switch (kind) {
+    case "SEND_MESSAGE":
+      return { forwardSteps: forward, reverseSteps: [], description: "Send email", canUndo: false };
+    case "DELETE_MESSAGE":
+      return { forwardSteps: forward, reverseSteps: [], description: "Delete message", canUndo: false };
+    default:
+      return null;
+  }
 }
 
 function _buildReverseEntry(
@@ -100,6 +130,15 @@ function _buildReverseEntry(
   payload: unknown,
   store: LocalStore,
 ): UndoEntry | null {
+  const inner = _buildReverseEntryInner(kind, payload, store);
+  return inner ? { ...inner, canUndo: true } : null;
+}
+
+function _buildReverseEntryInner(
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore,
+): Omit<UndoEntry, "canUndo"> | null {
   type Step = { kind: MutationKind; payload: unknown };
   const forward: Step[] = [{ kind, payload }];
 
@@ -230,7 +269,9 @@ export function recordMutation(
     payload,
   };
   // Capture reverse entry before applyMutation modifies the store.
-  const undoEntry = _skipStack ? null : _buildReverseEntry(kind, payload, store);
+  const undoEntry = _skipStack
+    ? null
+    : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
 
   store.appendMutation(mutation);
   applyMutation(mutation, store);

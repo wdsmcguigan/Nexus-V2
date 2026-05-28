@@ -1,16 +1,13 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Undo2, Redo2, Clock } from "lucide-react";
+import { X, Undo2, Redo2, Clock, Ban } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface HistoryItem {
-  description: string;
-}
+import type { HistoryEntry } from "@/state/mutations";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  undoHistory: HistoryItem[];
-  redoHistory: HistoryItem[];
+  undoHistory: HistoryEntry[];
+  redoHistory: HistoryEntry[];
   /** Called with the number of steps to undo (1 = most recent). */
   onUndoSteps: (steps: number) => void;
   /** Called with the number of steps to redo (1 = most recent). */
@@ -54,7 +51,7 @@ export function UndoHistoryModal({
               <p className="py-6 text-center text-small text-text-muted">Nothing to undo or redo.</p>
             ) : (
               <div className="space-y-3">
-                {/* Redo section (shown above "now" marker, oldest redo first so top = next redo) */}
+                {/* Redo section — top item is next redo */}
                 {redoHistory.length > 0 && (
                   <div>
                     <div className="mb-1.5 text-overline uppercase tracking-wider text-text-tertiary">
@@ -62,19 +59,11 @@ export function UndoHistoryModal({
                     </div>
                     <div className="space-y-0.5">
                       {redoHistory.map((item, i) => (
-                        <button
+                        <RedoItem
                           key={i}
-                          type="button"
+                          item={item}
                           onClick={() => { onRedoSteps(redoHistory.length - i); onClose(); }}
-                          className={cn(
-                            "flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left",
-                            "text-small text-text-muted hover:bg-surface-3 hover:text-text-primary",
-                            "transition-colors",
-                          )}
-                        >
-                          <Redo2 size={11} className="shrink-0 opacity-60" />
-                          <span>{item.description}</span>
-                        </button>
+                        />
                       ))}
                     </div>
                   </div>
@@ -87,7 +76,7 @@ export function UndoHistoryModal({
                   <div className="h-px flex-1 bg-border-subtle" />
                 </div>
 
-                {/* Undo section (most recent at top) */}
+                {/* Undo section — most recent at top */}
                 {undoHistory.length > 0 && (
                   <div>
                     <div className="mb-1.5 text-overline uppercase tracking-wider text-text-tertiary">
@@ -95,19 +84,11 @@ export function UndoHistoryModal({
                     </div>
                     <div className="space-y-0.5">
                       {undoHistory.map((item, i) => (
-                        <button
+                        <UndoItem
                           key={i}
-                          type="button"
+                          item={item}
                           onClick={() => { onUndoSteps(i + 1); onClose(); }}
-                          className={cn(
-                            "flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left",
-                            "text-small text-text-secondary hover:bg-surface-3 hover:text-text-primary",
-                            "transition-colors",
-                          )}
-                        >
-                          <Undo2 size={11} className="shrink-0 opacity-60" />
-                          <span>{item.description}</span>
-                        </button>
+                        />
                       ))}
                     </div>
                   </div>
@@ -126,5 +107,55 @@ export function UndoHistoryModal({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+// ─── Row sub-components ───────────────────────────────────────────────────────
+
+function UndoItem({ item, onClick }: { item: HistoryEntry; onClick: () => void }) {
+  const disabled = !item.canUndo || item.blocked;
+
+  if (disabled) {
+    return (
+      <div
+        className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 opacity-40"
+        title={!item.canUndo ? "This action cannot be undone" : "Blocked by a non-undoable action above"}
+      >
+        <Ban size={11} className="shrink-0" />
+        <span className="text-small text-text-muted line-through">{item.description}</span>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left",
+        "text-small text-text-secondary hover:bg-surface-3 hover:text-text-primary",
+        "transition-colors",
+      )}
+    >
+      <Undo2 size={11} className="shrink-0 opacity-60" />
+      <span>{item.description}</span>
+    </button>
+  );
+}
+
+function RedoItem({ item, onClick }: { item: HistoryEntry; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left",
+        "text-small text-text-muted hover:bg-surface-3 hover:text-text-primary",
+        "transition-colors",
+      )}
+    >
+      <Redo2 size={11} className="shrink-0 opacity-60" />
+      <span>{item.description}</span>
+    </button>
   );
 }
