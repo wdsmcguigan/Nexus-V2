@@ -181,7 +181,10 @@ impl CalendarProvider for CaldavCalendarProvider {
             req = req.header("If-Match", tag);
         }
         let resp = req.send().await.context("CalDAV DELETE")?;
-        if resp.status().is_success() || resp.status().as_u16() == 404 {
+        // 404 Not Found / 410 Gone both mean "already deleted" — treat as success.
+        if resp.status().is_success()
+            || matches!(resp.status().as_u16(), 404 | 410)
+        {
             Ok(())
         } else {
             anyhow::bail!("CalDAV delete failed: {}", resp.status())
