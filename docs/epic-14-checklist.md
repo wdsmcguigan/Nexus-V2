@@ -26,10 +26,10 @@ license constraints.
 ### Frontend
 
 - [x] `EventCreateModal.tsx` — removed the hard Gmail gate; events are created locally via `UPSERT_CALENDAR_EVENT` (client UUID, `externalId` undefined) when no account is connected; Google push retained when an account exists
-- [ ] `EventEditModal.tsx` — identify events by **internal id**, not `externalId` (local events have none) — *deferred*
+- [x] `EventEditModal.tsx` — no longer hard-blocks local events (provider push only when `externalId` exists); records the edit through the mutation pipeline either way; threads the IANA timezone
 - [x] `types.ts` / `mutations.ts` / `tauri.ts` — `Calendar` type + `UPSERT_CALENDAR` / `DELETE_CALENDAR` / `UPDATE_CALENDAR` mutation kinds
 - [x] `useStore.ts` — `useCalendars()` hook + `calendars` store map; loaded in `loadVaultData`
-- [ ] Calendar picker in create/edit modals — *deferred* (defaults to `local-default`)
+- [x] Calendar picker in create/edit modals — `<select>` bound to `useCalendars()`, writes `calendarLocalId` (shown only when >1 calendar; defaults to `local-default`)
 
 ## Phase 1 — Timezone correctness
 
@@ -45,7 +45,7 @@ license constraints.
 - [x] `queries.rs` — `edit_event_occurrence` (detached exception + master EXDATE), `edit_event_series` (merge into master); `EDIT_EVENT_OCCURRENCE`/`EDIT_EVENT_SERIES` mutation kinds + dispatch + frontend helpers
 - [x] `queries.rs:load_calendar_events` — expands recurring masters within the window; instances tagged `masterId` + `occurrenceStart`, keyed `${masterId}::${occStart}`
 - [x] Rust unit tests: weekly expansion, COUNT bound, EXDATE, **DST** (9am stays 9am across the transition)
-- [ ] `edit_this_and_following` → typed `Unsupported` — *deferred* (Mailspring defers it too)
+- [x] `edit_this_and_following` → typed `Unsupported` — Rust `EditScope` enum (`ensure_supported()` errors on `ThisAndFollowing`); frontend `EditScope` + `applyEventEdit` throws `UnsupportedEditScopeError`; tests both sides
 - [ ] Switch Google fetch to `singleEvents=false` behind a flag — *deferred* (larger refactor; still uses `singleEvents=true`)
 - [ ] Relax recurring-event drag guard once occurrence-edit is proven — *deferred*
 
@@ -56,8 +56,10 @@ license constraints.
 - [x] `providers/calendar/caldav.rs` — hand-rolled CalDAV over `reqwest` + `quick-xml`: discovery (`discover_calendar_home`), `calendar-query` REPORT, ETag-guarded PUT/DELETE, multistatus parser (with unit tests)
 - [x] Discovery folded into `caldav.rs` (`.well-known/caldav` → principal → calendar-home-set); adapts velo's Apache-2.0 structure **with attribution** noted in the file header
 - [x] Command `discover_caldav` (registered in `lib.rs`, wrapper in `tauri.ts`) — validates creds + lists calendars
-- [ ] `add_caldav_account` / `sync_caldav_calendar` + drainer dispatch by `provider` — *deferred* (needs account/secret persistence)
-- [ ] CalDAV round-trip test against a live server — *deferred* (parser has unit tests; wire protocol unvalidated)
+- [x] `add_caldav_account` — persists an `accounts` row (provider `caldav`) + encrypted password + settings JSON (server/username/calendar-home), seeds a local `Calendar` per discovered collection (mirrors `add_imap_account`)
+- [x] `sync_caldav_calendar` — fetches a ±1y window, parses each VEVENT via `ics_to_event_json` (icalendar crate; keeps RRULE, floating all-day, DST-aware TZID resolution), upserts events; opens a fresh `VaultDb` after all awaits
+- [ ] Drainer dispatch by `provider` for CalDAV **writes** (PUT/DELETE on edit) — *still deferred* (outbound calendar mutations currently target Google only)
+- [ ] CalDAV round-trip test against a live server — *still deferred* (parser + ICS mapping have unit tests; wire protocol unvalidated against a real server)
 
 > **Phase 3 is a foundation, not a finished CalDAV client.** The request/response
 > shapes follow RFC 4791 but were written without a live server to test against;

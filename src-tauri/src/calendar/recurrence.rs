@@ -24,6 +24,33 @@ pub struct Occurrence {
     pub end_ts: i64,
 }
 
+/// The scope an edit to a recurring event applies to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditScope {
+    /// Just the targeted instance (inline exception + EXDATE).
+    Occurrence,
+    /// The whole series (merge into the master).
+    Series,
+    /// This instance and all following — splits the series into two. Not yet
+    /// implemented; Mailspring defers this too. We surface it as a typed error
+    /// so callers fail cleanly instead of silently corrupting the series.
+    ThisAndFollowing,
+}
+
+impl EditScope {
+    /// Validate that this scope is supported by the engine. Returns a typed
+    /// error for `ThisAndFollowing` so the UI can show a clear "not supported
+    /// yet" message rather than producing a corrupt series.
+    pub fn ensure_supported(self) -> Result<()> {
+        match self {
+            EditScope::Occurrence | EditScope::Series => Ok(()),
+            EditScope::ThisAndFollowing => Err(anyhow::anyhow!(
+                "edit scope 'this and following' is not supported yet"
+            )),
+        }
+    }
+}
+
 /// Format an epoch-ms instant as an iCalendar UTC datetime (`YYYYMMDDTHHMMSSZ`).
 fn ms_to_ical_utc(ms: i64) -> String {
     Utc.timestamp_millis_opt(ms)
@@ -135,6 +162,14 @@ mod tests {
         .unwrap();
         assert_eq!(occ.len(), 2);
         assert!(!occ.iter().any(|o| o.start_ts == exclude));
+    }
+
+    #[test]
+    fn edit_scope_support_is_typed() {
+        assert!(EditScope::Occurrence.ensure_supported().is_ok());
+        assert!(EditScope::Series.ensure_supported().is_ok());
+        let err = EditScope::ThisAndFollowing.ensure_supported().unwrap_err();
+        assert!(err.to_string().contains("not supported"));
     }
 
     #[test]

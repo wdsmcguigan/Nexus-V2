@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { localStore } from "@/storage/local";
-import { useEventTemplates } from "@/storage/useStore";
+import { useEventTemplates, useCalendars } from "@/storage/useStore";
 import { toast } from "sonner";
 import type { EventTemplate } from "@/data/types";
 
@@ -46,8 +46,10 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
   const [submitting, setSubmitting] = React.useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
+  const [calendarLocalId, setCalendarLocalId] = React.useState("local-default");
 
   const templates = useEventTemplates();
+  const calendars = useCalendars();
 
   function applyTemplate(tmpl: EventTemplate) {
     setTitle(tmpl.title);
@@ -74,6 +76,7 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
     setLocation("");
     setDescription("");
     setAttendeeInput("");
+    setCalendarLocalId("local-default");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefillTitle, prefillAttendees, prefillDate]);
 
@@ -130,7 +133,7 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           vaultId,
           accountId: gmailAccount?.id ?? "local",
           calendarId: "primary",
-          calendarLocalId: "local-default",
+          calendarLocalId,
           externalId,
           title: title.trim(),
           startTs,
@@ -240,6 +243,21 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
                       <input type="datetime-local" value={endVal} onChange={(e) => setEndVal(e.target.value)}
                         className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
                     </div>
+                  </div>
+                )}
+
+                {calendars.length > 1 && (
+                  <div>
+                    <label className="mb-1 block text-small text-text-secondary">Calendar</label>
+                    <select
+                      value={calendarLocalId}
+                      onChange={(e) => setCalendarLocalId(e.target.value)}
+                      className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+                    >
+                      {calendars.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

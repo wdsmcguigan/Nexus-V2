@@ -1160,6 +1160,44 @@ export function deleteCalendarMutation(calendarId: string, store: LocalStore = _
 
 // ── Recurring-event edit ops (EP-14) ──────────────────────────────────────────
 
+/**
+ * Which instances a recurring-event edit applies to. Mirrors the Rust
+ * `EditScope` enum. `thisAndFollowing` is intentionally unsupported (it would
+ * need to split the series) — `applyEventEdit` rejects it with a typed error so
+ * the UI can show a clear message instead of corrupting the series.
+ */
+export type EditScope = "occurrence" | "series" | "thisAndFollowing";
+
+export class UnsupportedEditScopeError extends Error {
+  constructor() {
+    super("Editing 'this and following' events is not supported yet.");
+    this.name = "UnsupportedEditScopeError";
+  }
+}
+
+/**
+ * Apply a recurring-event edit at the given scope. Throws
+ * `UnsupportedEditScopeError` for `thisAndFollowing`.
+ */
+export function applyEventEdit(
+  store: LocalStore,
+  scope: EditScope,
+  masterId: string,
+  occurrenceStart: number,
+  changes: Partial<CalendarEvent>,
+): void {
+  switch (scope) {
+    case "occurrence":
+      editEventOccurrence(store, masterId, occurrenceStart, changes);
+      return;
+    case "series":
+      editEventSeries(store, masterId, changes);
+      return;
+    case "thisAndFollowing":
+      throw new UnsupportedEditScopeError();
+  }
+}
+
 /** Edit a single occurrence of a recurring series (creates an inline exception). */
 export function editEventOccurrence(
   store: LocalStore,

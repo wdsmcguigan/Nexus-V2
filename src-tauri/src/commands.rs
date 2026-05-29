@@ -2517,3 +2517,181 @@ pub async fn discover_caldav(
     };
     provider.list_calendars().await.map_err(|e| e.to_string())
 }
+
+/// Persist a CalDAV account and seed its calendar collections (EP-14 Phase 3).
+///
+/// Mirrors `add_imap_account`: stores an `accounts` row (provider `caldav`), the
+/// encrypted password (in the shared credential column), and a settings JSON
+/// blob holding the server URL / username / discovered calendar-home. Each
+/// remote calendar becomes a local `Calendar` row (provider `caldav`) so events
+/// can bind to it. Ongoing event sync is driven separately by
+/// `sync_caldav_calendar`.
+#[tauri::command]
+pub async fn add_caldav_account(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    server_url: String,
+    username: String,
+    password: String,
+    display_name: Option<String>,
+) -> std::result::Result<OAuthResult, String> {
+    use crate::providers::calendar::{caldav, CalendarProvider};
+
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let vault_path = state
+        .vault_path
+        .lock()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
+        .clone()
+        .ok_or("No vault")?;
+    let db_path = std::path::Path::new(&vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    // Validate credentials + discover the calendar collections up front.
+    let client = reqwest::Client::new();
+    let calendar_home = caldav::discover_calendar_home(&client, &server_url, &username, &password)
+        .await
+        .map_err(|e| e.to_string())?;
+    let provider = caldav::CaldavCalendarProvider {
+        client,
+        base_url: server_url.clone(),
+        username: username.clone(),
+        password: password.clone(),
+        calendar_home: calendar_home.clone(),
+    };
+    let calendars = provider.list_calendars().await.map_err(|e| e.to_string())?;
+
+    let account_id = format!("acct-{}", uuid::Uuid::new_v4());
+    let settings = serde_json::json!({
+        "caldav": {
+            "serverUrl": server_url,
+            "username": username,
+            "calendarHome": calendar_home,
+        }
+    });
+    let encrypted_pw = encrypt_credential_for_account(&db_path, &vault_id, &password)
+        .map_err(|e| e.to_string())?;
+
+    {
+        let db_guard = state.db.lock().map_err(|_| "vault lock poisoned".to_string())?;
+        let db = db_guard.as_ref().ok_or_else(|| "DB not open".to_string())?;
+        db.upsert_account(&account_id, &vault_id, "caldav", &username, display_name.as_deref(), None)
+            .map_err(|e| e.to_string())?;
+        db.save_settings_json(&account_id, &settings.to_string())
+            .map_err(|e| e.to_string())?;
+        db.save_credential(&account_id, &encrypted_pw)
+            .map_err(|e| e.to_string())?;
+
+        // Seed a local Calendar row per discovered collection.
+        let now = chrono::Utc::now().timestamp_millis();
+        for cal in &calendars {
+            let cal_json = serde_json::json!({
+                "id": format!("{account_id}::{}", cal.external_id),
+                "accountId": account_id,
+                "externalId": cal.external_id,
+                "name": cal.name,
+                "color": cal.color,
+                "enabled": true,
+                "readOnly": cal.read_only,
+                "provider": "caldav",
+                "createdAt": now,
+                "updatedAt": now,
+            });
+            db.upsert_calendar(&vault_id, &cal_json).map_err(|e| e.to_string())?;
+        }
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(OAuthResult { account_id, email: username })
+}
+
+/// Sync events for one CalDAV calendar into the local store (EP-14 Phase 3).
+///
+/// Opens its own DB connection after all await points (VaultDb is not Send).
+/// Parses each fetched VEVENT's iCalendar text and upserts it. Recurring
+/// masters keep their RRULE and are expanded on read by the recurrence engine.
+#[tauri::command]
+pub async fn sync_caldav_calendar(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+    calendar_external_id: String,
+) -> std::result::Result<usize, String> {
+    use crate::providers::calendar::{caldav, CalendarProvider};
+
+    let vault_id = get_vault_id(&state).map_err(|e| e.to_string())?;
+    let vault_path = state
+        .vault_path
+        .lock()
+        .map_err(|_| "vault_path lock poisoned".to_string())?
+        .clone()
+        .ok_or("No vault")?;
+    let db_path = std::path::Path::new(&vault_path)
+        .join("nexus.db")
+        .to_string_lossy()
+        .into_owned();
+
+    // Read settings + decrypt credential (synchronous, before any await).
+    let (server_url, username, calendar_home, password) = {
+        let db = crate::db::VaultDb::open(&db_path, "nexus").map_err(|e| e.to_string())?;
+        let settings_str = db
+            .get_settings_json(&account_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("CalDAV account has no settings")?;
+        let settings: serde_json::Value =
+            serde_json::from_str(&settings_str).map_err(|e| e.to_string())?;
+        let enc = db
+            .get_access_token(&account_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("CalDAV account has no stored credential")?;
+        let pw = decrypt_credential_for_account(&db_path, &vault_id, &enc)
+            .map_err(|e| e.to_string())?;
+        (
+            settings["caldav"]["serverUrl"].as_str().unwrap_or_default().to_owned(),
+            settings["caldav"]["username"].as_str().unwrap_or_default().to_owned(),
+            settings["caldav"]["calendarHome"].as_str().unwrap_or_default().to_owned(),
+            pw,
+        )
+    };
+
+    // Fetch a ±1 year window of events.
+    let now = chrono::Utc::now().timestamp_millis();
+    let year_ms: i64 = 365 * 86_400_000;
+    let provider = caldav::CaldavCalendarProvider {
+        client: reqwest::Client::new(),
+        base_url: server_url,
+        username,
+        password,
+        calendar_home,
+    };
+    let result = provider
+        .fetch_events(&calendar_external_id, now - year_ms, now + year_ms, None)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Persist (fresh DB connection — no VaultDb held across the await above).
+    let calendar_local_id = format!("{account_id}::{calendar_external_id}");
+    let db = crate::db::VaultDb::open(&db_path, "nexus").map_err(|e| e.to_string())?;
+    let mut count = 0usize;
+    for raw in &result.events {
+        match crate::providers::calendar::caldav::ics_to_event_json(
+            &raw.ics,
+            &vault_id,
+            &account_id,
+            &calendar_local_id,
+            raw.href.as_deref(),
+            raw.etag.as_deref(),
+        ) {
+            Some(ev) => {
+                db.upsert_calendar_event(&vault_id, &ev).map_err(|e| e.to_string())?;
+                count += 1;
+            }
+            None => log::warn!("CalDAV: could not parse VEVENT from {:?}", raw.href),
+        }
+    }
+
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(count)
+}

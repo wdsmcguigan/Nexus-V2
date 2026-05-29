@@ -356,6 +356,123 @@ fn local_name(raw: &[u8]) -> String {
     s.rsplit(':').next().unwrap_or(&s).to_string()
 }
 
+// ─── iCalendar VEVENT → event JSON ───────────────────────────────────────────
+
+/// Parse a single VEVENT out of an iCalendar string into the JSON shape
+/// `upsert_calendar_event` consumes. Returns `None` if no VEVENT is present or
+/// it lacks the required start/UID. The event keeps its `RRULE` so the
+/// recurrence engine expands it on read; all-day events are stored floating
+/// (UTC-anchored), consistent with EP-14 Phase 1.
+pub fn ics_to_event_json(
+    ics: &str,
+    vault_id: &str,
+    account_id: &str,
+    calendar_local_id: &str,
+    href: Option<&str>,
+    etag: Option<&str>,
+) -> Option<serde_json::Value> {
+    use icalendar::{Calendar, Component, EventLike};
+
+    let parsed: Calendar = ics.parse().ok()?;
+    let event = parsed.components.iter().find_map(|c| c.as_event())?;
+
+    let uid = event.get_uid()?.to_owned();
+    let (start_ts, all_day) = dpt_to_ms(event.get_start()?)?;
+    // End is optional in iCalendar; default to a zero-length event.
+    let end_ts = event
+        .get_end()
+        .and_then(dpt_to_ms)
+        .map(|(ts, _)| ts)
+        .unwrap_or(start_ts);
+
+    let title = event.get_summary().unwrap_or("(no title)").to_owned();
+    let description = event.get_description().map(|s| s.to_owned());
+    let location = event.get_location().map(|s| s.to_owned());
+
+    // RRULE (if present) — store the bare value, no "RRULE:" prefix.
+    let rrule = event
+        .properties()
+        .get("RRULE")
+        .map(|p| p.value().to_owned());
+
+    let now = chrono::Utc::now().timestamp_millis();
+    // The resource href is the stable external id for CalDAV writes.
+    let external_id = href.unwrap_or(&uid);
+
+    Some(serde_json::json!({
+        "id": format!("{account_id}::{uid}"),
+        "vaultId": vault_id,
+        "accountId": account_id,
+        "calendarId": calendar_local_id,
+        "calendarLocalId": calendar_local_id,
+        "externalId": external_id,
+        "iCalUID": uid,
+        "title": title,
+        "description": description,
+        "location": location,
+        "startTs": start_ts,
+        "endTs": end_ts,
+        "allDay": all_day,
+        "rrule": rrule,
+        "status": "confirmed",
+        "attendees": [],
+        "icalHref": href,
+        "icalEtag": etag,
+        "icalRaw": ics,
+        "createdAt": now,
+        "updatedAt": now,
+    }))
+}
+
+/// Convert an iCalendar date/time to `(epoch_ms, is_all_day)`. A bare DATE is
+/// all-day (floating, anchored at UTC midnight); a DATE-TIME carries its offset.
+fn dpt_to_ms(dpt: icalendar::DatePerhapsTime) -> Option<(i64, bool)> {
+    use icalendar::{CalendarDateTime, DatePerhapsTime};
+    match dpt {
+        DatePerhapsTime::Date(d) => {
+            let ts = d.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis();
+            Some((ts, true))
+        }
+        DatePerhapsTime::DateTime(cdt) => match cdt {
+            CalendarDateTime::Utc(dt) => Some((dt.timestamp_millis(), false)),
+            CalendarDateTime::Floating(dt) => Some((dt.and_utc().timestamp_millis(), false)),
+            CalendarDateTime::WithTimezone { date_time, tzid } => {
+                // Resolve the IANA tzid to a real offset (DST-aware) via chrono-tz.
+                let tz: chrono_tz::Tz = tzid.parse().ok()?;
+                use chrono::TimeZone;
+                let dt = tz.from_local_datetime(&date_time).single()?;
+                Some((dt.timestamp_millis(), false))
+            }
+        },
+    }
+}
+
+#[cfg(test)]
+mod ics_tests {
+    use super::*;
+
+    const SAMPLE: &str = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:abc-123\r\nSUMMARY:Team Sync\r\nDTSTART:20260601T090000Z\r\nDTEND:20260601T100000Z\r\nRRULE:FREQ=WEEKLY;BYDAY=MO\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    #[test]
+    fn parses_vevent_with_rrule() {
+        let ev = ics_to_event_json(SAMPLE, "v1", "acct-1", "acct-1::home", Some("/dav/e1.ics"), Some("\"etag1\""))
+            .expect("should parse");
+        assert_eq!(ev["title"], "Team Sync");
+        assert_eq!(ev["iCalUID"], "abc-123");
+        assert_eq!(ev["externalId"], "/dav/e1.ics");
+        assert_eq!(ev["rrule"], "FREQ=WEEKLY;BYDAY=MO");
+        assert_eq!(ev["allDay"], false);
+        // 2026-06-01T09:00:00Z
+        assert_eq!(ev["startTs"].as_i64().unwrap(), 1_780_304_400_000);
+    }
+
+    #[test]
+    fn returns_none_without_vevent() {
+        let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n";
+        assert!(ics_to_event_json(ics, "v1", "a", "a::c", None, None).is_none());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
