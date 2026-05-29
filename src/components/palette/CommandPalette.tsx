@@ -552,10 +552,11 @@ export function CommandPalette() {
                   { textQuery: q, sortBy: "receivedAt", sortDir: "desc", limit: 8 },
                   localStore,
                 ).items;
+                const ql = q.toLowerCase();
                 const contactResults = Array.from(localStore.contacts.values())
                   .filter((c) =>
-                    c.name.toLowerCase().includes(q.toLowerCase()) ||
-                    c.emails.some((e) => e.toLowerCase().includes(q.toLowerCase()))
+                    (c.name?.toLowerCase().includes(ql) ?? false) ||
+                    (c.emails?.some((e) => e?.toLowerCase().includes(ql)) ?? false)
                   )
                   .slice(0, 4);
 
@@ -617,7 +618,7 @@ export function CommandPalette() {
                         {contactResults.map((c) => (
                           <Command.Item
                             key={c.id}
-                            value={`contact-${c.id}-${c.name}-${c.emails[0] ?? ""}`}
+                            value={`contact-${c.id}-${c.name ?? ""}-${c.emails?.[0] ?? ""}`}
                             onSelect={() => {
                               openContactsPanel(c.id);
                               setOpen(false);
@@ -630,9 +631,9 @@ export function CommandPalette() {
                             )}
                           >
                             <User size={14} className="shrink-0 text-text-tertiary" />
-                            <span className="flex-1 truncate">{c.name}</span>
+                            <span className="flex-1 truncate">{c.name || c.emails?.[0] || "Unknown"}</span>
                             <span className="shrink-0 font-mono text-mono-xs text-text-tertiary">
-                              {c.emails[0] ?? ""}
+                              {c.emails?.[0] ?? ""}
                             </span>
                           </Command.Item>
                         ))}
