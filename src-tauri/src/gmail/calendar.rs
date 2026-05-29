@@ -5,6 +5,18 @@ use anyhow::Result;
 /// When `sync_token` is `Some`, fetches only changed events since the last sync
 /// (delta sync). When `None`, fetches all events in the given time window.
 /// Returns `(events_as_json_values, next_sync_token)`.
+/// Whether to fetch recurring *masters* (singleEvents=false) and expand them
+/// with the local recurrence engine, vs. letting Google pre-expand them
+/// (singleEvents=true, the default). Off unless `NEXUS_GCAL_EXPAND_RECURRENCES`
+/// is set to a truthy value — keeps the proven behavior the default and makes
+/// the change reversible without a rebuild.
+pub fn expand_recurrences_enabled() -> bool {
+    matches!(
+        std::env::var("NEXUS_GCAL_EXPAND_RECURRENCES").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
 pub async fn fetch_google_calendar_events(
     client: &reqwest::Client,
     access_token: &str,
@@ -13,25 +25,35 @@ pub async fn fetch_google_calendar_events(
     sync_token: Option<&str>,
     time_min: &str,
     time_max: &str,
+    expand_recurrences: bool,
 ) -> Result<(Vec<serde_json::Value>, Option<String>)> {
     let mut events = Vec::new();
     let mut page_token: Option<String> = None;
     let mut next_sync_token: Option<String> = None;
 
+    // singleEvents=true (default): Google pre-expands recurring events server-side
+    // — simple, but the local recurrence engine never runs for Google. With
+    // expand_recurrences (singleEvents=false) Google returns recurring *masters*
+    // carrying their RRULE, so the EP-14 Phase 2 engine expands them locally, the
+    // same way CalDAV works. orderBy=startTime is only valid with singleEvents=true.
+    let single_events = !expand_recurrences;
+
     loop {
-        let mut url = String::from(
+        let mut url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/primary/events\
-            ?maxResults=250&singleEvents=true",
+            ?maxResults=250&singleEvents={single_events}"
         );
 
         if let Some(ref st) = sync_token {
             // Delta sync: syncToken implies showDeleted=true
             url.push_str(&format!("&syncToken={st}&showDeleted=true"));
         } else {
-            // Full sync: time-bounded window
-            url.push_str(&format!(
-                "&orderBy=startTime&timeMin={time_min}&timeMax={time_max}&showDeleted=false"
-            ));
+            // Full sync: time-bounded window. orderBy=startTime requires
+            // singleEvents=true, so only request ordering in that mode.
+            url.push_str(&format!("&timeMin={time_min}&timeMax={time_max}&showDeleted=false"));
+            if single_events {
+                url.push_str("&orderBy=startTime");
+            }
         }
 
         if let Some(ref pt) = page_token {

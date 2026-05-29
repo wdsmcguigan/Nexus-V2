@@ -46,8 +46,8 @@ license constraints.
 - [x] `queries.rs:load_calendar_events` — expands recurring masters within the window; instances tagged `masterId` + `occurrenceStart`, keyed `${masterId}::${occStart}`
 - [x] Rust unit tests: weekly expansion, COUNT bound, EXDATE, **DST** (9am stays 9am across the transition)
 - [x] `edit_this_and_following` → typed `Unsupported` — Rust `EditScope` enum (`ensure_supported()` errors on `ThisAndFollowing`); frontend `EditScope` + `applyEventEdit` throws `UnsupportedEditScopeError`; tests both sides
-- [ ] Switch Google fetch to `singleEvents=false` behind a flag — *deferred* (larger refactor; still uses `singleEvents=true`)
-- [ ] Relax recurring-event drag guard once occurrence-edit is proven — *deferred*
+- [x] Switch Google fetch to `singleEvents=false` behind a flag — `fetch_google_calendar_events` takes `expand_recurrences`; gated by `expand_recurrences_enabled()` (env `NEXUS_GCAL_EXPAND_RECURRENCES`, default off = proven `singleEvents=true`). When on, Google returns masters+RRULE and the local engine expands them like CalDAV. ⚠️ untested against live Google; modified/cancelled exception items (separate `recurringEventId` rows) not yet folded into the master — needs desktop validation before enabling.
+- [x] Relax recurring-event drag guard once occurrence-edit is proven — reference-backed (Mailspring edit-scope model): locally-expanded occurrences (`masterId`) are draggable and route through `editEventOccurrence` (inline exception + EXDATE); raw masters and Google-expanded instances stay guarded. `CLAUDE.md` gotcha updated; regression test asserts drag emits `EDIT_EVENT_OCCURRENCE`, never `UPDATE_CALENDAR_EVENT`.
 
 ## Phase 3 — CalDAV provider abstraction
 

@@ -59,6 +59,7 @@ impl CalendarProvider for GoogleCalendarProvider {
             sync_token,
             &to_rfc3339(time_min),
             &to_rfc3339(time_max),
+            crate::gmail::calendar::expand_recurrences_enabled(),
         )
         .await?;
         // The Google path is JSON-native; expose the provider event id. ICS is

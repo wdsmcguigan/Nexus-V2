@@ -5,7 +5,7 @@ import { eventColor } from "@/lib/calendarColors";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { generateMonthCells } from "@/lib/calendarUtils";
 import { localStore } from "@/storage/local";
-import { rescheduleCalendarEvent } from "@/state/mutations";
+import { rescheduleCalendarEvent, editEventOccurrence } from "@/state/mutations";
 import { isTauri, updateCalendarEvent } from "@/storage/tauri";
 import { toast } from "sonner";
 
@@ -56,6 +56,16 @@ export function MonthView({ events, focusDate, monthStartIso, onSelectDate }: Pr
     }
     const newStartTs = newStart.getTime();
     const newEndTs = newStartTs + duration;
+
+    // Recurring occurrence → edit-this-occurrence (inline exception + EXDATE),
+    // never a master timestamp-swap. See prior-art (Mailspring) edit-scope model.
+    if (evt.masterId && evt.occurrenceStart != null) {
+      editEventOccurrence(localStore, evt.masterId, evt.occurrenceStart, {
+        startTs: newStartTs,
+        endTs: newEndTs,
+      });
+      return;
+    }
 
     rescheduleCalendarEvent(localStore, eventId, newStartTs, newEndTs);
 
@@ -122,7 +132,10 @@ export function MonthView({ events, focusDate, monthStartIso, onSelectDate }: Pr
                 {dayEvents.slice(0, MAX_VISIBLE).map((evt) => (
                   <EventDetailPopover key={evt.id} event={evt}>
                     <div
-                      draggable={!evt.recurringEventId}
+                      // Locally-expanded occurrences (masterId) drag safely via
+                      // the edit-occurrence path; Google-expanded instances and
+                      // raw masters stay guarded against series corruption.
+                      draggable={!!evt.masterId || (!evt.recurringEventId && !evt.rrule)}
                       onDragStart={(e) => {
                         e.dataTransfer.setData("eventId", evt.id);
                         e.dataTransfer.setData("offsetMin", "0");

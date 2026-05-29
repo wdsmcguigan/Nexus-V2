@@ -2332,6 +2332,7 @@ pub async fn sync_google_calendar(
         .to_string();
 
     let http = reqwest::Client::new();
+    let expand = crate::gmail::calendar::expand_recurrences_enabled();
     let fetch_result = crate::gmail::calendar::fetch_google_calendar_events(
         &http,
         &access_token,
@@ -2340,6 +2341,7 @@ pub async fn sync_google_calendar(
         sync_token.as_deref(),
         &time_min,
         &time_max,
+        expand,
     ).await;
 
     // If the syncToken expired (410 Gone), retry with a full sync
@@ -2349,7 +2351,7 @@ pub async fn sync_google_calendar(
             log::info!("sync_google_calendar: syncToken expired, falling back to full sync");
             crate::gmail::calendar::fetch_google_calendar_events(
                 &http, &access_token, &vault_id, &account_id,
-                None, &time_min, &time_max,
+                None, &time_min, &time_max, expand,
             ).await.map_err(|e| e.to_string())?
         }
         Err(e) => return Err(e.to_string()),

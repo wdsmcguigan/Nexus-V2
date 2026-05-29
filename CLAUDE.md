@@ -297,7 +297,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **Event templates mutation pipeline:** Event templates must be saved via `saveEventTemplateMutation()` / `deleteEventTemplateMutation()` in `src/state/mutations.ts` — NOT by calling the IPC functions directly. Follows the same pattern as email templates (`TMPL`).
 
-**Drag-to-reschedule and recurring events:** `WeekView` and `MonthView` set `draggable={false}` on events with a `recurringEventId`. Do not remove this guard — rescheduling a recurring instance via timestamp-swap corrupts the recurring series on Google's side.
+**Drag-to-reschedule and recurring events:** `WeekView` and `MonthView` allow dragging an event only when it is a locally-expanded occurrence (`masterId` set) or a plain non-recurring event — `draggable={!!evt.masterId || (!evt.recurringEventId && !evt.rrule)}`. A locally-expanded occurrence reschedules through `editEventOccurrence` (inline exception + EXDATE), **never** through the `UPDATE_CALENDAR_EVENT` timestamp-swap, which corrupts the series. Two cases stay non-draggable on purpose: a raw recurring **master** (`rrule` set, not expanded) and a **Google-expanded** instance (`recurringEventId` but no local `masterId`, so there is no master to except). Do not route recurring instances back through `rescheduleCalendarEvent`/`UPDATE_CALENDAR_EVENT`.
 
 **updateCalendarEvent IPC takes `externalId`:** The `updateCalendarEvent` IPC function identifies events by `externalId` (the Google Calendar event ID), not by the internal Nexus `id`. Using `id` here will silently fail to push the change to Google.
 
