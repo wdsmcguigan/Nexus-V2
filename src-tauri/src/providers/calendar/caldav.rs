@@ -424,6 +424,61 @@ pub fn ics_to_event_json(
     }))
 }
 
+/// Serialize an event (the fields `calendar_event_for_push` exposes) into a
+/// minimal VCALENDAR string suitable for a CalDAV PUT body. If `existing_ics` is
+/// provided we reuse its UID so the resource keeps a stable identity across
+/// edits; otherwise a fresh UID is generated.
+#[allow(clippy::too_many_arguments)]
+pub fn event_to_ics(
+    uid: &str,
+    title: &str,
+    start_ts: i64,
+    end_ts: i64,
+    all_day: bool,
+    location: Option<&str>,
+    description: Option<&str>,
+    rrule: Option<&str>,
+) -> String {
+    use icalendar::{Calendar, Component, Event, EventLike};
+    use chrono::{TimeZone, Utc};
+
+    let mut event = Event::new();
+    event.uid(uid);
+    event.summary(title);
+    if let Some(loc) = location {
+        event.location(loc);
+    }
+    if let Some(desc) = description {
+        event.description(desc);
+    }
+
+    if all_day {
+        // Floating DATE values, read from the UTC-anchored timestamps.
+        let start = Utc.timestamp_millis_opt(start_ts).single().map(|d| d.date_naive());
+        let end = Utc.timestamp_millis_opt(end_ts).single().map(|d| d.date_naive());
+        if let (Some(s), Some(e)) = (start, end) {
+            event.starts(s);
+            event.ends(e);
+        }
+    } else {
+        let start = Utc.timestamp_millis_opt(start_ts).single();
+        let end = Utc.timestamp_millis_opt(end_ts).single();
+        if let (Some(s), Some(e)) = (start, end) {
+            event.starts(s);
+            event.ends(e);
+        }
+    }
+
+    if let Some(rule) = rrule {
+        // `rrule` is stored without the "RRULE:" prefix; add the property raw.
+        event.add_property("RRULE", rule);
+    }
+
+    let mut calendar = Calendar::new();
+    calendar.push(event.done());
+    calendar.to_string()
+}
+
 /// Convert an iCalendar date/time to `(epoch_ms, is_all_day)`. A bare DATE is
 /// all-day (floating, anchored at UTC midnight); a DATE-TIME carries its offset.
 fn dpt_to_ms(dpt: icalendar::DatePerhapsTime) -> Option<(i64, bool)> {
@@ -470,6 +525,25 @@ mod ics_tests {
     fn returns_none_without_vevent() {
         let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n";
         assert!(ics_to_event_json(ics, "v1", "a", "a::c", None, None).is_none());
+    }
+
+    #[test]
+    fn event_to_ics_round_trips_through_parser() {
+        // 2026-06-01T09:00:00Z .. 10:00:00Z, weekly.
+        let start = 1_780_304_400_000;
+        let end = start + 3_600_000;
+        let ics = event_to_ics(
+            "uid-xyz", "Standup", start, end, false,
+            Some("Room 4"), Some("daily sync"), Some("FREQ=WEEKLY;BYDAY=MO"),
+        );
+        let ev = ics_to_event_json(&ics, "v1", "acct-1", "acct-1::home", None, None)
+            .expect("serialized ICS should parse back");
+        assert_eq!(ev["title"], "Standup");
+        assert_eq!(ev["iCalUID"], "uid-xyz");
+        assert_eq!(ev["location"], "Room 4");
+        assert_eq!(ev["rrule"], "FREQ=WEEKLY;BYDAY=MO");
+        assert_eq!(ev["startTs"].as_i64().unwrap(), start);
+        assert_eq!(ev["allDay"], false);
     }
 }
 

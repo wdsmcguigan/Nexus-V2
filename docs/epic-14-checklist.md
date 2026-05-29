@@ -58,8 +58,8 @@ license constraints.
 - [x] Command `discover_caldav` (registered in `lib.rs`, wrapper in `tauri.ts`) — validates creds + lists calendars
 - [x] `add_caldav_account` — persists an `accounts` row (provider `caldav`) + encrypted password + settings JSON (server/username/calendar-home), seeds a local `Calendar` per discovered collection (mirrors `add_imap_account`)
 - [x] `sync_caldav_calendar` — fetches a ±1y window, parses each VEVENT via `ics_to_event_json` (icalendar crate; keeps RRULE, floating all-day, DST-aware TZID resolution), upserts events; opens a fresh `VaultDb` after all awaits
-- [ ] Drainer dispatch by `provider` for CalDAV **writes** (PUT/DELETE on edit) — *still deferred* (outbound calendar mutations currently target Google only)
-- [ ] CalDAV round-trip test against a live server — *still deferred* (parser + ICS mapping have unit tests; wire protocol unvalidated against a real server)
+- [x] Drainer dispatch by `provider` for CalDAV **writes** — `drain_calendar_event` resolves the owning account's provider and routes CalDAV events to `drain_caldav_event` (PUT for create/update, DELETE for removal), with `If-Match` ETag guarding and href/etag write-back. New `event_to_ics` serializer + `caldav_event_identity`/`set_caldav_event_ref`/`decrypt_account_credential` query helpers; `href`/`etag` now persisted by `upsert_calendar_event`. Round-trip unit test (serialize → parse).
+- [ ] CalDAV round-trip test against a live server — *still deferred* (parser, ICS mapping, and serializer round-trip all have unit tests; the wire protocol remains unvalidated against a real server — needs desktop)
 
 > **Phase 3 is a foundation, not a finished CalDAV client.** The request/response
 > shapes follow RFC 4791 but were written without a live server to test against;

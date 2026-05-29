@@ -1880,6 +1880,18 @@ impl VaultDb {
         Ok(key)
     }
 
+    /// Decrypt a base64 credential stored in the account `access_token` column
+    /// (e.g. an IMAP/CalDAV password) using the vault key. Mirrors the inverse of
+    /// `encrypt_credential_for_account` in commands.rs so non-command callers
+    /// (the drainer) can read credentials without going through Tauri state.
+    pub fn decrypt_account_credential(&self, vault_id: &str, ciphertext_b64: &str) -> Result<String> {
+        use base64::Engine;
+        let key = self.get_or_create_vault_key(vault_id)?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(ciphertext_b64)?;
+        let decrypted = crate::crypto::decrypt_payload(&key, &bytes)?;
+        String::from_utf8(decrypted).map_err(Into::into)
+    }
+
     pub fn get_vault_key_hex(&self, vault_id: &str) -> Result<Option<String>> {
         Ok(self.conn.query_row(
             "SELECT key_hex FROM vault_key WHERE vault_id = ?1",
@@ -2775,9 +2787,9 @@ impl VaultDb {
                 attendees_json, html_link, created_at, updated_at, notes, source_message_id,
                 conference_url, color_id, ical_uid, recurring_event_id, creator_email,
                 visibility, transparency, reminders_json, attachments_json,
-                calendar_local_id, dirty, start_tzid, end_tzid, ical_raw)
+                calendar_local_id, dirty, start_tzid, end_tzid, ical_raw, href, etag)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
-                     ?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34)
+                     ?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36)
              ON CONFLICT(id) DO UPDATE SET
                title=excluded.title, description=excluded.description, location=excluded.location,
                start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
@@ -2793,6 +2805,8 @@ impl VaultDb {
                dirty=excluded.dirty,
                start_tzid=excluded.start_tzid, end_tzid=excluded.end_tzid,
                ical_raw=COALESCE(excluded.ical_raw, calendar_events.ical_raw),
+               href=COALESCE(excluded.href, calendar_events.href),
+               etag=COALESCE(excluded.etag, calendar_events.etag),
                updated_at=excluded.updated_at",
             params![
                 id,
@@ -2829,6 +2843,8 @@ impl VaultDb {
                 event["startTzid"].as_str(),
                 event["endTzid"].as_str(),
                 event["icalRaw"].as_str(),
+                event["icalHref"].as_str(),
+                event["icalEtag"].as_str(),
             ],
         )?;
         Ok(())
@@ -2943,6 +2959,38 @@ impl VaultDb {
         self.conn.execute(
             "UPDATE calendar_events SET external_id = ?1, dirty = 0 WHERE id = ?2",
             params![external_id, id],
+        )?;
+        Ok(())
+    }
+
+    /// CalDAV resource identity for an event: `(account_id, href, etag, ical_raw)`.
+    /// Used by the outbound drainer to PUT/DELETE against the right resource.
+    #[allow(clippy::type_complexity)]
+    pub fn caldav_event_identity(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, Option<String>, Option<String>, Option<String>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT account_id, href, etag, ical_raw FROM calendar_events WHERE id = ?1",
+        )?;
+        Ok(stmt
+            .query_row(params![id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .optional()?)
+    }
+
+    /// Record CalDAV resource identity after a successful PUT (href + new etag),
+    /// and clear the dirty flag.
+    pub fn set_caldav_event_ref(&self, id: &str, href: &str, etag: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE calendar_events SET href = ?1, etag = ?2, external_id = ?1, dirty = 0 WHERE id = ?3",
+            params![href, etag, id],
         )?;
         Ok(())
     }
