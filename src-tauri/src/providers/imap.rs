@@ -395,6 +395,7 @@ fn parse_imap_message(
         attachments: vec![],
         list_unsubscribe: None,
         list_unsubscribe_post: None,
+        ical_data: None,
     })
 }
 

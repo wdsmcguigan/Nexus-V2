@@ -44,7 +44,7 @@ pub struct JmapResponse {
 
 // ─── Mailbox/get ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Mailbox {
     pub id: String,

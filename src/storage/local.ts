@@ -12,6 +12,7 @@
 import type {
   Account,
   CalendarEvent,
+  Calendar,
   Contact,
   ContactGroup,
   CustomFieldDef,
@@ -45,6 +46,7 @@ interface StorageSnapshot {
   contacts?: Contact[];
   contactGroups?: ContactGroup[];
   calendarEvents?: CalendarEvent[];
+  calendars?: Calendar[];
   rules?: Rule[];
   templates?: Template[];
   eventTemplates?: EventTemplate[];
@@ -84,6 +86,7 @@ export class LocalStore {
   templates = new Map<string, Template>();
   eventTemplates = new Map<string, EventTemplate>();
   calendarEvents = new Map<string, CalendarEvent>();
+  calendars = new Map<string, Calendar>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -156,6 +159,7 @@ export class LocalStore {
     this.emailIndex.clear();
     this.messagesByContact.clear();
     this.calendarEvents.clear();
+    this.calendars.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -171,6 +175,7 @@ export class LocalStore {
     for (const et of (snap.eventTemplates ?? [])) this.eventTemplates.set(et.id, et);
     for (const g of (snap.contactGroups ?? [])) this.contactGroups.set(g.id, g);
     for (const e of (snap.calendarEvents ?? [])) this.calendarEvents.set(e.id, e);
+    for (const c of (snap.calendars ?? [])) this.calendars.set(c.id, c);
 
     // Load explicit contacts from snapshot
     for (const c of (snap.contacts ?? [])) {
@@ -227,6 +232,7 @@ export class LocalStore {
       contacts: Array.from(this.contacts.values()),
       contactGroups: Array.from(this.contactGroups.values()),
       calendarEvents: Array.from(this.calendarEvents.values()),
+      calendars: Array.from(this.calendars.values()),
     };
   }
 
@@ -633,6 +639,22 @@ export class LocalStore {
     return Array.from(this.calendarEvents.values())
       .filter((e) => e.endTs >= startTs && e.startTs <= endTs)
       .sort((a, b) => a.startTs - b.startTs);
+  }
+
+  // ── Calendar collection CRUD (EP-14) ────────────────────────────
+
+  putCalendar(cal: Calendar): void {
+    this.calendars.set(cal.id, cal);
+    this._notify();
+  }
+
+  deleteCalendar(id: string): void {
+    this.calendars.delete(id);
+    this._notify();
+  }
+
+  getCalendarsSorted(): Calendar[] {
+    return Array.from(this.calendars.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   // ── SavedView CRUD (EP-1) ────────────────────────────────────────

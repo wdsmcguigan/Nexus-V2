@@ -78,3 +78,22 @@ export function minutesFromMidnight(ts: number, iso: string): number {
   const midnight = new Date(iso + "T00:00:00").getTime();
   return Math.round((ts - midnight) / 60_000);
 }
+
+// ─── All-day (floating) date helpers (EP-14 Phase 1) ─────────────────────────
+// All-day events are stored anchored at UTC midnight of the calendar date. They
+// are "floating" — the displayed day must NOT shift with the viewer's timezone.
+// These helpers read the UTC date components so an all-day event on 2026-06-01
+// renders as June 1 in every timezone (fixes the west-of-UTC day-shift bug).
+
+/** ISO date (YYYY-MM-DD) of an all-day event's UTC-anchored timestamp. */
+export function allDayDateKey(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+/** Localized display string for an all-day event's date, using UTC components. */
+export function formatAllDayDate(
+  ts: number,
+  opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" },
+): string {
+  return new Date(ts).toLocaleDateString("default", { ...opts, timeZone: "UTC" });
+}

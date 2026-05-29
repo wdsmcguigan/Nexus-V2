@@ -29,6 +29,7 @@ pub struct HydratePayload {
     pub templates: Vec<JsonValue>,
     pub calendar_events: Vec<JsonValue>,
     pub event_templates: Vec<JsonValue>,
+    pub calendars: Vec<JsonValue>,
 }
 
 impl VaultDb {
@@ -57,6 +58,12 @@ impl VaultDb {
                     .as_millis() as i64;
                 let day_ms: i64 = 86_400_000;
                 self.load_calendar_events(vault_id, now_ms - 14 * day_ms, now_ms + 90 * day_ms)?
+            },
+            calendars: {
+                // Ensure a local default calendar exists so standalone events
+                // always have a home, then return the full list.
+                self.ensure_default_calendar(vault_id)?;
+                self.load_calendars(vault_id)?
             },
         })
     }
@@ -1177,6 +1184,15 @@ impl VaultDb {
 
     fn apply_mutation_to_tables(&self, kind: &str, payload: &str) -> Result<()> {
         let p: JsonValue = serde_json::from_str(payload)?;
+        // Vault scope for mutations whose handler needs it (calendar / template /
+        // calendar-collection arms). Top-level `vaultId` for calendar/template
+        // payloads, falling back to the nested event object for
+        // *_CALENDAR_EVENT payloads (`{ event: { vaultId, ... } }`). Arms that
+        // bind their own `vault_id` simply shadow this.
+        let vault_id = p["vaultId"]
+            .as_str()
+            .or_else(|| p["event"]["vaultId"].as_str())
+            .unwrap_or("local");
         match kind {
             "SET_STATUS" => {
                 let msg_id = p["messageId"].as_str().unwrap_or_default();
@@ -1767,6 +1783,22 @@ impl VaultDb {
                 let id = p["templateId"].as_str().unwrap_or_default();
                 self.delete_event_template(id, vault_id)?;
             }
+            "UPSERT_CALENDAR" | "UPDATE_CALENDAR" => {
+                self.upsert_calendar(vault_id, &p)?;
+            }
+            "DELETE_CALENDAR" => {
+                let id = p["calendarId"].as_str().unwrap_or_default();
+                self.delete_calendar(id)?;
+            }
+            "EDIT_EVENT_OCCURRENCE" => {
+                let master_id = p["masterId"].as_str().unwrap_or_default();
+                let occurrence_start = p["occurrenceStart"].as_i64().unwrap_or_default();
+                self.edit_event_occurrence(vault_id, master_id, occurrence_start, &p["changes"])?;
+            }
+            "EDIT_EVENT_SERIES" => {
+                let master_id = p["masterId"].as_str().unwrap_or_default();
+                self.edit_event_series(vault_id, master_id, &p["changes"])?;
+            }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
                 log::debug!("apply_mutation: unhandled kind '{other}' (recorded in log only)");
@@ -1846,6 +1878,18 @@ impl VaultDb {
             params![vault_id, hex],
         )?;
         Ok(key)
+    }
+
+    /// Decrypt a base64 credential stored in the account `access_token` column
+    /// (e.g. an IMAP/CalDAV password) using the vault key. Mirrors the inverse of
+    /// `encrypt_credential_for_account` in commands.rs so non-command callers
+    /// (the drainer) can read credentials without going through Tauri state.
+    pub fn decrypt_account_credential(&self, vault_id: &str, ciphertext_b64: &str) -> Result<String> {
+        use base64::Engine;
+        let key = self.get_or_create_vault_key(vault_id)?;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(ciphertext_b64)?;
+        let decrypted = crate::crypto::decrypt_payload(&key, &bytes)?;
+        String::from_utf8(decrypted).map_err(Into::into)
     }
 
     pub fn get_vault_key_hex(&self, vault_id: &str) -> Result<Option<String>> {
@@ -2620,22 +2664,28 @@ fn decode_hex(s: &str) -> Result<Vec<u8>> {
 
 impl VaultDb {
     pub fn load_calendar_events(&self, vault_id: &str, start_ts: i64, end_ts: i64) -> Result<Vec<JsonValue>> {
+        // Recurring masters are always loaded (their first occurrence may pre-date
+        // the window) and expanded into the window below; non-recurring rows are
+        // filtered by the range as before.
         let mut stmt = self.conn.prepare(
             "SELECT id, account_id, calendar_id, external_id, title, description, location,
                     start_ts, end_ts, all_day, rrule, status, organizer_email,
                     attendees_json, html_link, created_at, updated_at,
                     notes, source_message_id,
                     conference_url, color_id, ical_uid, recurring_event_id,
-                    creator_email, visibility, transparency, reminders_json, attachments_json
+                    creator_email, visibility, transparency, reminders_json, attachments_json,
+                    calendar_local_id, start_tzid, end_tzid, ical_raw, exdates_json
              FROM calendar_events
-             WHERE vault_id = ?1 AND end_ts >= ?2 AND start_ts <= ?3
+             WHERE vault_id = ?1
+               AND ((rrule IS NOT NULL AND rrule != '') OR (end_ts >= ?2 AND start_ts <= ?3))
              ORDER BY start_ts ASC",
         )?;
-        stmt.query_map(params![vault_id, start_ts, end_ts], |r| {
+        let rows: Vec<(JsonValue, Option<String>)> = stmt.query_map(params![vault_id, start_ts, end_ts], |r| {
             let parse_json = |s: Option<String>| -> JsonValue {
                 s.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(JsonValue::Null)
             };
-            Ok(serde_json::json!({
+            let exdates_json = r.get::<_, Option<String>>(32)?;
+            let ev = serde_json::json!({
                 "id": r.get::<_, String>(0)?,
                 "vaultId": vault_id,
                 "accountId": r.get::<_, String>(1)?,
@@ -2667,8 +2717,52 @@ impl VaultDb {
                 "transparency": r.get::<_, Option<String>>(25)?,
                 "reminders": parse_json(r.get::<_, Option<String>>(26)?),
                 "attachments": parse_json(r.get::<_, Option<String>>(27)?),
-            }))
-        })?.map(|r| r.context("loading calendar_events row")).collect()
+                "calendarLocalId": r.get::<_, Option<String>>(28)?,
+                "startTzid": r.get::<_, Option<String>>(29)?,
+                "endTzid": r.get::<_, Option<String>>(30)?,
+            });
+            Ok((ev, exdates_json))
+        })?.map(|r| r.context("loading calendar_events row")).collect::<Result<_>>()?;
+
+        // Expand recurring masters into concrete instances within the window.
+        let mut out: Vec<JsonValue> = Vec::with_capacity(rows.len());
+        for (ev, exdates_json) in rows {
+            let rrule = ev["rrule"].as_str().filter(|s| !s.is_empty());
+            match rrule {
+                Some(rule) => {
+                    let master_id = ev["id"].as_str().unwrap_or_default().to_owned();
+                    let m_start = ev["startTs"].as_i64().unwrap_or(0);
+                    let m_end = ev["endTs"].as_i64().unwrap_or(m_start);
+                    let duration = (m_end - m_start).max(0);
+                    let exdates: Vec<i64> = exdates_json
+                        .and_then(|s| serde_json::from_str::<Vec<i64>>(&s).ok())
+                        .unwrap_or_default();
+                    match crate::calendar::recurrence::expand_rrule(
+                        rule, m_start, duration, &exdates, start_ts, end_ts, 1000,
+                    ) {
+                        Ok(occurrences) => {
+                            for occ in occurrences {
+                                let mut inst = ev.clone();
+                                inst["id"] = JsonValue::String(format!("{master_id}::{}", occ.start_ts));
+                                inst["startTs"] = JsonValue::from(occ.start_ts);
+                                inst["endTs"] = JsonValue::from(occ.end_ts);
+                                inst["masterId"] = JsonValue::String(master_id.clone());
+                                inst["occurrenceStart"] = JsonValue::from(occ.start_ts);
+                                // Instances are not themselves recurring.
+                                inst["rrule"] = JsonValue::Null;
+                                out.push(inst);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("RRULE expansion failed for {master_id}: {e}; emitting master only");
+                            out.push(ev);
+                        }
+                    }
+                }
+                None => out.push(ev),
+            }
+        }
+        Ok(out)
     }
 
     pub fn upsert_calendar_event(&self, vault_id: &str, event: &JsonValue) -> Result<()> {
@@ -2692,9 +2786,10 @@ impl VaultDb {
                 location, start_ts, end_ts, all_day, rrule, status, organizer_email,
                 attendees_json, html_link, created_at, updated_at, notes, source_message_id,
                 conference_url, color_id, ical_uid, recurring_event_id, creator_email,
-                visibility, transparency, reminders_json, attachments_json)
+                visibility, transparency, reminders_json, attachments_json,
+                calendar_local_id, dirty, start_tzid, end_tzid, ical_raw, href, etag)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,
-                     ?21,?22,?23,?24,?25,?26,?27,?28,?29)
+                     ?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36)
              ON CONFLICT(id) DO UPDATE SET
                title=excluded.title, description=excluded.description, location=excluded.location,
                start_ts=excluded.start_ts, end_ts=excluded.end_ts, all_day=excluded.all_day,
@@ -2706,6 +2801,12 @@ impl VaultDb {
                creator_email=excluded.creator_email, visibility=excluded.visibility,
                transparency=excluded.transparency, reminders_json=excluded.reminders_json,
                attachments_json=excluded.attachments_json,
+               calendar_local_id=COALESCE(excluded.calendar_local_id, calendar_events.calendar_local_id),
+               dirty=excluded.dirty,
+               start_tzid=excluded.start_tzid, end_tzid=excluded.end_tzid,
+               ical_raw=COALESCE(excluded.ical_raw, calendar_events.ical_raw),
+               href=COALESCE(excluded.href, calendar_events.href),
+               etag=COALESCE(excluded.etag, calendar_events.etag),
                updated_at=excluded.updated_at",
             params![
                 id,
@@ -2737,8 +2838,304 @@ impl VaultDb {
                 event["transparency"].as_str(),
                 reminders_json,
                 attachments_json,
+                event["calendarLocalId"].as_str(),
+                event["dirty"].as_bool().unwrap_or(false),
+                event["startTzid"].as_str(),
+                event["endTzid"].as_str(),
+                event["icalRaw"].as_str(),
+                event["icalHref"].as_str(),
+                event["icalEtag"].as_str(),
             ],
         )?;
+        Ok(())
+    }
+
+    // ── Calendars (EP-14) ────────────────────────────────────────────────────
+
+    pub fn load_calendars(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, account_id, external_id, name, color, enabled, read_only,
+                    provider, created_at, updated_at
+             FROM calendars WHERE vault_id = ?1 ORDER BY name ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![vault_id], |r| {
+                Ok(serde_json::json!({
+                    "id": r.get::<_, String>(0)?,
+                    "vaultId": vault_id,
+                    "accountId": r.get::<_, Option<String>>(1)?,
+                    "externalId": r.get::<_, Option<String>>(2)?,
+                    "name": r.get::<_, String>(3)?,
+                    "color": r.get::<_, Option<String>>(4)?,
+                    "enabled": r.get::<_, bool>(5)?,
+                    "readOnly": r.get::<_, bool>(6)?,
+                    "provider": r.get::<_, String>(7)?,
+                    "createdAt": r.get::<_, i64>(8)?,
+                    "updatedAt": r.get::<_, i64>(9)?,
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<JsonValue>>>()
+            .context("loading calendars")?;
+        Ok(rows)
+    }
+
+    pub fn upsert_calendar(&self, vault_id: &str, cal: &JsonValue) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as i64;
+        self.conn.execute(
+            "INSERT INTO calendars
+               (id, vault_id, account_id, external_id, name, color, enabled, read_only,
+                provider, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+             ON CONFLICT(id) DO UPDATE SET
+               account_id=excluded.account_id, external_id=excluded.external_id,
+               name=excluded.name, color=excluded.color, enabled=excluded.enabled,
+               read_only=excluded.read_only, provider=excluded.provider,
+               updated_at=excluded.updated_at",
+            params![
+                cal["id"].as_str().unwrap_or_default(),
+                vault_id,
+                cal["accountId"].as_str(),
+                cal["externalId"].as_str(),
+                cal["name"].as_str().unwrap_or(""),
+                cal["color"].as_str(),
+                cal["enabled"].as_bool().unwrap_or(true),
+                cal["readOnly"].as_bool().unwrap_or(false),
+                cal["provider"].as_str().unwrap_or("local"),
+                cal["createdAt"].as_i64().unwrap_or(now),
+                cal["updatedAt"].as_i64().unwrap_or(now),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_calendar(&self, id: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM calendars WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Fields needed to push a calendar event to a remote provider.
+    /// Returns `(account_id, external_id, title, start_ts, end_ts, all_day,
+    /// location, description, attendee_emails)`.
+    #[allow(clippy::type_complexity)]
+    pub fn calendar_event_for_push(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, Option<String>, String, i64, i64, bool, Option<String>, Option<String>, Vec<String>)>> {
+        let row: Option<(String, Option<String>, String, i64, i64, bool, Option<String>, Option<String>, String)> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT account_id, external_id, title, start_ts, end_ts, all_day,
+                        location, description, attendees_json
+                 FROM calendar_events WHERE id = ?1",
+            )?;
+            stmt.query_row(params![id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, bool>(5)?,
+                    r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
+                    r.get::<_, Option<String>>(8)?.unwrap_or_else(|| "[]".into()),
+                ))
+            }).optional()?
+        };
+        Ok(row.map(|(acc, ext, title, start, end, all_day, loc, desc, attendees_json)| {
+            let attendees: Vec<String> = serde_json::from_str::<Vec<JsonValue>>(&attendees_json)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|a| a["email"].as_str().map(|s| s.to_owned()))
+                .collect();
+            (acc, ext, title, start, end, all_day, loc, desc, attendees)
+        }))
+    }
+
+    /// After a successful remote create, record the provider's event id and clear the dirty flag.
+    pub fn set_calendar_event_external_id(&self, id: &str, external_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE calendar_events SET external_id = ?1, dirty = 0 WHERE id = ?2",
+            params![external_id, id],
+        )?;
+        Ok(())
+    }
+
+    /// CalDAV resource identity for an event: `(account_id, href, etag, ical_raw)`.
+    /// Used by the outbound drainer to PUT/DELETE against the right resource.
+    #[allow(clippy::type_complexity)]
+    pub fn caldav_event_identity(
+        &self,
+        id: &str,
+    ) -> Result<Option<(String, Option<String>, Option<String>, Option<String>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT account_id, href, etag, ical_raw FROM calendar_events WHERE id = ?1",
+        )?;
+        Ok(stmt
+            .query_row(params![id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, Option<String>>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            })
+            .optional()?)
+    }
+
+    /// Record CalDAV resource identity after a successful PUT (href + new etag),
+    /// and clear the dirty flag.
+    pub fn set_caldav_event_ref(&self, id: &str, href: &str, etag: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE calendar_events SET href = ?1, etag = ?2, external_id = ?1, dirty = 0 WHERE id = ?3",
+            params![href, etag, id],
+        )?;
+        Ok(())
+    }
+
+    /// Load a single calendar event as JSON (the fields `upsert_calendar_event`
+    /// consumes), without recurrence expansion. Used by the edit-recurrence paths.
+    pub fn get_calendar_event(&self, id: &str) -> Result<Option<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, account_id, calendar_id, external_id, title, description,
+                    location, start_ts, end_ts, all_day, rrule, status, organizer_email,
+                    attendees_json, html_link, created_at, updated_at, notes, source_message_id,
+                    conference_url, color_id, ical_uid, recurring_event_id, creator_email,
+                    visibility, transparency, reminders_json, attachments_json,
+                    calendar_local_id, start_tzid, end_tzid
+             FROM calendar_events WHERE id = ?1",
+        )?;
+        let parse_json = |s: Option<String>| -> JsonValue {
+            s.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(JsonValue::Null)
+        };
+        stmt.query_row(params![id], |r| {
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": r.get::<_, String>(1)?,
+                "accountId": r.get::<_, String>(2)?,
+                "calendarId": r.get::<_, String>(3)?,
+                "externalId": r.get::<_, Option<String>>(4)?,
+                "title": r.get::<_, String>(5)?,
+                "description": r.get::<_, Option<String>>(6)?,
+                "location": r.get::<_, Option<String>>(7)?,
+                "startTs": r.get::<_, i64>(8)?,
+                "endTs": r.get::<_, i64>(9)?,
+                "allDay": r.get::<_, bool>(10)?,
+                "rrule": r.get::<_, Option<String>>(11)?,
+                "status": r.get::<_, String>(12)?,
+                "organizerEmail": r.get::<_, Option<String>>(13)?,
+                "attendees": parse_json(r.get::<_, Option<String>>(14)?),
+                "htmlLink": r.get::<_, Option<String>>(15)?,
+                "createdAt": r.get::<_, i64>(16)?,
+                "updatedAt": r.get::<_, i64>(17)?,
+                "notes": r.get::<_, Option<String>>(18)?,
+                "sourceMessageId": r.get::<_, Option<String>>(19)?,
+                "conferenceUrl": r.get::<_, Option<String>>(20)?,
+                "colorId": r.get::<_, Option<String>>(21)?,
+                "iCalUID": r.get::<_, Option<String>>(22)?,
+                "recurringEventId": r.get::<_, Option<String>>(23)?,
+                "creatorEmail": r.get::<_, Option<String>>(24)?,
+                "visibility": r.get::<_, Option<String>>(25)?,
+                "transparency": r.get::<_, Option<String>>(26)?,
+                "reminders": parse_json(r.get::<_, Option<String>>(27)?),
+                "attachments": parse_json(r.get::<_, Option<String>>(28)?),
+                "calendarLocalId": r.get::<_, Option<String>>(29)?,
+                "startTzid": r.get::<_, Option<String>>(30)?,
+                "endTzid": r.get::<_, Option<String>>(31)?,
+            }))
+        }).optional().context("loading single calendar event")
+    }
+
+    /// Edit a whole recurring series: merge `changes` into the master and re-upsert.
+    pub fn edit_event_series(&self, vault_id: &str, master_id: &str, changes: &JsonValue) -> Result<()> {
+        if let Some(mut ev) = self.get_calendar_event(master_id)? {
+            // The mutation payload carries no vaultId; trust the master row's.
+            let vid = ev["vaultId"].as_str().unwrap_or(vault_id).to_owned();
+            if let Some(obj) = changes.as_object() {
+                for (k, v) in obj {
+                    ev[k] = v.clone();
+                }
+            }
+            ev["updatedAt"] = JsonValue::from(chrono::Utc::now().timestamp_millis());
+            self.upsert_calendar_event(&vid, &ev)?;
+        }
+        Ok(())
+    }
+
+    /// Edit a single occurrence: create a detached exception event for that
+    /// instance and add the occurrence start to the master's EXDATE list so the
+    /// expander skips it (Mailspring-style inline exception, simplified).
+    pub fn edit_event_occurrence(
+        &self,
+        vault_id: &str,
+        master_id: &str,
+        occurrence_start: i64,
+        changes: &JsonValue,
+    ) -> Result<()> {
+        let Some(master) = self.get_calendar_event(master_id)? else {
+            return Ok(());
+        };
+        // The mutation payload carries no vaultId; trust the master row's.
+        let vault_id = master["vaultId"].as_str().unwrap_or(vault_id).to_owned();
+        let duration = master["endTs"].as_i64().unwrap_or(0) - master["startTs"].as_i64().unwrap_or(0);
+
+        let mut exception = master.clone();
+        exception["id"] = JsonValue::String(format!("{master_id}::{occurrence_start}"));
+        exception["rrule"] = JsonValue::Null;
+        exception["externalId"] = JsonValue::Null;
+        exception["recurringEventId"] = JsonValue::String(master_id.to_owned());
+        exception["startTs"] = JsonValue::from(occurrence_start);
+        exception["endTs"] = JsonValue::from(occurrence_start + duration.max(0));
+        if let Some(obj) = changes.as_object() {
+            for (k, v) in obj {
+                exception[k] = v.clone();
+            }
+        }
+        exception["updatedAt"] = JsonValue::from(chrono::Utc::now().timestamp_millis());
+        self.upsert_calendar_event(&vault_id, &exception)?;
+
+        // Exclude this occurrence from the master's expansion.
+        let existing: Option<String> = self.conn.query_row(
+            "SELECT exdates_json FROM calendar_events WHERE id = ?1",
+            params![master_id],
+            |r| r.get(0),
+        ).optional()?;
+        let mut list: Vec<i64> = existing
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        if !list.contains(&occurrence_start) {
+            list.push(occurrence_start);
+        }
+        self.conn.execute(
+            "UPDATE calendar_events SET exdates_json = ?1 WHERE id = ?2",
+            params![serde_json::to_string(&list)?, master_id],
+        )?;
+        Ok(())
+    }
+
+    /// Seed a local default calendar (id `local-default`) if the vault has none.
+    pub fn ensure_default_calendar(&self, vault_id: &str) -> Result<()> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM calendars WHERE vault_id = ?1",
+            params![vault_id],
+            |r| r.get(0),
+        )?;
+        if count == 0 {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            self.conn.execute(
+                "INSERT OR IGNORE INTO calendars
+                   (id, vault_id, account_id, external_id, name, color, enabled,
+                    read_only, provider, created_at, updated_at)
+                 VALUES ('local-default', ?1, NULL, NULL, 'My Calendar', NULL, 1, 0,
+                         'local', ?2, ?2)",
+                params![vault_id, now],
+            )?;
+        }
         Ok(())
     }
 
@@ -2797,7 +3194,10 @@ impl VaultDb {
         let mut stmt = self.conn.prepare(
             "SELECT sync_token FROM calendar_sync WHERE account_id = ?1",
         )?;
-        stmt.query_row(params![account_id], |r| r.get(0)).optional()
+        let row: Option<Option<String>> = stmt
+            .query_row(params![account_id], |r| r.get::<_, Option<String>>(0))
+            .optional()?;
+        Ok(row.flatten())
     }
 
     pub fn upsert_calendar_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {

@@ -5,7 +5,7 @@ import { eventColor } from "@/lib/calendarColors";
 import { EventDetailPopover } from "./EventDetailPopover";
 import { generateWeekDays, minutesFromMidnight } from "@/lib/calendarUtils";
 import { localStore } from "@/storage/local";
-import { rescheduleCalendarEvent } from "@/state/mutations";
+import { rescheduleCalendarEvent, editEventOccurrence } from "@/state/mutations";
 import { isTauri, updateCalendarEvent } from "@/storage/tauri";
 import { toast } from "sonner";
 
@@ -104,6 +104,18 @@ export function WeekView({ events, focusDate, mondayIso }: Props) {
     newStart.setMinutes(newStart.getMinutes() - offsetMin);
     const newStartTs = newStart.getTime();
     const newEndTs = newStartTs + duration;
+
+    // A dragged occurrence of a recurring series must NOT timestamp-swap the
+    // master (that corrupts the whole series). Instead route it through the
+    // proven "edit this occurrence" path, which records an inline exception and
+    // EXDATEs the original instance — the model our prior-art (Mailspring) uses.
+    if (evt.masterId && evt.occurrenceStart != null) {
+      editEventOccurrence(localStore, evt.masterId, evt.occurrenceStart, {
+        startTs: newStartTs,
+        endTs: newEndTs,
+      });
+      return;
+    }
 
     rescheduleCalendarEvent(localStore, eventId, newStartTs, newEndTs);
 
@@ -238,7 +250,12 @@ export function WeekView({ events, focusDate, mondayIso }: Props) {
                 return (
                   <EventDetailPopover key={evt.id} event={evt}>
                     <div
-                      draggable={!evt.recurringEventId}
+                      // Our locally-expanded occurrences (masterId set) drag
+                      // safely via the edit-occurrence path. Everything else keeps
+                      // the original guard: Google-expanded instances
+                      // (recurringEventId, no local master) and raw masters (rrule)
+                      // stay non-draggable to avoid series corruption.
+                      draggable={!!evt.masterId || (!evt.recurringEventId && !evt.rrule)}
                       onDragStart={(e) => {
                         e.dataTransfer.setData("eventId", evt.id);
                         e.dataTransfer.setData("offsetMin", String(startMin % 60));

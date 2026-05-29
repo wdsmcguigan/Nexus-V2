@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { createCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { localStore } from "@/storage/local";
-import { useEventTemplates } from "@/storage/useStore";
+import { useEventTemplates, useCalendars } from "@/storage/useStore";
 import { toast } from "sonner";
 import type { EventTemplate } from "@/data/types";
 
@@ -46,8 +46,10 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
   const [submitting, setSubmitting] = React.useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
+  const [calendarLocalId, setCalendarLocalId] = React.useState("local-default");
 
   const templates = useEventTemplates();
+  const calendars = useCalendars();
 
   function applyTemplate(tmpl: EventTemplate) {
     setTitle(tmpl.title);
@@ -74,6 +76,7 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
     setLocation("");
     setDescription("");
     setAttendeeInput("");
+    setCalendarLocalId("local-default");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefillTitle, prefillAttendees, prefillDate]);
 
@@ -90,33 +93,54 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) { toast.error("Title is required"); return; }
-    if (!gmailAccount) { toast.error("No Gmail account connected"); return; }
 
     const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
     const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
+    // The calendar is standalone (EP-14): events are created locally and persisted
+    // through the mutation pipeline regardless of whether an account is connected.
+    // A connected Gmail account is an optional sync target, not a prerequisite.
+    const vaultId = gmailAccount?.vaultId ?? localStore.vault?.id ?? "local";
+    // Timed events carry the user's IANA timezone (Phase 1); all-day events are
+    // floating (no tzid).
+    const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     setSubmitting(true);
     try {
-      const eventId = await createCalendarEvent({
-        accountId: gmailAccount.id,
-        title: title.trim(),
-        startTs,
-        endTs,
-        allDay,
-        location: location.trim() || undefined,
-        description: description.trim() || undefined,
-        attendeeEmails: attendees,
-      });
-      Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
-        event: {
-          id: eventId,
-          vaultId: gmailAccount.vaultId,
+      // When a Gmail account exists, push to Google and key the local row by the
+      // returned Google event id; otherwise create a local-only event with a
+      // client-generated id (externalId stays undefined until it is synced).
+      let eventId: string;
+      let externalId: string | undefined;
+      if (gmailAccount) {
+        eventId = await createCalendarEvent({
           accountId: gmailAccount.id,
-          calendarId: "primary",
           title: title.trim(),
           startTs,
           endTs,
           allDay,
+          location: location.trim() || undefined,
+          description: description.trim() || undefined,
+          attendeeEmails: attendees,
+          timeZone: tzid,
+        });
+        externalId = eventId;
+      } else {
+        eventId = crypto.randomUUID();
+      }
+      Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
+        event: {
+          id: eventId,
+          vaultId,
+          accountId: gmailAccount?.id ?? "local",
+          calendarId: "primary",
+          calendarLocalId,
+          externalId,
+          title: title.trim(),
+          startTs,
+          endTs,
+          allDay,
+          startTzid: tzid,
+          endTzid: tzid,
           location: location.trim() || undefined,
           description: description.trim() || undefined,
           status: "confirmed",
@@ -219,6 +243,21 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
                       <input type="datetime-local" value={endVal} onChange={(e) => setEndVal(e.target.value)}
                         className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
                     </div>
+                  </div>
+                )}
+
+                {calendars.length > 1 && (
+                  <div>
+                    <label className="mb-1 block text-small text-text-secondary">Calendar</label>
+                    <select
+                      value={calendarLocalId}
+                      onChange={(e) => setCalendarLocalId(e.target.value)}
+                      className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+                    >
+                      {calendars.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

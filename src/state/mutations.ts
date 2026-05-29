@@ -13,6 +13,7 @@
 
 import {
   type CalendarEvent,
+  type Calendar,
   type Contact,
   type ContactGroup,
   type CustomFieldDef,
@@ -827,6 +828,41 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       store.deleteEventTemplate(templateId);
       break;
     }
+
+    // ── Calendar collection + recurrence ops (EP-14) ──────────────
+    case "UPSERT_CALENDAR":
+    case "UPDATE_CALENDAR": {
+      const cal = m.payload as Calendar;
+      const existing = store.calendars.get(cal.id);
+      store.putCalendar({ ...existing, ...cal });
+      break;
+    }
+    case "DELETE_CALENDAR": {
+      const { calendarId } = m.payload as { calendarId: string };
+      store.deleteCalendar(calendarId);
+      break;
+    }
+    case "EDIT_EVENT_OCCURRENCE": {
+      // Optimistic: update the targeted occurrence's times/fields in place.
+      // The Rust core rewrites the master's ICS and re-expands on the next
+      // hydration, which is the canonical result.
+      const { masterId, occurrenceStart, changes } = m.payload as {
+        masterId: string;
+        occurrenceStart: number;
+        changes: Partial<CalendarEvent>;
+      };
+      const key = `${masterId}::${occurrenceStart}`;
+      const existing = store.calendarEvents.get(key) ?? store.calendarEvents.get(masterId);
+      if (existing) store.putCalendarEvent({ ...existing, ...changes, updatedAt: Date.now() });
+      break;
+    }
+    case "EDIT_EVENT_SERIES": {
+      // Optimistic: update the master; full re-expansion comes from hydration.
+      const { masterId, changes } = m.payload as { masterId: string; changes: Partial<CalendarEvent> };
+      const existing = store.calendarEvents.get(masterId);
+      if (existing) store.putCalendarEvent({ ...existing, ...changes, updatedAt: Date.now() });
+      break;
+    }
   }
 }
 
@@ -1106,4 +1142,77 @@ export function rescheduleCalendarEvent(
   newEndTs: number,
 ): void {
   recordMutation("UPDATE_CALENDAR_EVENT", { id: eventId, startTs: newStartTs, endTs: newEndTs }, store);
+}
+
+// ── Calendar collection ops (EP-14) ───────────────────────────────────────────
+
+export function upsertCalendarMutation(cal: Calendar, store: LocalStore = _defaultStore): void {
+  recordMutation("UPSERT_CALENDAR", cal, store);
+}
+
+export function updateCalendarMutation(cal: Calendar, store: LocalStore = _defaultStore): void {
+  recordMutation("UPDATE_CALENDAR", cal, store);
+}
+
+export function deleteCalendarMutation(calendarId: string, store: LocalStore = _defaultStore): void {
+  recordMutation("DELETE_CALENDAR", { calendarId }, store);
+}
+
+// ── Recurring-event edit ops (EP-14) ──────────────────────────────────────────
+
+/**
+ * Which instances a recurring-event edit applies to. Mirrors the Rust
+ * `EditScope` enum. `thisAndFollowing` is intentionally unsupported (it would
+ * need to split the series) — `applyEventEdit` rejects it with a typed error so
+ * the UI can show a clear message instead of corrupting the series.
+ */
+export type EditScope = "occurrence" | "series" | "thisAndFollowing";
+
+export class UnsupportedEditScopeError extends Error {
+  constructor() {
+    super("Editing 'this and following' events is not supported yet.");
+    this.name = "UnsupportedEditScopeError";
+  }
+}
+
+/**
+ * Apply a recurring-event edit at the given scope. Throws
+ * `UnsupportedEditScopeError` for `thisAndFollowing`.
+ */
+export function applyEventEdit(
+  store: LocalStore,
+  scope: EditScope,
+  masterId: string,
+  occurrenceStart: number,
+  changes: Partial<CalendarEvent>,
+): void {
+  switch (scope) {
+    case "occurrence":
+      editEventOccurrence(store, masterId, occurrenceStart, changes);
+      return;
+    case "series":
+      editEventSeries(store, masterId, changes);
+      return;
+    case "thisAndFollowing":
+      throw new UnsupportedEditScopeError();
+  }
+}
+
+/** Edit a single occurrence of a recurring series (creates an inline exception). */
+export function editEventOccurrence(
+  store: LocalStore,
+  masterId: string,
+  occurrenceStart: number,
+  changes: Partial<CalendarEvent>,
+): void {
+  recordMutation("EDIT_EVENT_OCCURRENCE", { masterId, occurrenceStart, changes }, store);
+}
+
+/** Edit the whole recurring series (shifts master + existing exceptions). */
+export function editEventSeries(
+  store: LocalStore,
+  masterId: string,
+  changes: Partial<CalendarEvent>,
+): void {
+  recordMutation("EDIT_EVENT_SERIES", { masterId, changes }, store);
 }

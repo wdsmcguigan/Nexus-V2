@@ -394,6 +394,36 @@ export interface CalendarEvent {
   transparency?: "opaque" | "transparent";
   reminders?: CalendarReminder[];
   attachments?: CalendarAttachment[];
+  // EP14 — standalone calendar
+  /** Local calendar this event belongs to (FK to Calendar.id). */
+  calendarLocalId?: string;
+  /** IANA timezone of the start/end wall-clock time. Undefined = floating (all-day). */
+  startTzid?: string;
+  endTzid?: string;
+  /** For an expanded recurring instance: the master event's id. */
+  masterId?: string;
+  /** For an expanded recurring instance: the occurrence's original start (epoch ms). */
+  occurrenceStart?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ─── CAL — Calendar (EP-14) ──────────────────────────────────────────────────
+// A calendar collection. May be purely local (provider="local", no account) or
+// backed by a remote provider. Events bind to a calendar regardless of account.
+
+export interface Calendar {
+  id: string;
+  vaultId: string;
+  /** Null/undefined for a local-only calendar. */
+  accountId?: string;
+  /** Provider calendar id (e.g. Google "primary"); undefined for local. */
+  externalId?: string;
+  name: string;
+  color?: string;
+  enabled: boolean;
+  readOnly: boolean;
+  provider: "local" | "google" | "caldav";
   createdAt: number;
   updatedAt: number;
 }
@@ -501,7 +531,13 @@ export type MutationKind =
   | "UPDATE_CALENDAR_EVENT"
   // Event template ops (EP-13)
   | "SAVE_EVENT_TEMPLATE"
-  | "DELETE_EVENT_TEMPLATE";
+  | "DELETE_EVENT_TEMPLATE"
+  // Calendar collection + recurrence ops (EP-14)
+  | "UPSERT_CALENDAR"
+  | "UPDATE_CALENDAR"
+  | "DELETE_CALENDAR"
+  | "EDIT_EVENT_OCCURRENCE"
+  | "EDIT_EVENT_SERIES";
 
 export interface Mutation {
   id: string;

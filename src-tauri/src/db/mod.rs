@@ -56,6 +56,8 @@ impl VaultDb {
             .context("running EP12 column migrations")?;
         self.run_ep13_migrations()
             .context("running EP13 calendar template migrations")?;
+        self.run_ep14_migrations()
+            .context("running EP14 standalone calendar migrations")?;
         Ok(())
     }
 
@@ -192,6 +194,22 @@ impl VaultDb {
         self.conn
             .execute_batch(schema::EP13_IDEMPOTENT_SQL)
             .context("EP13 idempotent DDL")?;
+        Ok(())
+    }
+
+    /// Apply EP14 migrations (standalone calendar: `calendars` table + local-first,
+    /// timezone, recurrence, and CalDAV columns on `calendar_events`).
+    fn run_ep14_migrations(&self) -> Result<()> {
+        for &sql in schema::EP14_ALTER_SQL {
+            if let Err(e) = self.conn.execute_batch(sql) {
+                if !e.to_string().contains("duplicate column name") {
+                    return Err(e.into());
+                }
+            }
+        }
+        self.conn
+            .execute_batch(schema::EP14_IDEMPOTENT_SQL)
+            .context("EP14 idempotent DDL")?;
         Ok(())
     }
 }

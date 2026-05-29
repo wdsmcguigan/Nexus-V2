@@ -40,6 +40,7 @@ export interface HydratePayload {
   contacts: unknown[];
   contactGroups: unknown[];
   calendarEvents: unknown[];
+  calendars: unknown[];
   savedViews: unknown[];
   rules: unknown[];
   templates: unknown[];
@@ -522,6 +523,7 @@ export async function createCalendarEvent(params: {
   location?: string;
   description?: string;
   attendeeEmails: string[];
+  timeZone?: string;
 }): Promise<string> {
   return invoke<string>("create_calendar_event", params);
 }
@@ -536,6 +538,7 @@ export async function updateCalendarEvent(params: {
   location?: string;
   description?: string;
   attendeeEmails?: string[];
+  timeZone?: string;
 }): Promise<void> {
   return invoke<void>("update_calendar_event", params);
 }
@@ -546,4 +549,38 @@ export async function getCalendarList(accountId: string): Promise<CalendarListEn
 
 export async function searchCalendarEvents(query: string, vaultId: string, limit = 50): Promise<string[]> {
   return invoke<string[]>("search_calendar_events", { query, vaultId, limit });
+}
+
+export interface CaldavCalendarInfo {
+  externalId: string;
+  name: string;
+  color?: string;
+  readOnly: boolean;
+}
+
+/** Discover and list a CalDAV server's calendars (EP-14 Phase 3). */
+export async function discoverCaldav(
+  serverUrl: string,
+  username: string,
+  password: string,
+): Promise<CaldavCalendarInfo[]> {
+  return invoke<CaldavCalendarInfo[]>("discover_caldav", { serverUrl, username, password });
+}
+
+/** Persist a CalDAV account and seed its calendars. Returns the new account id + email. */
+export async function addCaldavAccount(params: {
+  serverUrl: string;
+  username: string;
+  password: string;
+  displayName?: string;
+}): Promise<{ accountId: string; email: string }> {
+  return invoke<{ accountId: string; email: string }>("add_caldav_account", params);
+}
+
+/** Sync events for one CalDAV calendar into the local store. Returns the count synced. */
+export async function syncCaldavCalendar(
+  accountId: string,
+  calendarExternalId: string,
+): Promise<number> {
+  return invoke<number>("sync_caldav_calendar", { accountId, calendarExternalId });
 }

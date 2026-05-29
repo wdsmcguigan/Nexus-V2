@@ -345,6 +345,50 @@ pub const EP12_ALTER_SQL: &[&str] = &[
     "ALTER TABLE calendar_events ADD COLUMN attachments_json TEXT",
 ];
 
+/// EP14 column migrations — standalone calendar (local-first events, timezone
+/// correctness, raw iCalendar storage for recurrence, CalDAV resource identity).
+pub const EP14_ALTER_SQL: &[&str] = &[
+    // Phase 0 — local-first lifecycle. Bind each event to a `calendars` row and
+    // flag events that still need pushing to a remote provider.
+    "ALTER TABLE calendar_events ADD COLUMN calendar_local_id TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0",
+    // Phase 1 — timezone correctness. IANA tzids; NULL = floating (all-day).
+    "ALTER TABLE calendar_events ADD COLUMN start_tzid TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN end_tzid TEXT",
+    // Phase 2 — recurrence. Full VCALENDAR (master + inline RECURRENCE-ID
+    // exceptions + EXDATE) is the source of truth; start_ts/end_ts remain the
+    // indexed range key. `exdates_json` holds a JSON array of excluded
+    // occurrence starts (epoch ms) for the master, written by edit-occurrence.
+    "ALTER TABLE calendar_events ADD COLUMN ical_raw TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN exdates_json TEXT",
+    // Phase 3 — CalDAV resource identity for ETag-based delta sync.
+    "ALTER TABLE calendar_events ADD COLUMN href TEXT",
+    "ALTER TABLE calendar_events ADD COLUMN etag TEXT",
+];
+
+/// EP14 idempotent DDL — the `calendars` table. A calendar may be purely local
+/// (`provider='local'`, `account_id` NULL) or backed by a remote provider
+/// (`provider='google'|'caldav'`). This is what makes the calendar standalone:
+/// events bind to a calendar row regardless of whether an account exists.
+pub const EP14_IDEMPOTENT_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS calendars (
+    id TEXT PRIMARY KEY,
+    vault_id TEXT NOT NULL,
+    account_id TEXT,                       -- NULL = local-only calendar
+    external_id TEXT,                      -- provider calendar id (e.g. Google 'primary')
+    name TEXT NOT NULL,
+    color TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    read_only INTEGER NOT NULL DEFAULT 0,
+    provider TEXT NOT NULL DEFAULT 'local',  -- 'local' | 'google' | 'caldav'
+    sync_token TEXT,                       -- forward-compat for CalDAV/Google delta sync
+    ctag TEXT,                             -- CalDAV collection tag
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_calendars_vault ON calendars(vault_id);
+"#;
+
 /// EP13 idempotent DDL — calendar event templates.
 pub const EP13_IDEMPOTENT_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS event_templates (

@@ -178,6 +178,21 @@ async fn drain_once(db_path: &str, client_id: &str, client_secret: &str) -> Resu
             }
         };
 
+        // Calendar event mutations push via the Calendar API, not messages.modify.
+        if matches!(kind.as_str(), "UPSERT_CALENDAR_EVENT" | "UPDATE_CALENDAR_EVENT" | "DELETE_CALENDAR_EVENT") {
+            match drain_calendar_event(db_path, client_id, client_secret, &client, kind, &payload).await {
+                Ok(_) => {
+                    let db = VaultDb::open(db_path, "nexus")?;
+                    let _ = db.mark_mutation_synced(mut_id);
+                }
+                Err(e) => {
+                    log::warn!("Calendar push error for {mut_id} ({kind}): {e}");
+                    // Leave pending — retry next cycle.
+                }
+            }
+            continue;
+        }
+
         // Synchronous DB lookup — no await, safe to hold VaultDb briefly
         let nexus_msg_id = payload["messageId"].as_str().unwrap_or_default();
         let (gmail_msg_id, account_id) = {
@@ -215,6 +230,189 @@ async fn drain_once(db_path: &str, client_id: &str, client_secret: &str) -> Resu
     }
 
     Ok(())
+}
+
+/// Push a calendar event mutation to Google Calendar.
+///
+/// Only events whose account is a Google account are pushed; purely local
+/// events (account `'local'`/empty) are no-ops. On create, the Google event id
+/// is written back to `external_id` so the row is no longer dirty. This is how
+/// local-first events reach a provider once one is connected (EP-14 Phase 0).
+async fn drain_calendar_event(
+    db_path: &str,
+    client_id: &str,
+    client_secret: &str,
+    client: &reqwest::Client,
+    kind: &str,
+    payload: &JsonValue,
+) -> Result<()> {
+    let event_id = match kind {
+        "DELETE_CALENDAR_EVENT" => payload["eventId"].as_str().unwrap_or_default().to_string(),
+        "UPSERT_CALENDAR_EVENT" => payload["event"]["id"].as_str().unwrap_or_default().to_string(),
+        _ => payload["id"].as_str().unwrap_or_default().to_string(), // UPDATE_CALENDAR_EVENT
+    };
+    if event_id.is_empty() {
+        return Ok(());
+    }
+
+    // Look up the event's push info + resolve the owning account's provider.
+    let (info, vault_id, provider) = {
+        let db = VaultDb::open(db_path, "nexus")?;
+        let info = db.calendar_event_for_push(&event_id)?;
+        let account_id = info.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+        let accounts = db.all_accounts()?;
+        let matched = accounts.iter().find(|(aid, _, _)| aid == &account_id);
+        let vault_id = matched.map(|(_, v, _)| v.clone()).unwrap_or_default();
+        let provider = matched.map(|(_, _, p)| p.clone()).unwrap_or_default();
+        (info, vault_id, provider)
+    };
+
+    let Some((account_id, external_id, title, start_ts, end_ts, all_day, location, description, attendees)) = info else {
+        return Ok(()); // event no longer exists locally
+    };
+
+    // CalDAV events push over WebDAV (PUT/DELETE), not the Google JSON API.
+    if provider == "caldav" {
+        return drain_caldav_event(
+            db_path, client, kind, &event_id, &vault_id, &account_id,
+            &title, start_ts, end_ts, all_day, location.as_deref(), description.as_deref(),
+        ).await;
+    }
+    if provider != "gmail" {
+        return Ok(()); // local-only or unknown — nothing to sync
+    }
+
+    let access_token = ensure_fresh_token(db_path, &account_id, client_id, client_secret).await?;
+
+    match kind {
+        "UPSERT_CALENDAR_EVENT" | "UPDATE_CALENDAR_EVENT" if external_id.is_none() => {
+            // Not yet on Google — create it and back-write the external id.
+            let event = crate::gmail::calendar::create_google_calendar_event(
+                client, &access_token, &vault_id, &account_id,
+                &title, start_ts, end_ts, all_day,
+                location.as_deref(), description.as_deref(), &attendees, None,
+            ).await?;
+            if let Some(ext) = event["externalId"].as_str() {
+                let db = VaultDb::open(db_path, "nexus")?;
+                db.set_calendar_event_external_id(&event_id, ext)?;
+            }
+        }
+        "UPSERT_CALENDAR_EVENT" | "UPDATE_CALENDAR_EVENT" => {
+            let ext = external_id.unwrap_or_default();
+            crate::gmail::calendar::update_google_calendar_event(
+                client, &access_token, &vault_id, &account_id, &ext,
+                Some(&title), Some(start_ts), Some(end_ts), Some(all_day),
+                location.as_deref(), description.as_deref(), Some(&attendees), None,
+            ).await?;
+        }
+        "DELETE_CALENDAR_EVENT" => {
+            if let Some(ext) = external_id {
+                crate::gmail::calendar::delete_google_calendar_event(client, &access_token, &ext).await?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Push a calendar-event mutation to a CalDAV server (EP-14 Phase 3 outbound).
+///
+/// Reads the account's stored CalDAV config + decrypted password, builds the
+/// provider, then PUTs (create/update) or DELETEs the resource. On a successful
+/// PUT the resource href + new ETag are written back so subsequent edits use
+/// `If-Match`. All DB access happens through fresh `VaultDb::open` calls outside
+/// await points (VaultDb is not Send).
+#[allow(clippy::too_many_arguments)]
+async fn drain_caldav_event(
+    db_path: &str,
+    client: &reqwest::Client,
+    kind: &str,
+    event_id: &str,
+    vault_id: &str,
+    account_id: &str,
+    title: &str,
+    start_ts: i64,
+    end_ts: i64,
+    all_day: bool,
+    location: Option<&str>,
+    description: Option<&str>,
+) -> Result<()> {
+    use crate::providers::calendar::{caldav, CalendarProvider};
+
+    // Gather account config + credential + the event's CalDAV identity (sync).
+    let (server_url, username, calendar_home, password, href, etag, ical_raw, rrule) = {
+        let db = VaultDb::open(db_path, "nexus")?;
+        let settings_str = db
+            .get_settings_json(account_id)?
+            .context("CalDAV account has no settings")?;
+        let settings: JsonValue = serde_json::from_str(&settings_str)?;
+        let enc = db
+            .get_access_token(account_id)?
+            .context("CalDAV account has no stored credential")?;
+        let password = db.decrypt_account_credential(vault_id, &enc)?;
+        let (_acc, href, etag, ical_raw) = db
+            .caldav_event_identity(event_id)?
+            .unwrap_or((account_id.to_owned(), None, None, None));
+        // Pull the stored RRULE (if any) so series keep recurring after a push.
+        let rrule = db
+            .get_calendar_event(event_id)?
+            .and_then(|e| e["rrule"].as_str().map(|s| s.to_owned()));
+        (
+            settings["caldav"]["serverUrl"].as_str().unwrap_or_default().to_owned(),
+            settings["caldav"]["username"].as_str().unwrap_or_default().to_owned(),
+            settings["caldav"]["calendarHome"].as_str().unwrap_or_default().to_owned(),
+            password,
+            href,
+            etag,
+            ical_raw,
+            rrule,
+        )
+    };
+
+    let provider = caldav::CaldavCalendarProvider {
+        client: client.clone(),
+        base_url: server_url,
+        username,
+        password,
+        calendar_home: calendar_home.clone(),
+    };
+
+    match kind {
+        "DELETE_CALENDAR_EVENT" => {
+            if let Some(h) = href {
+                provider.delete_event(&h, etag.as_deref()).await?;
+            }
+        }
+        _ => {
+            // Create or update. Reuse the existing UID if we have raw ICS so the
+            // resource keeps a stable identity; otherwise mint a new one.
+            let uid = ical_raw
+                .as_deref()
+                .and_then(extract_uid)
+                .unwrap_or_else(|| event_id.to_owned());
+            let ics = caldav::event_to_ics(
+                &uid, title, start_ts, end_ts, all_day, location, description, rrule.as_deref(),
+            );
+            let remote = match href.as_deref() {
+                Some(h) => provider.update_event(h, etag.as_deref(), &ics).await?,
+                None => provider.create_event(&calendar_home, &ics).await?,
+            };
+            let db = VaultDb::open(db_path, "nexus")?;
+            db.set_caldav_event_ref(
+                event_id,
+                remote.href.as_deref().unwrap_or(&remote.external_id),
+                remote.etag.as_deref(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Extract the UID line from a raw VCALENDAR string (cheap, no full parse).
+fn extract_uid(ics: &str) -> Option<String> {
+    ics.lines()
+        .find_map(|l| l.strip_prefix("UID:"))
+        .map(|s| s.trim().to_owned())
 }
 
 /// Returns a valid (non-expired) access token, refreshing if needed.

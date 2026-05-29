@@ -5,6 +5,18 @@ use anyhow::Result;
 /// When `sync_token` is `Some`, fetches only changed events since the last sync
 /// (delta sync). When `None`, fetches all events in the given time window.
 /// Returns `(events_as_json_values, next_sync_token)`.
+/// Whether to fetch recurring *masters* (singleEvents=false) and expand them
+/// with the local recurrence engine, vs. letting Google pre-expand them
+/// (singleEvents=true, the default). Off unless `NEXUS_GCAL_EXPAND_RECURRENCES`
+/// is set to a truthy value — keeps the proven behavior the default and makes
+/// the change reversible without a rebuild.
+pub fn expand_recurrences_enabled() -> bool {
+    matches!(
+        std::env::var("NEXUS_GCAL_EXPAND_RECURRENCES").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
 pub async fn fetch_google_calendar_events(
     client: &reqwest::Client,
     access_token: &str,
@@ -13,25 +25,35 @@ pub async fn fetch_google_calendar_events(
     sync_token: Option<&str>,
     time_min: &str,
     time_max: &str,
+    expand_recurrences: bool,
 ) -> Result<(Vec<serde_json::Value>, Option<String>)> {
     let mut events = Vec::new();
     let mut page_token: Option<String> = None;
     let mut next_sync_token: Option<String> = None;
 
+    // singleEvents=true (default): Google pre-expands recurring events server-side
+    // — simple, but the local recurrence engine never runs for Google. With
+    // expand_recurrences (singleEvents=false) Google returns recurring *masters*
+    // carrying their RRULE, so the EP-14 Phase 2 engine expands them locally, the
+    // same way CalDAV works. orderBy=startTime is only valid with singleEvents=true.
+    let single_events = !expand_recurrences;
+
     loop {
-        let mut url = String::from(
+        let mut url = format!(
             "https://www.googleapis.com/calendar/v3/calendars/primary/events\
-            ?maxResults=250&singleEvents=true",
+            ?maxResults=250&singleEvents={single_events}"
         );
 
         if let Some(ref st) = sync_token {
             // Delta sync: syncToken implies showDeleted=true
             url.push_str(&format!("&syncToken={st}&showDeleted=true"));
         } else {
-            // Full sync: time-bounded window
-            url.push_str(&format!(
-                "&orderBy=startTime&timeMin={time_min}&timeMax={time_max}&showDeleted=false"
-            ));
+            // Full sync: time-bounded window. orderBy=startTime requires
+            // singleEvents=true, so only request ordering in that mode.
+            url.push_str(&format!("&timeMin={time_min}&timeMax={time_max}&showDeleted=false"));
+            if single_events {
+                url.push_str("&orderBy=startTime");
+            }
         }
 
         if let Some(ref pt) = page_token {
@@ -79,9 +101,11 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
     let title = item["summary"].as_str().unwrap_or("(no title)");
     let status = item["status"].as_str().unwrap_or("confirmed");
 
-    let (start_ts, all_day) = parse_google_datetime(&item["start"])?;
-    let (end_ts, _) = parse_google_datetime(&item["end"])?;
+    let (start_ts, all_day, start_tzid) = parse_google_datetime(&item["start"])?;
+    let (end_ts, _, end_tzid) = parse_google_datetime(&item["end"])?;
 
+    // Preserve the full recurrence block (RRULE/RDATE/EXDATE) so the Rust
+    // recurrence engine (EP-14 Phase 2) can expand it locally.
     let rrule = item["recurrence"]
         .as_array()
         .and_then(|arr| arr.iter().find(|v| v.as_str().map_or(false, |s| s.starts_with("RRULE:"))))
@@ -156,6 +180,8 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
         "startTs": start_ts,
         "endTs": end_ts,
         "allDay": all_day,
+        "startTzid": start_tzid,
+        "endTzid": end_tzid,
         "rrule": rrule,
         "status": status,
         "organizerEmail": organizer_email,
@@ -189,7 +215,11 @@ pub async fn create_google_calendar_event(
     location: Option<&str>,
     description: Option<&str>,
     attendee_emails: &[String],
+    time_zone: Option<&str>,
 ) -> Result<serde_json::Value> {
+    // Send the originating IANA timezone so Google expands recurrences and DST
+    // correctly (EP-14 Phase 1). Falls back to UTC only when no tz is known.
+    let tz = time_zone.unwrap_or("UTC");
     let (start_val, end_val) = if all_day {
         let start_date = ms_to_date_str(start_ts);
         let end_date = ms_to_date_str(end_ts);
@@ -197,7 +227,7 @@ pub async fn create_google_calendar_event(
     } else {
         let start_dt = ms_to_rfc3339(start_ts);
         let end_dt = ms_to_rfc3339(end_ts);
-        (serde_json::json!({ "dateTime": start_dt, "timeZone": "UTC" }), serde_json::json!({ "dateTime": end_dt, "timeZone": "UTC" }))
+        (serde_json::json!({ "dateTime": start_dt, "timeZone": tz }), serde_json::json!({ "dateTime": end_dt, "timeZone": tz }))
     };
 
     let attendees: Vec<serde_json::Value> = attendee_emails
@@ -241,7 +271,9 @@ pub async fn update_google_calendar_event(
     location: Option<&str>,
     description: Option<&str>,
     attendee_emails: Option<&[String]>,
+    time_zone: Option<&str>,
 ) -> Result<serde_json::Value> {
+    let tz = time_zone.unwrap_or("UTC");
     let mut body = serde_json::json!({});
 
     if let Some(t) = title { body["summary"] = serde_json::Value::String(t.to_owned()); }
@@ -258,8 +290,8 @@ pub async fn update_google_calendar_event(
             body["start"] = serde_json::json!({ "date": ms_to_date_str(s) });
             body["end"] = serde_json::json!({ "date": ms_to_date_str(e) });
         } else {
-            body["start"] = serde_json::json!({ "dateTime": ms_to_rfc3339(s), "timeZone": "UTC" });
-            body["end"] = serde_json::json!({ "dateTime": ms_to_rfc3339(e), "timeZone": "UTC" });
+            body["start"] = serde_json::json!({ "dateTime": ms_to_rfc3339(s), "timeZone": tz });
+            body["end"] = serde_json::json!({ "dateTime": ms_to_rfc3339(e), "timeZone": tz });
         }
     }
 
@@ -278,6 +310,27 @@ pub async fn update_google_calendar_event(
     let item: serde_json::Value = resp.error_for_status()?.json().await?;
     map_event(&item, vault_id, account_id)
         .ok_or_else(|| anyhow::anyhow!("failed to parse updated event"))
+}
+
+/// Delete an event from the user's primary Google Calendar (EP-14).
+pub async fn delete_google_calendar_event(
+    client: &reqwest::Client,
+    access_token: &str,
+    external_id: &str,
+) -> Result<()> {
+    let encoded_id: String = url::form_urlencoded::byte_serialize(external_id.as_bytes()).collect();
+    let url = format!(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events/{encoded_id}"
+    );
+    let resp = client.delete(&url).bearer_auth(access_token).send().await?;
+    // 410 Gone means it was already deleted — treat as success.
+    if resp.status().is_success() || resp.status().as_u16() == 410 {
+        Ok(())
+    } else {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Google Calendar delete error {status}: {text}")
+    }
 }
 
 /// Fetch the list of calendars the user has access to.
@@ -322,20 +375,27 @@ fn ms_to_date_str(ms: i64) -> String {
         .unwrap_or_default()
 }
 
-/// Parse a Google Calendar datetime object (`{ dateTime: "...", date: "..." }`).
-/// Returns `(unix_ms, is_all_day)`.
-fn parse_google_datetime(dt: &serde_json::Value) -> Option<(i64, bool)> {
+/// Parse a Google Calendar datetime object (`{ dateTime, date, timeZone }`).
+/// Returns `(unix_ms, is_all_day, tzid)`.
+///
+/// All-day events are anchored at **UTC midnight of the calendar date** — a
+/// floating value with no timezone. The frontend renders all-day events by
+/// their UTC date components (never applying a local offset), so the displayed
+/// day matches the calendar date regardless of the viewer's timezone (EP-14
+/// Phase 1: fixes the west-of-UTC day-shift bug). `tzid` is None for all-day.
+fn parse_google_datetime(dt: &serde_json::Value) -> Option<(i64, bool, Option<String>)> {
     if let Some(s) = dt["dateTime"].as_str() {
-        // RFC 3339 datetime
+        // RFC 3339 datetime — the offset is honored when converting to epoch.
         let ts = chrono::DateTime::parse_from_rfc3339(s).ok()?.timestamp_millis();
-        return Some((ts, false));
+        let tzid = dt["timeZone"].as_str().map(|s| s.to_owned());
+        return Some((ts, false, tzid));
     }
     if let Some(s) = dt["date"].as_str() {
-        // All-day date "YYYY-MM-DD" — treat as midnight UTC
+        // All-day date "YYYY-MM-DD" — floating, anchored at UTC midnight.
         use chrono::NaiveDate;
         let d = NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()?;
         let ts = d.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis();
-        return Some((ts, true));
+        return Some((ts, true, None));
     }
     None
 }

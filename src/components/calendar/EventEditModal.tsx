@@ -4,6 +4,7 @@ import { X, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { updateCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
+import { useCalendars } from "@/storage/useStore";
 import type { CalendarEvent } from "@/data/types";
 import { toast } from "sonner";
 
@@ -39,7 +40,9 @@ export function EventEditModal({ event, onClose }: Props) {
   const [attendees, setAttendees] = React.useState<string[]>(
     () => event?.attendees.map((a) => a.email) ?? []
   );
+  const [calendarLocalId, setCalendarLocalId] = React.useState(event?.calendarLocalId ?? "local-default");
   const [submitting, setSubmitting] = React.useState(false);
+  const calendars = useCalendars();
 
   React.useEffect(() => {
     if (event) {
@@ -52,6 +55,7 @@ export function EventEditModal({ event, onClose }: Props) {
       setLocation(event.location ?? "");
       setDescription(event.description ?? "");
       setAttendees(event.attendees.map((a) => a.email));
+      setCalendarLocalId(event.calendarLocalId ?? "local-default");
     }
   }, [event?.id]);
 
@@ -67,24 +71,31 @@ export function EventEditModal({ event, onClose }: Props) {
     e.preventDefault();
     if (!event) return;
     if (!title.trim()) { toast.error("Title is required"); return; }
-    if (!event.externalId) { toast.error("Cannot edit event without external ID"); return; }
 
     const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
     const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
+    // Timed events carry the user's IANA timezone (Phase 1); all-day is floating.
+    const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     setSubmitting(true);
     try {
-      await updateCalendarEvent({
-        accountId: event.accountId,
-        externalId: event.externalId,
-        title: title.trim(),
-        startTs,
-        endTs,
-        allDay,
-        location: location.trim() || undefined,
-        description: description.trim() || undefined,
-        attendeeEmails: attendees,
-      });
+      // Push to the provider only for events that exist remotely. Local-only
+      // events (no externalId) are edited purely through the mutation pipeline
+      // and will be pushed by the drainer if/when an account is connected.
+      if (event.externalId) {
+        await updateCalendarEvent({
+          accountId: event.accountId,
+          externalId: event.externalId,
+          title: title.trim(),
+          startTs,
+          endTs,
+          allDay,
+          location: location.trim() || undefined,
+          description: description.trim() || undefined,
+          attendeeEmails: attendees,
+          timeZone: tzid,
+        });
+      }
       Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
         event: {
           ...event,
@@ -92,6 +103,9 @@ export function EventEditModal({ event, onClose }: Props) {
           startTs,
           endTs,
           allDay,
+          startTzid: tzid,
+          endTzid: tzid,
+          calendarLocalId,
           location: location.trim() || undefined,
           description: description.trim() || undefined,
           updatedAt: Date.now(),
@@ -161,6 +175,21 @@ export function EventEditModal({ event, onClose }: Props) {
                       <input type="datetime-local" value={endVal} onChange={(e) => setEndVal(e.target.value)}
                         className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
                     </div>
+                  </div>
+                )}
+
+                {calendars.length > 1 && (
+                  <div>
+                    <label className="mb-1 block text-small text-text-secondary">Calendar</label>
+                    <select
+                      value={calendarLocalId}
+                      onChange={(e) => setCalendarLocalId(e.target.value)}
+                      className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+                    >
+                      {calendars.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
                   </div>
                 )}
 
