@@ -1184,6 +1184,15 @@ impl VaultDb {
 
     fn apply_mutation_to_tables(&self, kind: &str, payload: &str) -> Result<()> {
         let p: JsonValue = serde_json::from_str(payload)?;
+        // Vault scope for mutations whose handler needs it (calendar / template /
+        // calendar-collection arms). Top-level `vaultId` for calendar/template
+        // payloads, falling back to the nested event object for
+        // *_CALENDAR_EVENT payloads (`{ event: { vaultId, ... } }`). Arms that
+        // bind their own `vault_id` simply shadow this.
+        let vault_id = p["vaultId"]
+            .as_str()
+            .or_else(|| p["event"]["vaultId"].as_str())
+            .unwrap_or("local");
         match kind {
             "SET_STATUS" => {
                 let msg_id = p["messageId"].as_str().unwrap_or_default();
@@ -2833,21 +2842,25 @@ impl VaultDb {
                     provider, created_at, updated_at
              FROM calendars WHERE vault_id = ?1 ORDER BY name ASC",
         )?;
-        stmt.query_map(params![vault_id], |r| {
-            Ok(serde_json::json!({
-                "id": r.get::<_, String>(0)?,
-                "vaultId": vault_id,
-                "accountId": r.get::<_, Option<String>>(1)?,
-                "externalId": r.get::<_, Option<String>>(2)?,
-                "name": r.get::<_, String>(3)?,
-                "color": r.get::<_, Option<String>>(4)?,
-                "enabled": r.get::<_, bool>(5)?,
-                "readOnly": r.get::<_, bool>(6)?,
-                "provider": r.get::<_, String>(7)?,
-                "createdAt": r.get::<_, i64>(8)?,
-                "updatedAt": r.get::<_, i64>(9)?,
-            }))
-        })?.map(|r| r.context("loading calendars row")).collect()
+        let rows = stmt
+            .query_map(params![vault_id], |r| {
+                Ok(serde_json::json!({
+                    "id": r.get::<_, String>(0)?,
+                    "vaultId": vault_id,
+                    "accountId": r.get::<_, Option<String>>(1)?,
+                    "externalId": r.get::<_, Option<String>>(2)?,
+                    "name": r.get::<_, String>(3)?,
+                    "color": r.get::<_, Option<String>>(4)?,
+                    "enabled": r.get::<_, bool>(5)?,
+                    "readOnly": r.get::<_, bool>(6)?,
+                    "provider": r.get::<_, String>(7)?,
+                    "createdAt": r.get::<_, i64>(8)?,
+                    "updatedAt": r.get::<_, i64>(9)?,
+                }))
+            })?
+            .collect::<rusqlite::Result<Vec<JsonValue>>>()
+            .context("loading calendars")?;
+        Ok(rows)
     }
 
     pub fn upsert_calendar(&self, vault_id: &str, cal: &JsonValue) -> Result<()> {
@@ -2990,13 +3003,15 @@ impl VaultDb {
     /// Edit a whole recurring series: merge `changes` into the master and re-upsert.
     pub fn edit_event_series(&self, vault_id: &str, master_id: &str, changes: &JsonValue) -> Result<()> {
         if let Some(mut ev) = self.get_calendar_event(master_id)? {
+            // The mutation payload carries no vaultId; trust the master row's.
+            let vid = ev["vaultId"].as_str().unwrap_or(vault_id).to_owned();
             if let Some(obj) = changes.as_object() {
                 for (k, v) in obj {
                     ev[k] = v.clone();
                 }
             }
             ev["updatedAt"] = JsonValue::from(chrono::Utc::now().timestamp_millis());
-            self.upsert_calendar_event(vault_id, &ev)?;
+            self.upsert_calendar_event(&vid, &ev)?;
         }
         Ok(())
     }
@@ -3014,6 +3029,8 @@ impl VaultDb {
         let Some(master) = self.get_calendar_event(master_id)? else {
             return Ok(());
         };
+        // The mutation payload carries no vaultId; trust the master row's.
+        let vault_id = master["vaultId"].as_str().unwrap_or(vault_id).to_owned();
         let duration = master["endTs"].as_i64().unwrap_or(0) - master["startTs"].as_i64().unwrap_or(0);
 
         let mut exception = master.clone();
@@ -3029,7 +3046,7 @@ impl VaultDb {
             }
         }
         exception["updatedAt"] = JsonValue::from(chrono::Utc::now().timestamp_millis());
-        self.upsert_calendar_event(vault_id, &exception)?;
+        self.upsert_calendar_event(&vault_id, &exception)?;
 
         // Exclude this occurrence from the master's expansion.
         let existing: Option<String> = self.conn.query_row(
@@ -3129,7 +3146,10 @@ impl VaultDb {
         let mut stmt = self.conn.prepare(
             "SELECT sync_token FROM calendar_sync WHERE account_id = ?1",
         )?;
-        stmt.query_row(params![account_id], |r| r.get(0)).optional()
+        let row: Option<Option<String>> = stmt
+            .query_row(params![account_id], |r| r.get::<_, Option<String>>(0))
+            .optional()?;
+        Ok(row.flatten())
     }
 
     pub fn upsert_calendar_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
