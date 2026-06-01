@@ -33,6 +33,7 @@ import { Tooltip } from "@/components/ui/Tooltip";
 import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
 import { cn, formatBytes } from "@/lib/utils";
+import { filterContacts, contactLabel } from "@/lib/contactSearch";
 import { pickPanelLink } from "@/design-system/tokens";
 import DOMPurify from "dompurify";
 import { isTauri, sendMessage, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
@@ -135,21 +136,10 @@ function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInp
   const [isFocused, setIsFocused] = React.useState(false);
   const [activeIdx, setActiveIdx] = React.useState(-1);
 
-  const suggestions = React.useMemo(() => {
-    if (value.trim().length < 1) return [];
-    const q = value.toLowerCase();
-    const results: import("@/data/types").Contact[] = [];
-    for (const c of localStore.contacts.values()) {
-      if (
-        c.name.toLowerCase().includes(q) ||
-        c.emails.some((e) => e.toLowerCase().includes(q))
-      ) {
-        results.push(c);
-        if (results.length >= 6) break;
-      }
-    }
-    return results;
-  }, [value]);
+  const suggestions = React.useMemo(
+    () => filterContacts(localStore.contacts.values(), value, 6),
+    [value],
+  );
 
   // Reset activeIdx when suggestions change
   React.useEffect(() => {
@@ -212,13 +202,13 @@ function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInp
               )}
             >
               <Avatar
-                name={c.name}
+                name={contactLabel(c)}
                 size={20}
-                colorSeed={pickPanelLink(c.emails[0] ?? "")}
+                colorSeed={pickPanelLink(c.emails?.[0] ?? "")}
               />
-              <span className="truncate">{c.name}</span>
+              <span className="truncate">{contactLabel(c)}</span>
               <span className="ml-auto truncate font-mono text-mono-xs text-text-muted">
-                {c.emails[0] ?? ""}
+                {c.emails?.[0] ?? ""}
               </span>
             </div>
           ))}
