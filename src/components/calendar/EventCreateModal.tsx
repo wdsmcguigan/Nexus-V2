@@ -8,6 +8,12 @@ import { localStore } from "@/storage/local";
 import { useEventTemplates, useCalendars } from "@/storage/useStore";
 import { toast } from "sonner";
 import type { EventTemplate } from "@/data/types";
+import {
+  resolveSyncTarget,
+  providerBadge,
+  defaultWritableCalendar,
+} from "@/lib/calendars";
+import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
 
 interface Props {
   open: boolean;
@@ -46,10 +52,16 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
   const [submitting, setSubmitting] = React.useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
-  const [calendarLocalId, setCalendarLocalId] = React.useState("local-default");
 
   const templates = useEventTemplates();
   const calendars = useCalendars();
+
+  // Default to the user's last-used calendar, falling back to the local default.
+  // Computed lazily via a function initializer so we only touch localStorage once.
+  const [calendarLocalId, setCalendarLocalId] = React.useState<string>(() => {
+    if (calendars.length === 0) return "local-default";
+    return defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id;
+  });
 
   function applyTemplate(tmpl: EventTemplate) {
     setTitle(tmpl.title);
@@ -76,11 +88,13 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
     setLocation("");
     setDescription("");
     setAttendeeInput("");
-    setCalendarLocalId("local-default");
+    if (calendars.length > 0) {
+      setCalendarLocalId(
+        defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id,
+      );
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefillTitle, prefillAttendees, prefillDate]);
-
-  const gmailAccount = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail");
 
   function addAttendee() {
     const email = attendeeInput.trim();
@@ -96,28 +110,29 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
 
     const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
     const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
-    // The calendar is standalone (EP-14): events are created locally and persisted
-    // through the mutation pipeline regardless of whether an account is connected.
-    // A connected Gmail account is an optional sync target, not a prerequisite.
-    const vaultId = gmailAccount?.vaultId ?? localStore.vault?.id ?? "local";
+    // Sync routing is driven by the target calendar's provider (EP-14): the modal
+    // pushes to Google only when the user chose a Google-backed calendar.
+    // A local calendar — even with a Gmail account connected — stays purely local.
+    const selectedCalendar = calendars.find((c) => c.id === calendarLocalId);
+    const target = resolveSyncTarget(selectedCalendar);
+    const vaultId = selectedCalendar?.vaultId ?? localStore.vault?.id ?? "local";
     // Timed events carry the user's IANA timezone (Phase 1); all-day events are
     // floating (no tzid).
     const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     setSubmitting(true);
     try {
-      // Try Google push when a Gmail account is connected. If Google succeeds
-      // we key the local row by the returned Google event id; if Google fails
-      // (no calendar scope, offline, 4xx/5xx) we fall back to a local-only
-      // event with a client UUID. The local event is always created — Google
-      // sync is best-effort, per the EP-14 standalone-calendar design.
+      // Google branch: try the push; preserve the merged graceful-fallback so a
+      // 403 (missing scope), offline, or other failure still produces the local
+      // event with a warning toast (commit e088ea3).
+      // Local branch: skip the IPC entirely — no Google contact at all.
       let eventId: string;
       let externalId: string | undefined;
       let syncWarning: string | undefined;
-      if (gmailAccount) {
+      if (target.kind === "google") {
         try {
           eventId = await createCalendarEvent({
-            accountId: gmailAccount.id,
+            accountId: target.accountId,
             title: title.trim(),
             startTs,
             endTs,
@@ -142,8 +157,8 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
         event: {
           id: eventId,
           vaultId,
-          accountId: gmailAccount?.id ?? "local",
-          calendarId: "primary",
+          accountId: selectedCalendar?.accountId ?? "local",
+          calendarId: target.kind === "google" ? target.externalCalendarId : "primary",
           calendarLocalId,
           externalId,
           title: title.trim(),
@@ -160,6 +175,8 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           updatedAt: Date.now(),
         },
       });
+      // Remember the choice so the next New Event opens on the same calendar.
+      saveAppPreferences({ lastUsedCalendarLocalId: calendarLocalId });
       if (syncWarning) {
         toast.warning(syncWarning);
       } else {
@@ -261,20 +278,20 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
                   </div>
                 )}
 
-                {calendars.length > 1 && (
-                  <div>
-                    <label className="mb-1 block text-small text-text-secondary">Calendar</label>
-                    <select
-                      value={calendarLocalId}
-                      onChange={(e) => setCalendarLocalId(e.target.value)}
-                      className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
-                    >
-                      {calendars.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">Calendar</label>
+                  <select
+                    value={calendarLocalId}
+                    onChange={(e) => setCalendarLocalId(e.target.value)}
+                    className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+                  >
+                    {calendars.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({providerBadge(c)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <input
                   value={location}

@@ -71,16 +71,14 @@ export function EventDetailPopover({ event, children }: Props) {
                 {isPrivate && <span title="Private"><Lock size={11} className="mt-0.5 shrink-0 text-text-muted" /></span>}
                 <span className="truncate">{event.title}</span>
               </div>
-              {event.externalId && (
-                <button
-                  type="button"
-                  onClick={() => setEditOpen(true)}
-                  className="shrink-0 rounded-xs p-0.5 text-text-muted hover:text-text-primary hover:bg-surface-3 transition-colors"
-                  title="Edit event"
-                >
-                  <Pencil size={12} />
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="shrink-0 rounded-xs p-0.5 text-text-muted hover:text-text-primary hover:bg-surface-3 transition-colors"
+                title="Edit event"
+              >
+                <Pencil size={12} />
+              </button>
             </div>
 
             {/* Date/time */}

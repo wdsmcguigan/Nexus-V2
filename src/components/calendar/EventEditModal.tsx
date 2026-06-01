@@ -7,6 +7,7 @@ import * as Mut from "@/state/mutations";
 import { useCalendars } from "@/storage/useStore";
 import type { CalendarEvent } from "@/data/types";
 import { toast } from "sonner";
+import { resolveSyncTarget, providerBadge } from "@/lib/calendars";
 
 interface Props {
   event: CalendarEvent | null;
@@ -77,24 +78,41 @@ export function EventEditModal({ event, onClose }: Props) {
     // Timed events carry the user's IANA timezone (Phase 1); all-day is floating.
     const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+    // Provider-driven sync (EP-14): push the update to Google only when the
+    // event currently has an externalId AND its current calendar is Google-
+    // backed. If the user moves the event to a non-Google calendar in this
+    // edit, we don't push to Google — the remote copy is orphaned by the move
+    // (acceptable trade-off; cleaner cross-provider moves come in a follow-up).
+    // Look the calendar up from the selected id, not from event.accountId,
+    // so a calendar change in this modal takes effect immediately.
+    const selectedCalendar = calendars.find((c) => c.id === calendarLocalId);
+    const target = resolveSyncTarget(selectedCalendar);
+
     setSubmitting(true);
+    let syncWarning: string | undefined;
     try {
-      // Push to the provider only for events that exist remotely. Local-only
-      // events (no externalId) are edited purely through the mutation pipeline
-      // and will be pushed by the drainer if/when an account is connected.
-      if (event.externalId) {
-        await updateCalendarEvent({
-          accountId: event.accountId,
-          externalId: event.externalId,
-          title: title.trim(),
-          startTs,
-          endTs,
-          allDay,
-          location: location.trim() || undefined,
-          description: description.trim() || undefined,
-          attendeeEmails: attendees,
-          timeZone: tzid,
-        });
+      if (target.kind === "google" && event.externalId) {
+        try {
+          await updateCalendarEvent({
+            accountId: target.accountId,
+            externalId: event.externalId,
+            title: title.trim(),
+            startTs,
+            endTs,
+            allDay,
+            location: location.trim() || undefined,
+            description: description.trim() || undefined,
+            attendeeEmails: attendees,
+            timeZone: tzid,
+          });
+        } catch (err) {
+          // Mirror the Create modal's graceful fallback: a Google failure must
+          // not block the local edit (commit e088ea3 contract).
+          const msg = err instanceof Error ? err.message : String(err);
+          syncWarning = msg.includes("403")
+            ? "Saved locally — reconnect Gmail to enable Google Calendar sync"
+            : `Saved locally — Google sync failed: ${msg}`;
+        }
       }
       Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
         event: {
@@ -111,7 +129,11 @@ export function EventEditModal({ event, onClose }: Props) {
           updatedAt: Date.now(),
         },
       });
-      toast.success("Event updated");
+      if (syncWarning) {
+        toast.warning(syncWarning);
+      } else {
+        toast.success("Event updated");
+      }
       onClose();
     } catch (err) {
       toast.error(`Failed to update event: ${err instanceof Error ? err.message : String(err)}`);
@@ -178,20 +200,20 @@ export function EventEditModal({ event, onClose }: Props) {
                   </div>
                 )}
 
-                {calendars.length > 1 && (
-                  <div>
-                    <label className="mb-1 block text-small text-text-secondary">Calendar</label>
-                    <select
-                      value={calendarLocalId}
-                      onChange={(e) => setCalendarLocalId(e.target.value)}
-                      className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
-                    >
-                      {calendars.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="mb-1 block text-small text-text-secondary">Calendar</label>
+                  <select
+                    value={calendarLocalId}
+                    onChange={(e) => setCalendarLocalId(e.target.value)}
+                    className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+                  >
+                    {calendars.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({providerBadge(c)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <input
                   value={location}

@@ -18,6 +18,9 @@ export interface AppPreferences {
   contactsSyncEnabled: Record<string, boolean>;
   /** Per-account toggle for Google Calendar sync. Key is account ID. */
   calendarSyncEnabled: Record<string, boolean>;
+  /** Last calendar the user wrote a new event to. Used to default the
+   * calendar picker on the next New Event modal open. */
+  lastUsedCalendarLocalId?: string;
 }
 
 const DEFAULTS: AppPreferences = {
