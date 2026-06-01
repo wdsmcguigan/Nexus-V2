@@ -173,6 +173,17 @@ function RecipientInput({ value, onChange, onCommit, placeholder }: RecipientInp
         onCommit(value);
         onChange("");
       }
+    } else if (e.key === "Tab" && value.trim()) {
+      // Tab commits pending text (matches Enter/comma) but we deliberately
+      // don't preventDefault — Tab also moves focus to the next field,
+      // which is the standard expectation for keyboard-driven composing.
+      // Tab on an empty input falls through to default focus traversal.
+      if (activeIdx >= 0 && suggestions[activeIdx]) {
+        onCommit(suggestions[activeIdx].emails[0] ?? "");
+      } else {
+        onCommit(value);
+      }
+      onChange("");
     }
   }
 
