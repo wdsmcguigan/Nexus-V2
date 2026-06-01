@@ -150,8 +150,8 @@ export function ContactsPanel({ panelId }: { panelId?: string }) {
       const q = query.toLowerCase();
       list = list.filter(
         (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.emails.some((e) => e.toLowerCase().includes(q)) ||
+          (c.name?.toLowerCase().includes(q) ?? false) ||
+          (c.emails?.some((e) => e?.toLowerCase().includes(q)) ?? false) ||
           (c.company ?? "").toLowerCase().includes(q),
       );
     }

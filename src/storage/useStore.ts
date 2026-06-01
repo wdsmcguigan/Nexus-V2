@@ -188,8 +188,14 @@ export function useTotalInboxUnread(): number {
 export function useContacts(): Contact[] {
   const v = useStoreVersion();
   void v;
+  // Some contacts (notably Google-imported ones with only an email) have
+  // name === null at runtime even though the type says string. Sort by name
+  // when present, falling back to the primary email so they group near
+  // alphabetically rather than throwing "null is not an object" (mirrors the
+  // guard added in the command palette in commit e295200).
+  const label = (c: Contact): string => c.name ?? c.emails?.[0] ?? "";
   return Array.from(localStore.contacts.values()).sort((a, b) =>
-    a.name.localeCompare(b.name)
+    label(a).localeCompare(label(b)),
   );
 }
 
