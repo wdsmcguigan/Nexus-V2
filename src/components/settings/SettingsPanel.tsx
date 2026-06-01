@@ -58,14 +58,12 @@ import {
   setNotificationPref,
   syncGoogleContacts,
   syncGoogleCalendar,
-  getCalendarList,
-  type CalendarListEntry,
   type RelayStatus,
 } from "@/storage/tauri";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
-import { EventTemplatesSettings } from "@/components/settings/EventTemplatesSettings";
+import { CalendarSettings } from "@/components/settings/CalendarSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -1040,27 +1038,8 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
 // ─── Contacts sync section (EP-9) ────────────────────────────────────────────
 
 function CalendarSyncSection({ accountId }: { accountId: string }) {
-  const prefs = getAppPreferences();
   const [syncing, setSyncing] = React.useState(false);
   const [lastCount, setLastCount] = React.useState<number | null>(null);
-  const [calendars, setCalendars] = React.useState<CalendarListEntry[] | null>(null);
-
-  React.useEffect(() => {
-    if (!isTauri()) return;
-    getCalendarList(accountId).then(setCalendars).catch(() => setCalendars([]));
-  }, [accountId]);
-
-  const isCalendarEnabled = (calId: string) =>
-    prefs.calendarSyncEnabled[`${accountId}:${calId}`] ?? true;
-
-  const toggleCalendar = (calId: string) => {
-    saveAppPreferences({
-      calendarSyncEnabled: {
-        ...prefs.calendarSyncEnabled,
-        [`${accountId}:${calId}`]: !isCalendarEnabled(calId),
-      },
-    });
-  };
 
   const handleSyncNow = async () => {
     if (!isTauri()) return;
@@ -1075,9 +1054,11 @@ function CalendarSyncSection({ accountId }: { accountId: string }) {
     }
   };
 
+  // Per-calendar visibility/sync toggles moved to Settings → Calendar so there
+  // is a single canonical surface for managing calendars (local + Google).
   return (
     <div className="border-t border-border-subtle px-4 py-3">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
           <Calendar size={11} />
           Calendar
@@ -1089,37 +1070,9 @@ function CalendarSyncSection({ accountId }: { accountId: string }) {
           </Button>
         )}
       </div>
-      {calendars === null ? (
-        <p className="text-small text-text-muted">Loading calendars…</p>
-      ) : calendars.length === 0 ? (
-        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
-          <input
-            type="checkbox"
-            checked={isCalendarEnabled("primary")}
-            onChange={() => toggleCalendar("primary")}
-            className="accent-accent"
-          />
-          Sync Google Calendar
-        </label>
-      ) : (
-        <div className="space-y-1.5">
-          {calendars.map((cal) => (
-            <label key={cal.id} className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
-              <input
-                type="checkbox"
-                checked={isCalendarEnabled(cal.id)}
-                onChange={() => toggleCalendar(cal.id)}
-                className="accent-accent"
-              />
-              <span
-                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: cal.backgroundColor }}
-              />
-              <span className="truncate">{cal.summary}</span>
-            </label>
-          ))}
-        </div>
-      )}
+      <p className="mt-1 text-caption text-text-muted">
+        Manage which calendars sync in <strong>Settings → Calendar</strong>.
+      </p>
     </div>
   );
 }
@@ -1760,7 +1713,7 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
           {activeSection === "rules" && <RulesSettings />}
 
           {activeSection === "templates" && <TemplatesSettings />}
-          {activeSection === "calendar" && <EventTemplatesSettings />}
+          {activeSection === "calendar" && <CalendarSettings />}
 
           {activeSection === "shortcuts" && (
             <div>
