@@ -36,7 +36,9 @@ import { cn, formatBytes } from "@/lib/utils";
 import { filterContacts, contactLabel } from "@/lib/contactSearch";
 import { pickPanelLink } from "@/design-system/tokens";
 import DOMPurify from "dompurify";
-import { isTauri, sendMessage, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
+import { isTauri, sendMessage, syncAccountNow, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
+import type { Message } from "@/data/types";
+import * as Mut from "@/state/mutations";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
@@ -234,6 +236,43 @@ function readFileAsBase64(file: File): Promise<AttachmentPayload> {
   });
 }
 
+/** Rough plain-text snippet from a HTML body. Used to populate the
+ * optimistic Sent row's preview text until the next Gmail sync replaces it
+ * with Gmail's authoritative snippet. */
+function htmlToSnippet(html: string, max: number = 200): string {
+  const text = html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function classifyAttachment(file: File): "pdf" | "image" | "doc" | "archive" | "calendar" | "other" {
+  const t = file.type.toLowerCase();
+  const ext = file.name.toLowerCase().split(".").pop() ?? "";
+  if (t.startsWith("image/")) return "image";
+  if (t === "application/pdf" || ext === "pdf") return "pdf";
+  if (t === "text/calendar" || ext === "ics") return "calendar";
+  if (
+    t.startsWith("application/vnd.openxmlformats-officedocument") ||
+    t === "application/msword" ||
+    t === "application/vnd.ms-excel" ||
+    t === "application/vnd.ms-powerpoint" ||
+    ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "txt", "md", "rtf"].includes(ext)
+  ) return "doc";
+  if (
+    t === "application/zip" ||
+    t === "application/x-zip-compressed" ||
+    t === "application/x-tar" ||
+    t === "application/x-rar-compressed" ||
+    ["zip", "tar", "gz", "rar", "7z"].includes(ext)
+  ) return "archive";
+  return "other";
+}
+
 // ─── Quoted block ─────────────────────────────────────────────────────────────
 
 function buildQuotedHtml(msg: {
@@ -277,6 +316,11 @@ export function EmailComposerPanel() {
   const sendAndArchiveRef = React.useRef(false);
   const [attachments, setAttachments] = React.useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  // Drag-and-drop state. Counter (vs boolean) to avoid flicker when the user
+  // moves the cursor between nested children — dragenter/dragleave events
+  // fire in pairs as the pointer crosses element boundaries.
+  const [dragDepth, setDragDepth] = React.useState(0);
+  const isDraggingFiles = dragDepth > 0;
 
   // ── Recipients ────────────────────────────────────────────────────────────
 
@@ -392,7 +436,7 @@ export function EmailComposerPanel() {
         const attachmentPayloads = attachments.length > 0
           ? await Promise.all(attachments.map(readFileAsBase64))
           : undefined;
-        await sendMessage({
+        const gmailId = await sendMessage({
           accountId: selectedAccount.id,
           from: selectedAccount.email,
           to: recipients,
@@ -404,6 +448,57 @@ export function EmailComposerPanel() {
           attachments: attachmentPayloads,
           icalReply: composerContext?.icalReply,
         });
+
+        // Optimistic Sent row: write a Message keyed by Gmail's returned id so
+        // the next periodic sync upserts the same row idempotently (no
+        // duplicates). The row is intentionally minimal — body lives only on
+        // Gmail until sync_account_now backfills it shortly. Without this row
+        // the Sent folder appears empty for ~30–60s after sending, which is
+        // confusing.
+        const vaultId = localStore.vault?.id ?? selectedAccount.vaultId ?? "";
+        const sentFolderId = vaultId ? `${vaultId}-sent` : "sent";
+        const nowMs = Date.now();
+        const optimisticMsg: Message = {
+          id: gmailId,
+          vaultId,
+          folderId: sentFolderId,
+          threadId: replyMsg?.threadId ?? gmailId,
+          providerIds: { gmail: gmailId },
+          labelIds: [sentFolderId],
+          tags: [],
+          statusId: null,
+          priority: null,
+          star: null,
+          flag: null,
+          pinned: false,
+          muted: false,
+          notes: null,
+          customFields: {},
+          flags: { read: true, answered: !!replyMsg, draft: false, flagged: false },
+          receivedAt: nowMs,
+          sentAt: nowMs,
+          fromAddr: { name: selectedAccount.email, email: selectedAccount.email },
+          toAddrs: recipients.map((email) => ({ name: "", email })),
+          ccAddrs: ccRecipients.map((email) => ({ name: "", email })),
+          bccAddrs: bccRecipients.map((email) => ({ name: "", email })),
+          subject,
+          snippet: htmlToSnippet(bodyHtml),
+          bodyRef: "",
+          attachmentRefs: attachments.map((f) => ({
+            name: f.name,
+            size: f.size,
+            type: classifyAttachment(f),
+          })),
+        };
+        Mut.recordMutation("SEND_MESSAGE", optimisticMsg);
+
+        // Kick off a background sync so Gmail's authoritative body, snippet,
+        // and final attachment refs replace the optimistic row within a few
+        // seconds. Fire-and-forget — we don't block the close on this.
+        void syncAccountNow(selectedAccount.id).catch(() => {
+          // No-op: the next scheduled sync will reconcile.
+        });
+
         clearDraft(_draftKey);
         toast.success("Sent");
         if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
@@ -527,7 +622,49 @@ export function EmailComposerPanel() {
         />
       }
     >
-      <div className="flex h-full flex-col">
+      <div
+        className={cn(
+          "relative flex h-full flex-col",
+          isDraggingFiles && "outline outline-2 outline-offset-[-2px] outline-accent",
+        )}
+        onDragEnter={(e) => {
+          // Only count drags carrying files — ignore text/element drags inside
+          // the editor (e.g. Tiptap's own drag-to-move-text).
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            setDragDepth((d) => d + 1);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            setDragDepth((d) => Math.max(0, d - 1));
+          }
+        }}
+        onDragOver={(e) => {
+          // Required to enable a drop target; also signals "copy" cursor.
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+          }
+        }}
+        onDrop={(e) => {
+          if (!e.dataTransfer.types.includes("Files")) return;
+          e.preventDefault();
+          setDragDepth(0);
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length) setAttachments((prev) => [...prev, ...files]);
+        }}
+      >
+        {isDraggingFiles && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-accent/10 backdrop-blur-[1px]"
+          >
+            <div className="rounded-md border border-accent bg-surface-2 px-4 py-2 text-body-strong text-accent shadow-l4">
+              Drop files to attach
+            </div>
+          </div>
+        )}
         {/* From */}
         <FieldRow label="From">
           {allAccounts.length <= 1 ? (
