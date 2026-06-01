@@ -2298,6 +2298,8 @@ pub async fn sync_google_calendar(
     app: tauri::AppHandle,
     account_id: String,
 ) -> std::result::Result<u32, String> {
+    use std::collections::HashMap;
+
     let (vault_path, vault_id) = {
         let vp = state.vault_path.lock().map_err(|_| "vault_path lock poisoned")?
             .clone().ok_or("No vault loaded")?;
@@ -2312,14 +2314,78 @@ pub async fn sync_google_calendar(
     };
 
     let access_token = get_valid_token(&state, &account_id).await?;
+    let http = reqwest::Client::new();
 
-    // Load existing sync token for delta sync
-    let sync_token: Option<String> = {
+    // Step 1 — fetch the user's full calendar list. The same API returns 5
+    // calendars for the reporting user (Wisdom from Her, Birthdays, Family,
+    // Tasks, Holidays); previously only `/calendars/primary/events` was hit.
+    let cal_list = crate::gmail::calendar::fetch_google_calendar_list(&http, &access_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Step 2 — upsert a Calendar row per discovered Google calendar. The local
+    // id is deterministic (`${accountId}:${externalId}`) so re-discovery doesn't
+    // create dup rows. On *first* discovery `enabled = selected || primary` —
+    // respects Google's own visibility checkbox. On subsequent syncs we preserve
+    // the user's stored choice and only refresh the display name and color.
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let existing: HashMap<String, serde_json::Value> = {
         let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
         let db = guard.as_ref().ok_or("Vault not open")?;
-        db.get_calendar_sync(&account_id).map_err(|e| e.to_string())?
+        let rows = db.load_calendars(&vault_id).map_err(|e| e.to_string())?;
+        rows.into_iter()
+            .filter_map(|r| {
+                let id = r["id"].as_str()?.to_owned();
+                Some((id, r))
+            })
+            .collect()
     };
 
+    let mut to_sync: Vec<(String, bool)> = Vec::new(); // (external_id, read_only)
+    {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        for cal in &cal_list {
+            let external_id = cal["id"].as_str().unwrap_or_default();
+            if external_id.is_empty() { continue; }
+            let local_id = format!("{account_id}:{external_id}");
+            let selected = cal["selected"].as_bool().unwrap_or(false);
+            let primary = cal["primary"].as_bool().unwrap_or(false);
+            let access_role = cal["accessRole"].as_str().unwrap_or("reader");
+            let read_only = access_role == "reader" || access_role == "freeBusyReader";
+            let name = cal["summaryOverride"].as_str()
+                .or_else(|| cal["summary"].as_str())
+                .unwrap_or("(unnamed calendar)");
+            let color = cal["backgroundColor"].as_str().unwrap_or("#4285f4");
+
+            let enabled = match existing.get(&local_id) {
+                Some(prev) => prev["enabled"].as_bool().unwrap_or(true),
+                None => selected || primary,
+            };
+
+            let row = serde_json::json!({
+                "id": local_id,
+                "accountId": account_id,
+                "externalId": external_id,
+                "name": name,
+                "color": color,
+                "enabled": enabled,
+                "readOnly": read_only,
+                "provider": "google",
+                "createdAt": existing.get(&local_id)
+                    .and_then(|p| p["createdAt"].as_i64())
+                    .unwrap_or(now_ms),
+                "updatedAt": now_ms,
+            });
+            db.upsert_calendar(&vault_id, &row).map_err(|e| e.to_string())?;
+            if enabled {
+                to_sync.push((external_id.to_owned(), read_only));
+            }
+        }
+    }
+
+    // Step 3 — sync events from each enabled calendar in turn. We keep a
+    // per-calendar sync token so each one can do its own incremental delta.
     let now_ms = chrono::Utc::now().timestamp_millis();
     let day_ms: i64 = 86_400_000;
     let time_min = chrono::DateTime::from_timestamp_millis(now_ms - 14 * day_ms)
@@ -2330,52 +2396,62 @@ pub async fn sync_google_calendar(
         .unwrap_or_default()
         .format("%Y-%m-%dT00:00:00Z")
         .to_string();
-
-    let http = reqwest::Client::new();
     let expand = crate::gmail::calendar::expand_recurrences_enabled();
-    let fetch_result = crate::gmail::calendar::fetch_google_calendar_events(
-        &http,
-        &access_token,
-        &vault_id,
-        &account_id,
-        sync_token.as_deref(),
-        &time_min,
-        &time_max,
-        expand,
-    ).await;
 
-    // If the syncToken expired (410 Gone), retry with a full sync
-    let (events, next_sync_token) = match fetch_result {
-        Ok(r) => r,
-        Err(e) if e.to_string().contains("syncToken expired") => {
-            log::info!("sync_google_calendar: syncToken expired, falling back to full sync");
-            crate::gmail::calendar::fetch_google_calendar_events(
-                &http, &access_token, &vault_id, &account_id,
-                None, &time_min, &time_max, expand,
-            ).await.map_err(|e| e.to_string())?
-        }
-        Err(e) => return Err(e.to_string()),
-    };
+    let mut total_count: u32 = 0;
+    for (external_id, _read_only) in &to_sync {
+        let sync_token: Option<String> = {
+            let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+            let db = guard.as_ref().ok_or("Vault not open")?;
+            db.get_calendar_sync(&account_id, external_id).map_err(|e| e.to_string())?
+        };
 
-    let count = events.len() as u32;
-    {
-        let db = crate::db::VaultDb::open(&vault_path, "nexus")
-            .map_err(|e| e.to_string())?;
-        for event in &events {
-            if event["status"].as_str() == Some("cancelled") {
-                let id = event["id"].as_str().unwrap_or_default();
-                db.delete_calendar_event(id).map_err(|e| e.to_string())?;
-            } else {
-                db.upsert_calendar_event(&vault_id, event).map_err(|e| e.to_string())?;
+        let fetch_result = crate::gmail::calendar::fetch_google_calendar_events(
+            &http, &access_token, &vault_id, &account_id, external_id,
+            sync_token.as_deref(), &time_min, &time_max, expand,
+        ).await;
+
+        let (events, next_sync_token) = match fetch_result {
+            Ok(r) => r,
+            Err(e) if e.to_string().contains("syncToken expired") => {
+                log::info!(
+                    "sync_google_calendar: syncToken expired for {external_id}, falling back to full sync"
+                );
+                crate::gmail::calendar::fetch_google_calendar_events(
+                    &http, &access_token, &vault_id, &account_id, external_id,
+                    None, &time_min, &time_max, expand,
+                ).await.map_err(|e| e.to_string())?
             }
+            Err(e) => {
+                // Don't let one bad calendar fail the whole sync — log and move on.
+                log::warn!("sync_google_calendar: skipping {external_id}: {e}");
+                continue;
+            }
+        };
+
+        total_count += events.len() as u32;
+        {
+            let db = crate::db::VaultDb::open(&vault_path, "nexus")
+                .map_err(|e| e.to_string())?;
+            for event in &events {
+                if event["status"].as_str() == Some("cancelled") {
+                    let id = event["id"].as_str().unwrap_or_default();
+                    db.delete_calendar_event(id).map_err(|e| e.to_string())?;
+                } else {
+                    db.upsert_calendar_event(&vault_id, event).map_err(|e| e.to_string())?;
+                }
+            }
+            db.upsert_calendar_sync(&account_id, external_id, next_sync_token.as_deref(), now_ms)
+                .map_err(|e| e.to_string())?;
         }
-        db.upsert_calendar_sync(&account_id, next_sync_token.as_deref(), now_ms)
-            .map_err(|e| e.to_string())?;
     }
 
     let _ = app.emit("vault:hydrate-needed", ());
-    log::info!("sync_google_calendar: processed {count} events for account {account_id}");
-    Ok(count)
+    log::info!(
+        "sync_google_calendar: processed {total_count} events across {} calendars for account {account_id}",
+        to_sync.len(),
+    );
+    Ok(total_count)
 }
 
 #[tauri::command]

@@ -313,10 +313,15 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 CREATE INDEX IF NOT EXISTS idx_calendar_events_vault ON calendar_events(vault_id);
 CREATE INDEX IF NOT EXISTS idx_calendar_events_range ON calendar_events(vault_id, start_ts, end_ts);
 
+-- EP14 multi-calendar: composite PK (account_id, calendar_id) — see
+-- run_calendar_sync_multical_migration() in db/mod.rs for the upgrade path
+-- that brings older single-PK rows forward.
 CREATE TABLE IF NOT EXISTS calendar_sync (
-    account_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    calendar_id TEXT NOT NULL,
     sync_token TEXT,
-    last_synced_at INTEGER
+    last_synced_at INTEGER,
+    PRIMARY KEY (account_id, calendar_id)
 );
 "#;
 

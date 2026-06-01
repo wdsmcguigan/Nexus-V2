@@ -17,11 +17,20 @@ pub fn expand_recurrences_enabled() -> bool {
     )
 }
 
+/// Percent-encode a Google calendar id for use inside a URL path segment.
+/// Real calendar ids contain `@`, `#`, `.`, etc. — `byte_serialize` handles
+/// the path-unsafe characters consistently with how we encode event ids in
+/// `update_google_calendar_event` / `delete_google_calendar_event`.
+pub fn encode_calendar_id(id: &str) -> String {
+    url::form_urlencoded::byte_serialize(id.as_bytes()).collect()
+}
+
 pub async fn fetch_google_calendar_events(
     client: &reqwest::Client,
     access_token: &str,
     vault_id: &str,
     account_id: &str,
+    calendar_external_id: &str,
     sync_token: Option<&str>,
     time_min: &str,
     time_max: &str,
@@ -37,10 +46,12 @@ pub async fn fetch_google_calendar_events(
     // carrying their RRULE, so the EP-14 Phase 2 engine expands them locally, the
     // same way CalDAV works. orderBy=startTime is only valid with singleEvents=true.
     let single_events = !expand_recurrences;
+    let encoded_cal = encode_calendar_id(calendar_external_id);
+    let calendar_local_id = format!("{account_id}:{calendar_external_id}");
 
     loop {
         let mut url = format!(
-            "https://www.googleapis.com/calendar/v3/calendars/primary/events\
+            "https://www.googleapis.com/calendar/v3/calendars/{encoded_cal}/events\
             ?maxResults=250&singleEvents={single_events}"
         );
 
@@ -76,7 +87,7 @@ pub async fn fetch_google_calendar_events(
 
         if let Some(items) = body["items"].as_array() {
             for item in items {
-                if let Some(ev) = map_event(item, vault_id, account_id) {
+                if let Some(ev) = map_event(item, vault_id, account_id, calendar_external_id, &calendar_local_id) {
                     events.push(ev);
                 }
             }
@@ -95,7 +106,13 @@ pub async fn fetch_google_calendar_events(
     Ok((events, next_sync_token))
 }
 
-fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Option<serde_json::Value> {
+fn map_event(
+    item: &serde_json::Value,
+    vault_id: &str,
+    account_id: &str,
+    calendar_external_id: &str,
+    calendar_local_id: &str,
+) -> Option<serde_json::Value> {
     let external_id = item["id"].as_str()?;
     let id = format!("{account_id}-{external_id}");
     let title = item["summary"].as_str().unwrap_or("(no title)");
@@ -172,7 +189,8 @@ fn map_event(item: &serde_json::Value, vault_id: &str, account_id: &str) -> Opti
         "id": id,
         "vaultId": vault_id,
         "accountId": account_id,
-        "calendarId": "primary",
+        "calendarId": calendar_external_id,
+        "calendarLocalId": calendar_local_id,
         "externalId": external_id,
         "title": title,
         "description": description,
@@ -252,7 +270,11 @@ pub async fn create_google_calendar_event(
         .await?;
 
     let item: serde_json::Value = resp.error_for_status()?.json().await?;
-    map_event(&item, vault_id, account_id)
+    // Write path still targets the user's primary Google calendar — extending
+    // create/update to non-primary calendars is a follow-up PR (the IPC needs
+    // an extra param plumbed through the EventCreateModal).
+    let local_id = format!("{account_id}:primary");
+    map_event(&item, vault_id, account_id, "primary", &local_id)
         .ok_or_else(|| anyhow::anyhow!("failed to parse created event"))
 }
 
@@ -308,7 +330,9 @@ pub async fn update_google_calendar_event(
         .await?;
 
     let item: serde_json::Value = resp.error_for_status()?.json().await?;
-    map_event(&item, vault_id, account_id)
+    // See note in `create_google_calendar_event` — update path still primary-only.
+    let local_id = format!("{account_id}:primary");
+    map_event(&item, vault_id, account_id, "primary", &local_id)
         .ok_or_else(|| anyhow::anyhow!("failed to parse updated event"))
 }
 
@@ -333,7 +357,11 @@ pub async fn delete_google_calendar_event(
     }
 }
 
-/// Fetch the list of calendars the user has access to.
+/// Fetch the list of calendars the user has access to. Returns the fields the
+/// sync orchestrator needs: `id`, `summary`, `summaryOverride` (the user's
+/// per-account alias if set), `backgroundColor`, `selected` (Google's own
+/// visibility flag), `primary`, and `accessRole` (owner/writer/reader/
+/// freeBusyReader — drives our `readOnly` flag).
 pub async fn fetch_google_calendar_list(
     client: &reqwest::Client,
     access_token: &str,
@@ -351,8 +379,11 @@ pub async fn fetch_google_calendar_list(
             arr.iter().map(|c| serde_json::json!({
                 "id": c["id"].as_str().unwrap_or(""),
                 "summary": c["summary"].as_str().unwrap_or(""),
+                "summaryOverride": c["summaryOverride"].as_str(),
                 "backgroundColor": c["backgroundColor"].as_str().unwrap_or("#4285f4"),
                 "selected": c["selected"].as_bool().unwrap_or(false),
+                "primary": c["primary"].as_bool().unwrap_or(false),
+                "accessRole": c["accessRole"].as_str().unwrap_or("reader"),
             })).collect()
         })
         .unwrap_or_default();
@@ -398,4 +429,37 @@ fn parse_google_datetime(dt: &serde_json::Value) -> Option<(i64, bool, Option<St
         return Some((ts, true, None));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_calendar_id;
+
+    #[test]
+    fn encodes_primary() {
+        // "primary" has no special characters and should pass through.
+        assert_eq!(encode_calendar_id("primary"), "primary");
+    }
+
+    #[test]
+    fn encodes_email_style_id() {
+        // Typical user calendar id — `@` and `.` are URL-safe in a path segment
+        // but our codebase encodes them anyway for consistency with the event-id
+        // encoder used by update_google_calendar_event.
+        let id = "user@example.com";
+        let out = encode_calendar_id(id);
+        // form_urlencoded always encodes `@` as %40
+        assert!(out.contains("%40"), "expected %40 in {out}");
+    }
+
+    #[test]
+    fn encodes_hash_in_holiday_id() {
+        // Real holiday calendar ids include `#`, e.g.
+        // en.usa#holiday@group.v.calendar.google.com — must be percent-encoded
+        // or the path would terminate at `#` (URL fragment delimiter).
+        let id = "en.usa#holiday@group.v.calendar.google.com";
+        let out = encode_calendar_id(id);
+        assert!(!out.contains('#'), "raw # leaked into URL: {out}");
+        assert!(out.contains("%23"), "expected %23 in {out}");
+    }
 }

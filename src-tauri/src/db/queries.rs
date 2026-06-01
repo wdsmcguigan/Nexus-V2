@@ -3190,23 +3190,32 @@ impl VaultDb {
         Ok(())
     }
 
-    pub fn get_calendar_sync(&self, account_id: &str) -> Result<Option<String>> {
+    /// Read the incremental sync token for one (account, calendar) pair.
+    /// `calendar_id` is the provider's calendar identifier (Google's "primary"
+    /// or e.g. `addressbook#contacts@group.v.calendar.google.com`).
+    pub fn get_calendar_sync(&self, account_id: &str, calendar_id: &str) -> Result<Option<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT sync_token FROM calendar_sync WHERE account_id = ?1",
+            "SELECT sync_token FROM calendar_sync WHERE account_id = ?1 AND calendar_id = ?2",
         )?;
         let row: Option<Option<String>> = stmt
-            .query_row(params![account_id], |r| r.get::<_, Option<String>>(0))
+            .query_row(params![account_id, calendar_id], |r| r.get::<_, Option<String>>(0))
             .optional()?;
         Ok(row.flatten())
     }
 
-    pub fn upsert_calendar_sync(&self, account_id: &str, sync_token: Option<&str>, last_synced_at: i64) -> Result<()> {
+    pub fn upsert_calendar_sync(
+        &self,
+        account_id: &str,
+        calendar_id: &str,
+        sync_token: Option<&str>,
+        last_synced_at: i64,
+    ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO calendar_sync(account_id, sync_token, last_synced_at)
-             VALUES(?1,?2,?3)
-             ON CONFLICT(account_id) DO UPDATE SET
+            "INSERT INTO calendar_sync(account_id, calendar_id, sync_token, last_synced_at)
+             VALUES(?1,?2,?3,?4)
+             ON CONFLICT(account_id, calendar_id) DO UPDATE SET
                sync_token=excluded.sync_token, last_synced_at=excluded.last_synced_at",
-            params![account_id, sync_token, last_synced_at],
+            params![account_id, calendar_id, sync_token, last_synced_at],
         )?;
         Ok(())
     }

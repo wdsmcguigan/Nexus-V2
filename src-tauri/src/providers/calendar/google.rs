@@ -39,7 +39,7 @@ impl CalendarProvider for GoogleCalendarProvider {
 
     async fn fetch_events(
         &self,
-        _calendar_external_id: &str,
+        calendar_external_id: &str,
         time_min: i64,
         time_max: i64,
         sync_token: Option<&str>,
@@ -51,11 +51,16 @@ impl CalendarProvider for GoogleCalendarProvider {
                 .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
                 .unwrap_or_default()
         };
+        // EP14 multi-cal: the trait passes the target Google calendar id (e.g.
+        // "primary" or a holiday calendar). Default to "primary" when the
+        // caller didn't supply one, matching pre-multi-cal behavior.
+        let cal_id = if calendar_external_id.is_empty() { "primary" } else { calendar_external_id };
         let (events, new_token) = crate::gmail::calendar::fetch_google_calendar_events(
             &self.client,
             &self.access_token,
             &self.vault_id,
             &self.account_id,
+            cal_id,
             sync_token,
             &to_rfc3339(time_min),
             &to_rfc3339(time_max),

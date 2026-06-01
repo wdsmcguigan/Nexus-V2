@@ -58,6 +58,42 @@ impl VaultDb {
             .context("running EP13 calendar template migrations")?;
         self.run_ep14_migrations()
             .context("running EP14 standalone calendar migrations")?;
+        self.run_calendar_sync_multical_migration()
+            .context("upgrading calendar_sync to composite PK")?;
+        Ok(())
+    }
+
+    /// EP14 multi-calendar: widen `calendar_sync` from PRIMARY KEY(account_id) to
+    /// PRIMARY KEY(account_id, calendar_id) so each Google calendar holds its
+    /// own incremental sync token. SQLite can't change a primary key in place,
+    /// so this does the standard rename → create → copy → drop dance, but only
+    /// when the `calendar_id` column is missing (idempotent on subsequent runs).
+    /// Existing rows are migrated as `calendar_id = 'primary'` — preserving the
+    /// user's incremental sync state across the upgrade.
+    fn run_calendar_sync_multical_migration(&self) -> Result<()> {
+        let has_calendar_id: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('calendar_sync') WHERE name = 'calendar_id'",
+            [],
+            |r| r.get(0),
+        )?;
+        if has_calendar_id > 0 {
+            return Ok(());
+        }
+        self.conn.execute_batch(
+            r#"
+            CREATE TABLE calendar_sync_new (
+                account_id TEXT NOT NULL,
+                calendar_id TEXT NOT NULL,
+                sync_token TEXT,
+                last_synced_at INTEGER,
+                PRIMARY KEY (account_id, calendar_id)
+            );
+            INSERT INTO calendar_sync_new (account_id, calendar_id, sync_token, last_synced_at)
+                SELECT account_id, 'primary', sync_token, last_synced_at FROM calendar_sync;
+            DROP TABLE calendar_sync;
+            ALTER TABLE calendar_sync_new RENAME TO calendar_sync;
+            "#,
+        )?;
         Ok(())
     }
 
