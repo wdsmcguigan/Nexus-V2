@@ -15,6 +15,8 @@ import {
   ChevronDown,
   FileText,
   CalendarDays,
+  AlertCircle,
+  RotateCw,
 } from "lucide-react";
 import * as AlertDialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -34,6 +36,7 @@ import { Kbd } from "@/components/ui/Kbd";
 import { useWorkspace } from "@/state/workspace";
 import { cn, formatBytes } from "@/lib/utils";
 import { filterContacts, contactLabel } from "@/lib/contactSearch";
+import { isValidEmail } from "@/lib/email";
 import { pickPanelLink } from "@/design-system/tokens";
 import DOMPurify from "dompurify";
 import { isTauri, sendMessage, syncAccountNow, getSignatureHtml, type AttachmentPayload } from "@/storage/tauri";
@@ -300,6 +303,73 @@ function setLink(editor: ReturnType<typeof useEditor>) {
   }
 }
 
+// ─── Recipient chip with invalid-email styling ───────────────────────────────
+
+function RecipientChip({ address, onRemove }: { address: string; onRemove: () => void }) {
+  const valid = isValidEmail(address);
+  if (valid) {
+    return (
+      <Tag color={pickPanelLink(address)} size="md" removable onRemove={onRemove}>
+        {address}
+      </Tag>
+    );
+  }
+  // Invalid: render the chip with a destructive border + warning icon. We use
+  // a hand-rolled span (not <Tag>) because Tag's color prop maps to themed
+  // panel-link hues; an explicit red border is clearer for "this is wrong."
+  return (
+    <span
+      title="Invalid email — fix or remove to send"
+      className="inline-flex items-center gap-1 rounded-xs border border-danger bg-danger/10 px-1.5 py-0.5 text-caption text-danger"
+    >
+      <AlertCircle size={11} className="shrink-0" />
+      <span className="truncate font-mono">{address}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${address}`}
+        className="ml-0.5 rounded-xs text-danger/70 hover:text-danger"
+      >
+        <X size={10} />
+      </button>
+    </span>
+  );
+}
+
+// ─── Persistent send-failure banner ──────────────────────────────────────────
+
+function SendErrorBanner({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message: string;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 border-b border-danger/30 bg-danger/10 px-3 py-2 text-small text-danger"
+    >
+      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">Send failed</div>
+        <div className="break-words text-danger/80">{message}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="ghost" size="xs" onClick={onRetry}>
+          <RotateCw size={11} />
+          Retry
+        </Button>
+        <Button variant="ghost" size="xs" iconOnly aria-label="Dismiss" onClick={onDismiss}>
+          <X size={11} />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function EmailComposerPanel() {
@@ -423,15 +493,46 @@ export function EmailComposerPanel() {
   const [scheduledAt, setScheduledAt] = React.useState<number | null>(null);
   const [schedulePickerOpen, setSchedulePickerOpen] = React.useState(false);
   const scheduledSendRef = React.useRef<number | null>(null);
+  // Persistent send-failure banner state. Stays visible until the user clicks
+  // Retry or Dismiss — toast notifications are too transient for failures the
+  // user explicitly needs to act on (commit b69397e regression fix).
+  const [sendError, setSendError] = React.useState<string | null>(null);
+  // Id of the "Sending…" countdown toast so we can dismiss it before showing
+  // the result toast (sonner's id-based update pattern keeps the same toast
+  // visible — it transitions instead of stacking).
+  const sendingToastIdRef = React.useRef<string | number | null>(null);
+
+  // Send is blocked when any committed recipient fails the WHATWG email check.
+  const hasInvalidRecipients = React.useMemo(
+    () =>
+      [...recipients, ...ccRecipients, ...bccRecipients].some(
+        (addr) => !isValidEmail(addr),
+      ),
+    [recipients, ccRecipients, bccRecipients],
+  );
 
   const doActualSend = React.useCallback(async () => {
     setSending(false);
     setCountdown(0);
+    // Dismiss the countdown toast — we're about to transition to a fresh
+    // loading toast that'll update in-place to success/error via its id.
+    if (sendingToastIdRef.current != null) {
+      toast.dismiss(sendingToastIdRef.current);
+      sendingToastIdRef.current = null;
+    }
     const bodyHtml = editor?.getHTML() ?? "";
     if (isTauri()) {
       const accounts = Array.from(localStore.accounts.values());
       const selectedAccount = accounts.find((a) => a.id === fromAccountId) ?? accounts.find((a) => a.provider === "gmail");
-      if (!selectedAccount) { toast.error("No account connected"); return; }
+      if (!selectedAccount) {
+        toast.error("No account connected", { duration: 10_000 });
+        setSendError("No account connected");
+        return;
+      }
+      // Sonner canonical pattern: one toast id transitions through
+      // loading → success / error. Stays visible and smoothly updates,
+      // instead of stacking toasts on top of each other.
+      const sendToastId = toast.loading("Sending email…");
       try {
         const attachmentPayloads = attachments.length > 0
           ? await Promise.all(attachments.map(readFileAsBase64))
@@ -449,61 +550,79 @@ export function EmailComposerPanel() {
           icalReply: composerContext?.icalReply,
         });
 
-        // Optimistic Sent row: write a Message keyed by Gmail's returned id so
-        // the next periodic sync upserts the same row idempotently (no
-        // duplicates). The row is intentionally minimal — body lives only on
-        // Gmail until sync_account_now backfills it shortly. Without this row
-        // the Sent folder appears empty for ~30–60s after sending, which is
-        // confusing.
-        const vaultId = localStore.vault?.id ?? selectedAccount.vaultId ?? "";
-        const sentFolderId = vaultId ? `${vaultId}-sent` : "sent";
-        const nowMs = Date.now();
-        const optimisticMsg: Message = {
-          id: gmailId,
-          vaultId,
-          folderId: sentFolderId,
-          threadId: replyMsg?.threadId ?? gmailId,
-          providerIds: { gmail: gmailId },
-          labelIds: [sentFolderId],
-          tags: [],
-          statusId: null,
-          priority: null,
-          star: null,
-          flag: null,
-          pinned: false,
-          muted: false,
-          notes: null,
-          customFields: {},
-          flags: { read: true, answered: !!replyMsg, draft: false, flagged: false },
-          receivedAt: nowMs,
-          sentAt: nowMs,
-          fromAddr: { name: selectedAccount.email, email: selectedAccount.email },
-          toAddrs: recipients.map((email) => ({ name: "", email })),
-          ccAddrs: ccRecipients.map((email) => ({ name: "", email })),
-          bccAddrs: bccRecipients.map((email) => ({ name: "", email })),
-          subject,
-          snippet: htmlToSnippet(bodyHtml),
-          bodyRef: "",
-          attachmentRefs: attachments.map((f) => ({
-            name: f.name,
-            size: f.size,
-            type: classifyAttachment(f),
-          })),
-        };
-        Mut.recordMutation("SEND_MESSAGE", optimisticMsg);
+        // Gmail accepted the send. Everything below is best-effort local
+        // bookkeeping — wrap separately so a bug here can never make a
+        // successful send look like a failure to the user.
+        try {
+          // Optimistic Sent row: write a Message keyed by Gmail's returned id
+          // so the next periodic sync upserts the same row idempotently (no
+          // duplicates). The row is intentionally minimal — body lives only
+          // on Gmail until sync_account_now backfills it shortly.
+          const vaultId = localStore.vault?.id ?? selectedAccount.vaultId ?? "";
+          const sentFolderId = vaultId ? `${vaultId}-sent` : "sent";
+          const nowMs = Date.now();
+          const optimisticMsg: Message = {
+            id: gmailId,
+            vaultId,
+            folderId: sentFolderId,
+            threadId: replyMsg?.threadId ?? gmailId,
+            providerIds: { gmail: gmailId },
+            labelIds: [sentFolderId],
+            tags: [],
+            statusId: null,
+            priority: null,
+            star: null,
+            flag: null,
+            pinned: false,
+            muted: false,
+            notes: null,
+            customFields: {},
+            flags: { read: true, answered: !!replyMsg, draft: false, flagged: false },
+            receivedAt: nowMs,
+            sentAt: nowMs,
+            fromAddr: { name: selectedAccount.email, email: selectedAccount.email },
+            toAddrs: recipients.map((email) => ({ name: "", email })),
+            ccAddrs: ccRecipients.map((email) => ({ name: "", email })),
+            bccAddrs: bccRecipients.map((email) => ({ name: "", email })),
+            subject,
+            snippet: htmlToSnippet(bodyHtml),
+            bodyRef: "",
+            attachmentRefs: attachments.map((f) => ({
+              name: f.name,
+              size: f.size,
+              type: classifyAttachment(f),
+            })),
+          };
+          Mut.recordMutation("SEND_MESSAGE", optimisticMsg);
 
-        // Kick off a background sync so Gmail's authoritative body, snippet,
-        // and final attachment refs replace the optimistic row within a few
-        // seconds. Fire-and-forget — we don't block the close on this.
-        void syncAccountNow(selectedAccount.id).catch(() => {
-          // No-op: the next scheduled sync will reconcile.
-        });
+          // Kick off a background sync so Gmail's authoritative body, snippet,
+          // and final attachment refs replace the optimistic row within a few
+          // seconds. Fire-and-forget — we don't block the close on this.
+          void syncAccountNow(selectedAccount.id).catch(() => {
+            // No-op: the next scheduled sync will reconcile.
+          });
+
+          toast.success("Sent", { id: sendToastId });
+        } catch (innerErr) {
+          // Gmail HAS the message. Surface a soft notice but treat as success.
+          console.warn("Optimistic Sent row failed to write:", innerErr);
+          toast.warning("Sent — your Sent folder will update on next sync", {
+            id: sendToastId,
+            duration: 6_000,
+          });
+        }
 
         clearDraft(_draftKey);
-        toast.success("Sent");
         if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
       } catch (e) {
-        toast.error(`Send failed: ${e instanceof Error ? e.message : String(e)}`);
+        const errMessage = e instanceof Error ? e.message : String(e);
+        console.error("Send failed:", e);
+        toast.error("Send failed", {
+          id: sendToastId,
+          description: errMessage,
+          duration: 10_000,
+        });
+        setSendError(errMessage);
         return;
       }
     } else {
@@ -511,9 +630,11 @@ export function EmailComposerPanel() {
       if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
     }
     setComposerOpen(false);
-  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive]);
+  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive, _draftKey, composerContext?.icalReply, fromAccountId]);
 
   const startSend = React.useCallback(() => {
+    // Clear any previous failure banner — the user is trying again.
+    setSendError(null);
     const seconds = getAppPreferences().undoSendSeconds;
     sendDurationRef.current = seconds;
     setSending(true);
@@ -530,7 +651,9 @@ export function EmailComposerPanel() {
       }, 1000);
     };
     tick(seconds);
-    toast("Sending…", {
+    // Capture the id so doActualSend / undoSend can dismiss it explicitly
+    // before transitioning to the result toast.
+    sendingToastIdRef.current = toast("Sending…", {
       action: { label: "Undo", onClick: () => undoSend() },
       duration: seconds * 1000,
     });
@@ -538,10 +661,19 @@ export function EmailComposerPanel() {
 
   const undoSend = React.useCallback(() => {
     if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current);
+    if (sendingToastIdRef.current != null) {
+      toast.dismiss(sendingToastIdRef.current);
+      sendingToastIdRef.current = null;
+    }
     setSending(false);
     setCountdown(0);
     toast("Send cancelled");
   }, []);
+
+  const handleRetry = React.useCallback(() => {
+    setSendError(null);
+    startSend();
+  }, [startSend]);
 
   React.useEffect(() => () => { if (sendTimeoutRef.current) window.clearTimeout(sendTimeoutRef.current); }, []);
 
@@ -665,6 +797,13 @@ export function EmailComposerPanel() {
             </div>
           </div>
         )}
+        {sendError && (
+          <SendErrorBanner
+            message={sendError}
+            onRetry={handleRetry}
+            onDismiss={() => setSendError(null)}
+          />
+        )}
         {/* From */}
         <FieldRow label="From">
           {allAccounts.length <= 1 ? (
@@ -688,9 +827,11 @@ export function EmailComposerPanel() {
         <FieldRow label="To">
           <div className="flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5">
             {recipients.map((r) => (
-              <Tag key={r} color={pickPanelLink(r)} size="md" removable onRemove={() => setRecipients((rs) => rs.filter((x) => x !== r))}>
-                {r}
-              </Tag>
+              <RecipientChip
+                key={r}
+                address={r}
+                onRemove={() => setRecipients((rs) => rs.filter((x) => x !== r))}
+              />
             ))}
             <RecipientInput
               value={draftInput}
@@ -712,9 +853,11 @@ export function EmailComposerPanel() {
             <FieldRow label="Cc">
               <div className="flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5">
                 {ccRecipients.map((r) => (
-                  <Tag key={r} color={pickPanelLink(r)} size="md" removable onRemove={() => setCcRecipients((rs) => rs.filter((x) => x !== r))}>
-                    {r}
-                  </Tag>
+                  <RecipientChip
+                    key={r}
+                    address={r}
+                    onRemove={() => setCcRecipients((rs) => rs.filter((x) => x !== r))}
+                  />
                 ))}
                 <RecipientInput
                   value={ccDraftInput}
@@ -727,9 +870,11 @@ export function EmailComposerPanel() {
             <FieldRow label="Bcc">
               <div className="flex h-auto min-h-9 flex-wrap items-center gap-1 py-1.5">
                 {bccRecipients.map((r) => (
-                  <Tag key={r} color={pickPanelLink(r)} size="md" removable onRemove={() => setBccRecipients((rs) => rs.filter((x) => x !== r))}>
-                    {r}
-                  </Tag>
+                  <RecipientChip
+                    key={r}
+                    address={r}
+                    onRemove={() => setBccRecipients((rs) => rs.filter((x) => x !== r))}
+                  />
                 ))}
                 <RecipientInput
                   value={bccDraftInput}
@@ -892,15 +1037,20 @@ export function EmailComposerPanel() {
           ) : !sending ? (
             /* Normal send: split button (Send | ▾ dropdown) */
             <div className="flex items-stretch">
-              <Button
-                variant="primary"
-                size="md"
-                className="rounded-r-none border-r border-r-white/20"
-                onClick={() => { sendAndArchiveRef.current = false; startSend(); }}
+              <Tooltip
+                label={hasInvalidRecipients ? "Fix invalid recipient(s) first" : ""}
               >
-                {mode === "forward" ? "Forward" : "Send"}
-                <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
-              </Button>
+                <Button
+                  variant="primary"
+                  size="md"
+                  disabled={hasInvalidRecipients}
+                  className="rounded-r-none border-r border-r-white/20"
+                  onClick={() => { sendAndArchiveRef.current = false; startSend(); }}
+                >
+                  {mode === "forward" ? "Forward" : "Send"}
+                  <Kbd size="xs" className="ml-1 bg-[rgba(255,255,255,0.15)] text-text-on-accent border-transparent">⌘↵</Kbd>
+                </Button>
+              </Tooltip>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <Button
