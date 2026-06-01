@@ -4,6 +4,8 @@ import type { CalendarEvent } from "@/data/types";
 import { eventColor } from "@/lib/calendarColors";
 import { EventHoverCard } from "./EventHoverCard";
 import { EventDetailPopover } from "./EventDetailPopover";
+import { EventDots } from "./EventDots";
+import { useWorkspace } from "@/state/workspace";
 
 interface Props {
   events: CalendarEvent[];
@@ -82,6 +84,7 @@ function EventRow({ event }: EventRowProps) {
 export function AgendaView({ events, focusDate }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const focusRef = React.useRef<HTMLDivElement>(null);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
 
   // Group events by ISO date, skipping cancelled ones that have no remaining info
   const groups = React.useMemo(() => {
@@ -115,11 +118,16 @@ export function AgendaView({ events, focusDate }: Props) {
         const isFocusDay = iso === focusDate;
         return (
           <div key={iso} ref={isFocusDay ? focusRef : undefined} className="mb-3">
-            <div className={cn(
-              "mb-1 px-2 font-sans text-caption font-semibold uppercase tracking-wide",
-              iso === today ? "text-accent" : "text-text-muted",
-            )}>
+            <div
+              onDoubleClick={() => openEventCreateModal({ date: iso })}
+              title="Double-click to create event on this day"
+              className={cn(
+                "mb-1 px-2 font-sans text-caption font-semibold uppercase tracking-wide cursor-default select-none",
+                iso === today ? "text-accent" : "text-text-muted",
+              )}
+            >
               {formatDayLabel(iso, today)}
+              <EventDots events={dayEvents.filter((e) => e.status !== "cancelled")} />
             </div>
             <div className="space-y-0.5">
               {dayEvents.map((event) => (

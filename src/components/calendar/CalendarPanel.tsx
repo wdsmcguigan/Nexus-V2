@@ -17,6 +17,7 @@ import {
   addWeeks,
   addMonths,
 } from "@/lib/calendarUtils";
+import { shouldNavigate } from "@/lib/wheelNav";
 
 export function CalendarPanel() {
   const focusDate = useWorkspace((s) => s.calendarFocusDate);
@@ -59,11 +60,34 @@ export function CalendarPanel() {
     else if (viewMode === "month") setFocusDate(addMonths(focusDate, 1));
   }
 
+  // Shift+wheel → advance/reverse one period. Throttled via lastNavRef so a
+  // single trackpad fling registers as one navigation. Agenda is a no-op
+  // (the view has no natural "next period" semantics and is already a list).
+  const lastNavRef = React.useRef<number>(0);
+  const handleWheel = React.useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      if (viewMode === "agenda") return;
+      const dir = shouldNavigate(
+        { shiftKey: e.shiftKey, deltaX: e.deltaX, deltaY: e.deltaY },
+        lastNavRef.current,
+        performance.now(),
+      );
+      if (!dir) return;
+      lastNavRef.current = performance.now();
+      e.preventDefault();
+      if (dir === "next") nextPeriod();
+      else prevPeriod();
+    },
+    // viewMode is read inside; focusDate is read transitively via prev/nextPeriod.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [viewMode, focusDate],
+  );
+
   const mondayIso = weekMonday(focusDate);
   const mStartIso = monthStart(focusDate);
 
   return (
-    <div className="flex h-full flex-col bg-surface-1">
+    <div className="flex h-full flex-col bg-surface-1" onWheel={handleWheel}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 gap-2">
         <div className="flex items-center gap-1">

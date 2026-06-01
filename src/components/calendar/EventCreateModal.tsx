@@ -16,6 +16,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   prefillDate?: string;
+  /** HH:MM (24h). Used when the caller double-clicked a specific time slot. */
+  prefillStartTime?: string;
   prefillAttendees?: string[];
   prefillTitle?: string;
 }
@@ -32,12 +34,13 @@ function localDatetimeToTs(value: string): number {
 
 function initialState(
   prefillDate: string | undefined,
+  prefillStartTime: string | undefined,
   prefillAttendees: string[] | undefined,
   prefillTitle: string | undefined,
   calendarLocalId: string,
 ): EventFormState {
   const ts = prefillDate
-    ? new Date(prefillDate + "T09:00").getTime()
+    ? new Date(`${prefillDate}T${prefillStartTime ?? "09:00"}`).getTime()
     : Math.ceil(Date.now() / 3_600_000) * 3_600_000;
   const today = prefillDate ?? new Date().toISOString().slice(0, 10);
   return {
@@ -66,7 +69,7 @@ function formReducer(s: EventFormState, patch: Partial<EventFormState>): EventFo
   return { ...s, ...patch };
 }
 
-export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees, prefillTitle }: Props) {
+export function EventCreateModal({ open, onClose, prefillDate, prefillStartTime, prefillAttendees, prefillTitle }: Props) {
   const templates = useEventTemplates();
   const calendars = useCalendars();
 
@@ -81,7 +84,7 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
   const [state, dispatch] = React.useReducer(
     formReducer,
     null,
-    () => initialState(prefillDate, prefillAttendees, prefillTitle, initialCalId),
+    () => initialState(prefillDate, prefillStartTime, prefillAttendees, prefillTitle, initialCalId),
   );
   const [submitting, setSubmitting] = React.useState(false);
   const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
@@ -93,9 +96,9 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
     const cid = calendars.length === 0
       ? "local-default"
       : defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id;
-    dispatch(initialState(prefillDate, prefillAttendees, prefillTitle, cid));
+    dispatch(initialState(prefillDate, prefillStartTime, prefillAttendees, prefillTitle, cid));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, prefillTitle, prefillAttendees, prefillDate]);
+  }, [open, prefillTitle, prefillAttendees, prefillDate, prefillStartTime]);
 
   function applyTemplate(tmpl: EventTemplate) {
     const currentStart = localDatetimeToTs(state.startVal);

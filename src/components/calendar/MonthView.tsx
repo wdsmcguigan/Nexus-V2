@@ -8,6 +8,7 @@ import { localStore } from "@/storage/local";
 import { rescheduleCalendarEvent, editEventOccurrence } from "@/state/mutations";
 import { isTauri, updateCalendarEvent } from "@/storage/tauri";
 import { toast } from "sonner";
+import { useWorkspace } from "@/state/workspace";
 
 interface Props {
   events: CalendarEvent[];
@@ -24,6 +25,14 @@ export function MonthView({ events, focusDate, monthStartIso, onSelectDate }: Pr
   const cells = React.useMemo(() => generateMonthCells(monthStartIso), [monthStartIso]);
   const currentMonth = monthStartIso.slice(0, 7);
   const [dragOverDay, setDragOverDay] = React.useState<string | null>(null);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
+
+  // Format the focused month as "June 2026". Anchor to noon UTC so DST shifts
+  // never produce e.g. "May 2026" for the first day of June in negative-UTC tz.
+  const monthLabel = React.useMemo(() => {
+    const d = new Date(monthStartIso + "T12:00:00Z");
+    return d.toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+  }, [monthStartIso]);
 
   // Group events by date
   const eventsByDate = React.useMemo(() => {
@@ -85,6 +94,11 @@ export function MonthView({ events, focusDate, monthStartIso, onSelectDate }: Pr
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Month label */}
+      <div className="shrink-0 border-b border-border-subtle px-3 py-1.5 font-sans text-body-strong text-text-primary">
+        {monthLabel}
+      </div>
+
       {/* Weekday header */}
       <div className="grid grid-cols-7 shrink-0 border-b border-border-subtle">
         {DAY_LABELS.map((d) => (
@@ -114,6 +128,15 @@ export function MonthView({ events, focusDate, monthStartIso, onSelectDate }: Pr
               onDragOver={(e) => { e.preventDefault(); setDragOverDay(iso); }}
               onDragLeave={() => setDragOverDay(null)}
               onDrop={(e) => handleDrop(e, iso)}
+              onDoubleClick={(e) => {
+                // Only handle dblclicks on the cell background — child buttons
+                // (day-number, "+N more", event pills) have their own onClick
+                // handlers and stop here naturally because dblclick only fires
+                // when both clicks land on the same element.
+                if (e.target === e.currentTarget) {
+                  openEventCreateModal({ date: iso });
+                }
+              }}
             >
               {/* Day number */}
               <button

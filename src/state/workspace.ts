@@ -193,8 +193,8 @@ interface WorkspaceState {
   setCalendarViewMode: (mode: "agenda" | "week" | "month") => void;
   openCalendarPanel: () => void;
   eventCreateModalOpen: boolean;
-  eventCreateModalPrefill: { attendees?: string[]; title?: string; date?: string } | null;
-  openEventCreateModal: (prefill?: { attendees?: string[]; title?: string; date?: string }) => void;
+  eventCreateModalPrefill: { attendees?: string[]; title?: string; date?: string; time?: string } | null;
+  openEventCreateModal: (prefill?: { attendees?: string[]; title?: string; date?: string; time?: string }) => void;
   closeEventCreateModal: () => void;
 
   // Settings panel

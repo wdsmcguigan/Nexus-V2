@@ -321,6 +321,7 @@ export function Workspace() {
           open={eventCreateModalOpen}
           onClose={closeEventCreateModal}
           prefillDate={eventCreateModalPrefill?.date}
+          prefillStartTime={eventCreateModalPrefill?.time}
           prefillAttendees={eventCreateModalPrefill?.attendees}
           prefillTitle={eventCreateModalPrefill?.title}
         />

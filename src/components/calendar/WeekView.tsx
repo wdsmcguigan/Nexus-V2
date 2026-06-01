@@ -8,6 +8,7 @@ import { localStore } from "@/storage/local";
 import { rescheduleCalendarEvent, editEventOccurrence } from "@/state/mutations";
 import { isTauri, updateCalendarEvent } from "@/storage/tauri";
 import { toast } from "sonner";
+import { useWorkspace } from "@/state/workspace";
 
 interface Props {
   events: CalendarEvent[];
@@ -55,6 +56,7 @@ export function WeekView({ events, focusDate, mondayIso }: Props) {
   const days = generateWeekDays(mondayIso);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [dragOverSlot, setDragOverSlot] = React.useState<{ day: string; hour: number } | null>(null);
+  const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
 
   // Scroll to 8am on mount
   React.useEffect(() => {
@@ -219,6 +221,12 @@ export function WeekView({ events, focusDate, mondayIso }: Props) {
                   onDragOver={(e) => { e.preventDefault(); setDragOverSlot({ day: iso, hour: h }); }}
                   onDragLeave={() => setDragOverSlot(null)}
                   onDrop={(e) => handleDrop(e, iso, h)}
+                  onDoubleClick={() =>
+                    openEventCreateModal({
+                      date: iso,
+                      time: `${String(h).padStart(2, "0")}:00`,
+                    })
+                  }
                 />
               ))}
 
