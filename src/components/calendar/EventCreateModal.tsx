@@ -57,6 +57,8 @@ function initialState(
     visibility: "default",
     transparency: "opaque",
     reminders: [],
+    rrule: undefined,
+    attachments: [],
   };
 }
 
@@ -178,6 +180,8 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           visibility: state.visibility === "default" ? undefined : state.visibility,
           transparency: state.transparency === "opaque" ? undefined : state.transparency,
           reminders: state.reminders.length > 0 ? state.reminders : undefined,
+          rrule: state.rrule || undefined,
+          attachments: state.attachments.length > 0 ? state.attachments : undefined,
           status: "confirmed",
           attendees: [],
           createdAt: Date.now(),

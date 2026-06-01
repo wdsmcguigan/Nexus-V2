@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { MapPin, Users, ExternalLink, Clock, Pencil, Mail, Video, Paperclip, Lock, Bell } from "lucide-react";
+import { MapPin, Users, ExternalLink, Clock, Pencil, Mail, Video, Paperclip, Lock, Bell, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, CalendarReminder } from "@/data/types";
 import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
@@ -9,6 +9,7 @@ import * as Mut from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
 import { formatAllDayDate } from "@/lib/calendarUtils";
 import { eventColor } from "@/lib/calendarColors";
+import { formatRrule } from "@/lib/rrule";
 
 interface Props {
   event: CalendarEvent;
@@ -148,6 +149,14 @@ export function EventDetailPopover({ event, children }: Props) {
               <div className="mt-1.5 flex items-start gap-1.5 text-small text-text-secondary">
                 <Bell size={12} className="mt-0.5 shrink-0 text-text-tertiary" />
                 <span>{event.reminders.map(reminderLabel).join(" · ")}</span>
+              </div>
+            )}
+
+            {/* Recurrence summary */}
+            {!!event.rrule && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-small text-text-secondary">
+                <Repeat size={12} className="mt-0.5 shrink-0 text-text-tertiary" />
+                <span>{formatRrule(event.rrule) || "Repeats"}</span>
               </div>
             )}
 

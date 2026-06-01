@@ -3,9 +3,16 @@ import { Plus, Trash2, ChevronRight, Video, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 import { providerBadge } from "@/lib/calendars";
-import type { Calendar, CalendarEvent, CalendarReminder } from "@/data/types";
+import type {
+  Calendar,
+  CalendarAttachment,
+  CalendarEvent,
+  CalendarReminder,
+} from "@/data/types";
 import { EventColorPicker } from "./EventColorPicker";
 import { RemindersEditor } from "./RemindersEditor";
+import { RecurrenceEditor } from "./RecurrenceEditor";
+import { AttachmentsEditor } from "./AttachmentsEditor";
 
 /**
  * Shape of the form data — the union of every field the two modals expose.
@@ -29,6 +36,8 @@ export interface EventFormState {
   visibility: NonNullable<CalendarEvent["visibility"]>;
   transparency: NonNullable<CalendarEvent["transparency"]>;
   reminders: CalendarReminder[];
+  rrule?: string;
+  attachments: CalendarAttachment[];
 }
 
 interface Props {
@@ -46,7 +55,14 @@ export function EventFormFields({ value, onChange, calendars, initialMoreOpen }:
     value.visibility !== "default" ||
     value.transparency !== "opaque" ||
     value.reminders.length > 0 ||
-    !!value.notes;
+    !!value.notes ||
+    !!value.rrule ||
+    value.attachments.length > 0;
+
+  // Compute dtstart for the recurrence editor — drives the default UNTIL.
+  const dtstart = value.allDay
+    ? (new Date(value.startDate + "T00:00:00").getTime() || Date.now())
+    : (new Date(value.startVal).getTime() || Date.now());
   const [moreOpen, setMoreOpen] = React.useState(initialMoreOpen ?? hasMoreField);
   const [attendeeInput, setAttendeeInput] = React.useState("");
 
@@ -233,6 +249,18 @@ export function EventFormFields({ value, onChange, calendars, initialMoreOpen }:
           <RemindersEditor
             value={value.reminders}
             onChange={(reminders) => onChange({ reminders })}
+          />
+
+          <RecurrenceEditor
+            value={value.rrule}
+            onChange={(rrule) => onChange({ rrule })}
+            dtstart={dtstart}
+            allDay={value.allDay}
+          />
+
+          <AttachmentsEditor
+            value={value.attachments}
+            onChange={(attachments) => onChange({ attachments })}
           />
 
           <div className="flex gap-2">

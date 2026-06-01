@@ -4,11 +4,14 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { updateCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
+import { applyEventEdit, type EditScope } from "@/state/mutations";
 import { useCalendars } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
 import type { CalendarEvent } from "@/data/types";
 import { toast } from "sonner";
 import { resolveSyncTarget } from "@/lib/calendars";
 import { EventFormFields, type EventFormState } from "./event-form/EventFormFields";
+import { RecurrenceScopePicker } from "./event-form/RecurrenceScopePicker";
 
 interface Props {
   event: CalendarEvent | null;
@@ -47,6 +50,8 @@ function stateFromEvent(event: CalendarEvent): EventFormState {
     visibility: event.visibility ?? "default",
     transparency: event.transparency ?? "opaque",
     reminders: event.reminders ?? [],
+    rrule: event.rrule,
+    attachments: event.attachments ?? [],
   };
 }
 
@@ -72,7 +77,31 @@ function emptyState(): EventFormState {
     visibility: "default",
     transparency: "opaque",
     reminders: [],
+    rrule: undefined,
+    attachments: [],
   };
+}
+
+/**
+ * Field-by-field diff vs the original event. Used for recurring-event edits
+ * so a "this occurrence only" change to (say) the title doesn't also lock
+ * the time of the exception via a redundant startTs that happened to come
+ * out of round-tripping through the form state.
+ */
+function diffEvent(orig: CalendarEvent, next: CalendarEvent): Partial<CalendarEvent> {
+  const out: Partial<CalendarEvent> = {};
+  const keys: (keyof CalendarEvent)[] = [
+    "title", "startTs", "endTs", "allDay", "startTzid", "endTzid",
+    "calendarLocalId", "location", "description", "notes", "conferenceUrl",
+    "colorId", "visibility", "transparency", "reminders", "rrule",
+    "attachments", "status",
+  ];
+  for (const k of keys) {
+    if (JSON.stringify(orig[k]) !== JSON.stringify(next[k])) {
+      (out as Record<string, unknown>)[k] = next[k];
+    }
+  }
+  return out;
 }
 
 export function EventEditModal({ event, onClose }: Props) {
@@ -83,11 +112,21 @@ export function EventEditModal({ event, onClose }: Props) {
     () => (event ? stateFromEvent(event) : emptyState()),
   );
   const [submitting, setSubmitting] = React.useState(false);
+  const [scope, setScope] = React.useState<EditScope>("occurrence");
 
   // Re-derive state when the user opens the modal on a different event.
   React.useEffect(() => {
-    if (event) dispatch(stateFromEvent(event));
+    if (event) {
+      dispatch(stateFromEvent(event));
+      setScope("occurrence");
+    }
   }, [event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // An expanded occurrence (masterId set) is the only case where the scope
+  // picker is meaningful. Raw masters and Google-expanded instances always
+  // edit the underlying record directly via UPSERT_CALENDAR_EVENT.
+  const isExpandedOccurrence =
+    !!event && event.masterId != null && event.occurrenceStart != null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -107,6 +146,28 @@ export function EventEditModal({ event, onClose }: Props) {
     // Cross-provider moves don't push to Google in this PR.
     const selectedCalendar = calendars.find((c) => c.id === state.calendarLocalId);
     const target = resolveSyncTarget(selectedCalendar);
+
+    const nextEvent: CalendarEvent = {
+      ...event,
+      title: state.title.trim(),
+      startTs,
+      endTs,
+      allDay: state.allDay,
+      startTzid: tzid,
+      endTzid: tzid,
+      calendarLocalId: state.calendarLocalId,
+      location: state.location.trim() || undefined,
+      description: state.description.trim() || undefined,
+      notes: state.notes.trim() || undefined,
+      conferenceUrl: state.conferenceUrl.trim() || undefined,
+      colorId: state.colorId,
+      visibility: state.visibility === "default" ? undefined : state.visibility,
+      transparency: state.transparency === "opaque" ? undefined : state.transparency,
+      reminders: state.reminders.length > 0 ? state.reminders : undefined,
+      rrule: state.rrule || undefined,
+      attachments: state.attachments.length > 0 ? state.attachments : undefined,
+      updatedAt: Date.now(),
+    };
 
     setSubmitting(true);
     let syncWarning: string | undefined;
@@ -132,27 +193,16 @@ export function EventEditModal({ event, onClose }: Props) {
             : `Saved locally — Google sync failed: ${msg}`;
         }
       }
-      Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
-        event: {
-          ...event,
-          title: state.title.trim(),
-          startTs,
-          endTs,
-          allDay: state.allDay,
-          startTzid: tzid,
-          endTzid: tzid,
-          calendarLocalId: state.calendarLocalId,
-          location: state.location.trim() || undefined,
-          description: state.description.trim() || undefined,
-          notes: state.notes.trim() || undefined,
-          conferenceUrl: state.conferenceUrl.trim() || undefined,
-          colorId: state.colorId,
-          visibility: state.visibility === "default" ? undefined : state.visibility,
-          transparency: state.transparency === "opaque" ? undefined : state.transparency,
-          reminders: state.reminders.length > 0 ? state.reminders : undefined,
-          updatedAt: Date.now(),
-        },
-      });
+      if (isExpandedOccurrence) {
+        // Recurring-instance edit: route through applyEventEdit with only the
+        // user-touched fields. Sending a full UPSERT here with rebuilt
+        // timestamps would corrupt the series (CLAUDE.md gotcha).
+        const changes = diffEvent(event, nextEvent);
+        delete changes.updatedAt;
+        applyEventEdit(localStore, scope, event.masterId!, event.occurrenceStart!, changes);
+      } else {
+        Mut.recordMutation("UPSERT_CALENDAR_EVENT", { event: nextEvent });
+      }
       if (syncWarning) {
         toast.warning(syncWarning);
       } else {
@@ -187,6 +237,12 @@ export function EventEditModal({ event, onClose }: Props) {
                 onChange={(patch) => dispatch(patch)}
                 calendars={calendars}
               />
+
+              {isExpandedOccurrence && (
+                <div className="mt-3">
+                  <RecurrenceScopePicker value={scope} onChange={setScope} />
+                </div>
+              )}
 
               <div className="mt-5 flex justify-end gap-2">
                 <Dialog.Close asChild>
