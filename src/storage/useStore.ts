@@ -310,16 +310,25 @@ export function useVisibleMessages(
   }, [v, folderId, activeFilter, savedViewId, sortBy, sortDir]);
 }
 
-/** Returns all tag strings sorted by usage count descending, then alphabetically. */
+/** Returns all tag strings sorted by usage count descending, then alphabetically.
+ *
+ * Sourced from `messagesByTag` (the source of truth — `putMessage` always
+ * indexes every tag on every synced message). `tagUsage` was previously the
+ * source but only ever populates from explicit `ADD_TAG` mutations, which
+ * misses tags that arrive on Gmail-synced messages and made them invisible
+ * in the nav. Counts come from each tag's message set size.
+ */
 export function useAllTags(): string[] {
   const v = useStoreVersion();
-  return useMemo(
-    () =>
-      Array.from(localStore.tagUsage.values())
-        .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
-        .map((t) => t.tag),
-    [v],
-  );
+  return useMemo(() => {
+    const entries: { tag: string; count: number }[] = [];
+    for (const [tag, msgs] of localStore.messagesByTag.entries()) {
+      if (msgs.size > 0) entries.push({ tag, count: msgs.size });
+    }
+    return entries
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+      .map((t) => t.tag);
+  }, [v]);
 }
 
 /** Returns display title of the current view (nav selection or saved view name). */

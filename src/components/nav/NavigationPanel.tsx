@@ -318,7 +318,10 @@ function SystemLabelRow({ label }: { label: LabelType }) {
       <span
         className={cn(
           "min-w-0 flex-1 truncate text-body",
-          unread > 0 && !active && "font-semibold text-text-primary",
+          // The unread count badge already signals "has unread mail" — bolding
+          // the row name on top of that caused inconsistent visual rhythm
+          // where selected items reverted to regular weight.
+          unread > 0 && !active && "text-text-primary",
         )}
       >
         {label.name}
@@ -612,7 +615,9 @@ function FolderTreeNode({
             <span
               className={cn(
                 "min-w-0 flex-1 truncate text-body",
-                unread > 0 && !active && "font-semibold text-text-primary",
+                // See note in SystemLabelRow — the badge alone is the unread
+                // signal; bolding the row name caused inconsistent weight.
+                unread > 0 && !active && "text-text-primary",
               )}
             >
               {folder.name}
