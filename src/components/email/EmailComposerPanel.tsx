@@ -502,14 +502,26 @@ export function EmailComposerPanel() {
   // visible — it transitions instead of stacking).
   const sendingToastIdRef = React.useRef<string | number | null>(null);
 
-  // Send is blocked when any committed recipient fails the WHATWG email check.
-  const hasInvalidRecipients = React.useMemo(
-    () =>
-      [...recipients, ...ccRecipients, ...bccRecipients].some(
-        (addr) => !isValidEmail(addr),
-      ),
-    [recipients, ccRecipients, bccRecipients],
-  );
+  // Gating for the Send button. Two failure modes:
+  //   1. No recipients at all (committed chips + pending draft text both empty).
+  //      Gmail rejects this with "Recipient address required" — the user's
+  //      visible-but-uncommitted To text would otherwise be silently dropped.
+  //   2. Any committed chip OR any non-empty pending draft fails the WHATWG
+  //      email check. Pending drafts count because `doActualSend` implicitly
+  //      commits them at send time (just like Gmail / Outlook do).
+  const sendGate = React.useMemo(() => {
+    const allCommitted = [...recipients, ...ccRecipients, ...bccRecipients];
+    const allDrafts = [draftInput.trim(), ccDraftInput.trim(), bccDraftInput.trim()].filter(Boolean);
+    const allEffective = [...allCommitted, ...allDrafts];
+    if (allEffective.length === 0) {
+      return { ok: false as const, reason: "Add at least one recipient" };
+    }
+    if (allEffective.some((addr) => !isValidEmail(addr))) {
+      return { ok: false as const, reason: "Fix invalid recipient(s) first" };
+    }
+    return { ok: true as const, reason: "" };
+  }, [recipients, ccRecipients, bccRecipients, draftInput, ccDraftInput, bccDraftInput]);
+  const hasInvalidRecipients = !sendGate.ok;
 
   const doActualSend = React.useCallback(async () => {
     setSending(false);
@@ -520,6 +532,29 @@ export function EmailComposerPanel() {
       toast.dismiss(sendingToastIdRef.current);
       sendingToastIdRef.current = null;
     }
+    // Implicit commit: if the user clicks Send with text still in any
+    // recipient input (no Enter pressed), include it. Otherwise Gmail rejects
+    // with "Recipient address required" because params.to.join(", ") is "" —
+    // the most common cause of silent send failures. Matches Gmail/Outlook
+    // behavior. Also dedupes against existing chips so a stray Enter +
+    // re-type doesn't double-add.
+    const toDraft = draftInput.trim();
+    const ccDraft = ccDraftInput.trim();
+    const bccDraft = bccDraftInput.trim();
+    const finalRecipients = toDraft && !recipients.includes(toDraft)
+      ? [...recipients, toDraft]
+      : recipients;
+    const finalCc = ccDraft && !ccRecipients.includes(ccDraft)
+      ? [...ccRecipients, ccDraft]
+      : ccRecipients;
+    const finalBcc = bccDraft && !bccRecipients.includes(bccDraft)
+      ? [...bccRecipients, bccDraft]
+      : bccRecipients;
+    // Sync the UI so the chips appear (and the optimistic Sent row carries
+    // the correct addresses below).
+    if (toDraft) { setRecipients(finalRecipients); setDraftInput(""); }
+    if (ccDraft) { setCcRecipients(finalCc); setCcDraftInput(""); }
+    if (bccDraft) { setBccRecipients(finalBcc); setBccDraftInput(""); }
     const bodyHtml = editor?.getHTML() ?? "";
     if (isTauri()) {
       const accounts = Array.from(localStore.accounts.values());
@@ -540,9 +575,9 @@ export function EmailComposerPanel() {
         const gmailId = await sendMessage({
           accountId: selectedAccount.id,
           from: selectedAccount.email,
-          to: recipients,
-          cc: ccRecipients.length > 0 ? ccRecipients : undefined,
-          bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
+          to: finalRecipients,
+          cc: finalCc.length > 0 ? finalCc : undefined,
+          bcc: finalBcc.length > 0 ? finalBcc : undefined,
           subject,
           bodyHtml,
           replyToMessageId: replyMsg?.providerIds?.messageId,
@@ -581,9 +616,9 @@ export function EmailComposerPanel() {
             receivedAt: nowMs,
             sentAt: nowMs,
             fromAddr: { name: selectedAccount.email, email: selectedAccount.email },
-            toAddrs: recipients.map((email) => ({ name: "", email })),
-            ccAddrs: ccRecipients.map((email) => ({ name: "", email })),
-            bccAddrs: bccRecipients.map((email) => ({ name: "", email })),
+            toAddrs: finalRecipients.map((email) => ({ name: "", email })),
+            ccAddrs: finalCc.map((email) => ({ name: "", email })),
+            bccAddrs: finalBcc.map((email) => ({ name: "", email })),
             subject,
             snippet: htmlToSnippet(bodyHtml),
             bodyRef: "",
@@ -630,7 +665,7 @@ export function EmailComposerPanel() {
       if (sendAndArchiveRef.current && replyMsg) archive(replyMsg.id);
     }
     setComposerOpen(false);
-  }, [editor, recipients, ccRecipients, bccRecipients, subject, replyMsg, attachments, setComposerOpen, archive, _draftKey, composerContext?.icalReply, fromAccountId]);
+  }, [editor, recipients, ccRecipients, bccRecipients, draftInput, ccDraftInput, bccDraftInput, subject, replyMsg, attachments, setComposerOpen, archive, _draftKey, composerContext?.icalReply, fromAccountId]);
 
   const startSend = React.useCallback(() => {
     // Clear any previous failure banner — the user is trying again.
@@ -1037,9 +1072,7 @@ export function EmailComposerPanel() {
           ) : !sending ? (
             /* Normal send: split button (Send | ▾ dropdown) */
             <div className="flex items-stretch">
-              <Tooltip
-                label={hasInvalidRecipients ? "Fix invalid recipient(s) first" : ""}
-              >
+              <Tooltip label={sendGate.ok ? "" : sendGate.reason}>
                 <Button
                   variant="primary"
                   size="md"
