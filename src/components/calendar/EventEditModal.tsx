@@ -1,13 +1,14 @@
 import * as React from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Trash2 } from "lucide-react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { updateCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import { useCalendars } from "@/storage/useStore";
 import type { CalendarEvent } from "@/data/types";
 import { toast } from "sonner";
-import { resolveSyncTarget, providerBadge } from "@/lib/calendars";
+import { resolveSyncTarget } from "@/lib/calendars";
+import { EventFormFields, type EventFormState } from "./event-form/EventFormFields";
 
 interface Props {
   event: CalendarEvent | null;
@@ -28,64 +29,83 @@ function localDatetimeToTs(value: string): number {
   return new Date(value).getTime();
 }
 
+function stateFromEvent(event: CalendarEvent): EventFormState {
+  return {
+    title: event.title,
+    allDay: event.allDay,
+    startVal: toLocalDatetimeValue(event.startTs),
+    endVal: toLocalDatetimeValue(event.endTs),
+    startDate: toLocalDateValue(event.startTs),
+    endDate: toLocalDateValue(event.endTs),
+    calendarLocalId: event.calendarLocalId ?? "local-default",
+    location: event.location ?? "",
+    description: event.description ?? "",
+    attendees: event.attendees.map((a) => a.email),
+    notes: event.notes ?? "",
+    conferenceUrl: event.conferenceUrl ?? "",
+    colorId: event.colorId,
+    visibility: event.visibility ?? "default",
+    transparency: event.transparency ?? "opaque",
+    reminders: event.reminders ?? [],
+  };
+}
+
+function formReducer(s: EventFormState, patch: Partial<EventFormState>): EventFormState {
+  return { ...s, ...patch };
+}
+
+function emptyState(): EventFormState {
+  return {
+    title: "",
+    allDay: false,
+    startVal: "",
+    endVal: "",
+    startDate: "",
+    endDate: "",
+    calendarLocalId: "local-default",
+    location: "",
+    description: "",
+    attendees: [],
+    notes: "",
+    conferenceUrl: "",
+    colorId: undefined,
+    visibility: "default",
+    transparency: "opaque",
+    reminders: [],
+  };
+}
+
 export function EventEditModal({ event, onClose }: Props) {
-  const [title, setTitle] = React.useState(event?.title ?? "");
-  const [allDay, setAllDay] = React.useState(event?.allDay ?? false);
-  const [startVal, setStartVal] = React.useState(event ? toLocalDatetimeValue(event.startTs) : "");
-  const [endVal, setEndVal] = React.useState(event ? toLocalDatetimeValue(event.endTs) : "");
-  const [startDate, setStartDate] = React.useState(event ? toLocalDateValue(event.startTs) : "");
-  const [endDate, setEndDate] = React.useState(event ? toLocalDateValue(event.endTs) : "");
-  const [location, setLocation] = React.useState(event?.location ?? "");
-  const [description, setDescription] = React.useState(event?.description ?? "");
-  const [attendeeInput, setAttendeeInput] = React.useState("");
-  const [attendees, setAttendees] = React.useState<string[]>(
-    () => event?.attendees.map((a) => a.email) ?? []
-  );
-  const [calendarLocalId, setCalendarLocalId] = React.useState(event?.calendarLocalId ?? "local-default");
-  const [submitting, setSubmitting] = React.useState(false);
   const calendars = useCalendars();
+  const [state, dispatch] = React.useReducer(
+    formReducer,
+    null,
+    () => (event ? stateFromEvent(event) : emptyState()),
+  );
+  const [submitting, setSubmitting] = React.useState(false);
 
+  // Re-derive state when the user opens the modal on a different event.
   React.useEffect(() => {
-    if (event) {
-      setTitle(event.title);
-      setAllDay(event.allDay);
-      setStartVal(toLocalDatetimeValue(event.startTs));
-      setEndVal(toLocalDatetimeValue(event.endTs));
-      setStartDate(toLocalDateValue(event.startTs));
-      setEndDate(toLocalDateValue(event.endTs));
-      setLocation(event.location ?? "");
-      setDescription(event.description ?? "");
-      setAttendees(event.attendees.map((a) => a.email));
-      setCalendarLocalId(event.calendarLocalId ?? "local-default");
-    }
-  }, [event?.id]);
-
-  function addAttendee() {
-    const email = attendeeInput.trim();
-    if (email && !attendees.includes(email)) {
-      setAttendees((prev) => [...prev, email]);
-    }
-    setAttendeeInput("");
-  }
+    if (event) dispatch(stateFromEvent(event));
+  }, [event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!event) return;
-    if (!title.trim()) { toast.error("Title is required"); return; }
+    if (!state.title.trim()) { toast.error("Title is required"); return; }
 
-    const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
-    const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
-    // Timed events carry the user's IANA timezone (Phase 1); all-day is floating.
-    const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const startTs = state.allDay
+      ? new Date(state.startDate + "T00:00:00").getTime()
+      : localDatetimeToTs(state.startVal);
+    const endTs = state.allDay
+      ? new Date(state.endDate + "T00:00:00").getTime()
+      : localDatetimeToTs(state.endVal);
+    const tzid = state.allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     // Provider-driven sync (EP-14): push the update to Google only when the
-    // event currently has an externalId AND its current calendar is Google-
-    // backed. If the user moves the event to a non-Google calendar in this
-    // edit, we don't push to Google — the remote copy is orphaned by the move
-    // (acceptable trade-off; cleaner cross-provider moves come in a follow-up).
-    // Look the calendar up from the selected id, not from event.accountId,
-    // so a calendar change in this modal takes effect immediately.
-    const selectedCalendar = calendars.find((c) => c.id === calendarLocalId);
+    // event currently has an externalId AND the selected calendar is Google.
+    // Cross-provider moves don't push to Google in this PR.
+    const selectedCalendar = calendars.find((c) => c.id === state.calendarLocalId);
     const target = resolveSyncTarget(selectedCalendar);
 
     setSubmitting(true);
@@ -96,18 +116,16 @@ export function EventEditModal({ event, onClose }: Props) {
           await updateCalendarEvent({
             accountId: target.accountId,
             externalId: event.externalId,
-            title: title.trim(),
+            title: state.title.trim(),
             startTs,
             endTs,
-            allDay,
-            location: location.trim() || undefined,
-            description: description.trim() || undefined,
-            attendeeEmails: attendees,
+            allDay: state.allDay,
+            location: state.location.trim() || undefined,
+            description: state.description.trim() || undefined,
+            attendeeEmails: state.attendees,
             timeZone: tzid,
           });
         } catch (err) {
-          // Mirror the Create modal's graceful fallback: a Google failure must
-          // not block the local edit (commit e088ea3 contract).
           const msg = err instanceof Error ? err.message : String(err);
           syncWarning = msg.includes("403")
             ? "Saved locally — reconnect Gmail to enable Google Calendar sync"
@@ -117,15 +135,21 @@ export function EventEditModal({ event, onClose }: Props) {
       Mut.recordMutation("UPSERT_CALENDAR_EVENT", {
         event: {
           ...event,
-          title: title.trim(),
+          title: state.title.trim(),
           startTs,
           endTs,
-          allDay,
+          allDay: state.allDay,
           startTzid: tzid,
           endTzid: tzid,
-          calendarLocalId,
-          location: location.trim() || undefined,
-          description: description.trim() || undefined,
+          calendarLocalId: state.calendarLocalId,
+          location: state.location.trim() || undefined,
+          description: state.description.trim() || undefined,
+          notes: state.notes.trim() || undefined,
+          conferenceUrl: state.conferenceUrl.trim() || undefined,
+          colorId: state.colorId,
+          visibility: state.visibility === "default" ? undefined : state.visibility,
+          transparency: state.transparency === "opaque" ? undefined : state.transparency,
+          reminders: state.reminders.length > 0 ? state.reminders : undefined,
           updatedAt: Date.now(),
         },
       });
@@ -158,107 +182,11 @@ export function EventEditModal({ event, onClose }: Props) {
                 </Dialog.Close>
               </div>
 
-              <div className="space-y-3">
-                <input
-                  autoFocus
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Event title"
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-
-                <label className="flex items-center gap-2 text-small text-text-secondary cursor-pointer">
-                  <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="accent-accent" />
-                  All day
-                </label>
-
-                {allDay ? (
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">Start date</label>
-                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">End date</label>
-                      <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">Start</label>
-                      <input type="datetime-local" value={startVal} onChange={(e) => setStartVal(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">End</label>
-                      <input type="datetime-local" value={endVal} onChange={(e) => setEndVal(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="mb-1 block text-small text-text-secondary">Calendar</label>
-                  <select
-                    value={calendarLocalId}
-                    onChange={(e) => setCalendarLocalId(e.target.value)}
-                    className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
-                  >
-                    {calendars.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({providerBadge(c)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Location (optional)"
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Description (optional)"
-                  rows={3}
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none resize-none"
-                />
-
-                <div>
-                  <label className="mb-1 block text-small text-text-secondary">Attendees</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={attendeeInput}
-                      onChange={(e) => setAttendeeInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addAttendee(); } }}
-                      placeholder="email@example.com"
-                      className="flex-1 rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                    />
-                    <Button type="button" variant="secondary" size="sm" onClick={addAttendee}>
-                      <Plus size={14} />
-                    </Button>
-                  </div>
-                  {attendees.length > 0 && (
-                    <ul className="mt-2 space-y-1">
-                      {attendees.map((email) => (
-                        <li key={email} className="flex items-center justify-between text-small text-text-secondary">
-                          <span>{email}</span>
-                          <button type="button" onClick={() => setAttendees((prev) => prev.filter((e) => e !== email))}
-                            className="text-text-muted hover:text-danger transition-colors">
-                            <Trash2 size={12} />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
+              <EventFormFields
+                value={state}
+                onChange={(patch) => dispatch(patch)}
+                calendars={calendars}
+              />
 
               <div className="mt-5 flex justify-end gap-2">
                 <Dialog.Close asChild>

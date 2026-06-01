@@ -1,13 +1,14 @@
 import * as React from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { MapPin, Users, ExternalLink, Clock, Pencil, Mail, Video, Paperclip, Lock } from "lucide-react";
+import { MapPin, Users, ExternalLink, Clock, Pencil, Mail, Video, Paperclip, Lock, Bell } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@/data/types";
+import type { CalendarEvent, CalendarReminder } from "@/data/types";
 import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
 import { EventEditModal } from "./EventEditModal";
 import * as Mut from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
 import { formatAllDayDate } from "@/lib/calendarUtils";
+import { eventColor } from "@/lib/calendarColors";
 
 interface Props {
   event: CalendarEvent;
@@ -33,6 +34,25 @@ const RSVP_ICONS: Record<string, { icon: string; cls: string }> = {
   declined:    { icon: "✗", cls: "text-danger" },
   tentative:   { icon: "?", cls: "text-amber-500" },
   needsAction: { icon: "⏳", cls: "text-text-muted" },
+};
+
+function reminderLabel(r: CalendarReminder): string {
+  const m = Math.max(0, Math.round(r.minutes));
+  const time =
+    m === 0 ? "at start" :
+    m % (60 * 24 * 7) === 0 ? `${m / (60 * 24 * 7)} wk` :
+    m % (60 * 24) === 0     ? `${m / (60 * 24)} d` :
+    m % 60 === 0            ? `${m / 60} h` :
+    `${m} min`;
+  const method = r.method === "email" ? "email" : "notification";
+  return `${time} ${method}`;
+}
+
+const VISIBILITY_LABEL: Record<NonNullable<CalendarEvent["visibility"]>, string> = {
+  default: "",
+  public: "Public",
+  private: "Private",
+  confidential: "Confidential",
 };
 
 export function EventDetailPopover({ event, children }: Props) {
@@ -68,6 +88,14 @@ export function EventDetailPopover({ event, children }: Props) {
             {/* Title row */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-start gap-1.5 font-sans text-body-strong text-text-primary leading-snug min-w-0">
+                {event.colorId && (
+                  <span
+                    aria-hidden
+                    className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: eventColor(event.colorId) }}
+                    title="Event color"
+                  />
+                )}
                 {isPrivate && <span title="Private"><Lock size={11} className="mt-0.5 shrink-0 text-text-muted" /></span>}
                 <span className="truncate">{event.title}</span>
               </div>
@@ -113,6 +141,31 @@ export function EventDetailPopover({ event, children }: Props) {
               <p className="mt-1.5 text-small text-text-tertiary line-clamp-3">
                 {event.description}
               </p>
+            )}
+
+            {/* Reminders */}
+            {!!event.reminders?.length && (
+              <div className="mt-1.5 flex items-start gap-1.5 text-small text-text-secondary">
+                <Bell size={12} className="mt-0.5 shrink-0 text-text-tertiary" />
+                <span>{event.reminders.map(reminderLabel).join(" · ")}</span>
+              </div>
+            )}
+
+            {/* Visibility / availability chips (non-default only) */}
+            {(event.transparency === "transparent" ||
+              (event.visibility && event.visibility !== "default")) && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {event.visibility && event.visibility !== "default" && (
+                  <span className="rounded-xs border border-border-default px-1.5 py-0.5 text-caption text-text-secondary">
+                    {VISIBILITY_LABEL[event.visibility]}
+                  </span>
+                )}
+                {event.transparency === "transparent" && (
+                  <span className="rounded-xs border border-border-default px-1.5 py-0.5 text-caption text-text-secondary">
+                    Free
+                  </span>
+                )}
+              </div>
             )}
 
             {/* Drive attachments */}

@@ -1,6 +1,6 @@
 import * as React from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Plus, Trash2, ChevronDown } from "lucide-react";
+import { X, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { createCalendarEvent } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
@@ -8,12 +8,9 @@ import { localStore } from "@/storage/local";
 import { useEventTemplates, useCalendars } from "@/storage/useStore";
 import { toast } from "sonner";
 import type { EventTemplate } from "@/data/types";
-import {
-  resolveSyncTarget,
-  providerBadge,
-  defaultWritableCalendar,
-} from "@/lib/calendars";
+import { resolveSyncTarget, defaultWritableCalendar } from "@/lib/calendars";
 import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
+import { EventFormFields, type EventFormState } from "./event-form/EventFormFields";
 
 interface Props {
   open: boolean;
@@ -33,99 +30,105 @@ function localDatetimeToTs(value: string): number {
   return new Date(value).getTime();
 }
 
-export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees, prefillTitle }: Props) {
-  const now = Date.now();
-  const defaultStart = prefillDate
+function initialState(
+  prefillDate: string | undefined,
+  prefillAttendees: string[] | undefined,
+  prefillTitle: string | undefined,
+  calendarLocalId: string,
+): EventFormState {
+  const ts = prefillDate
     ? new Date(prefillDate + "T09:00").getTime()
-    : Math.ceil(now / 3_600_000) * 3_600_000;
-  const defaultEnd = defaultStart + 3_600_000;
+    : Math.ceil(Date.now() / 3_600_000) * 3_600_000;
+  const today = prefillDate ?? new Date().toISOString().slice(0, 10);
+  return {
+    title: prefillTitle ?? "",
+    allDay: false,
+    startVal: toLocalDatetimeValue(ts),
+    endVal: toLocalDatetimeValue(ts + 3_600_000),
+    startDate: today,
+    endDate: today,
+    calendarLocalId,
+    location: "",
+    description: "",
+    attendees: prefillAttendees ?? [],
+    notes: "",
+    conferenceUrl: "",
+    colorId: undefined,
+    visibility: "default",
+    transparency: "opaque",
+    reminders: [],
+  };
+}
 
-  const [title, setTitle] = React.useState(prefillTitle ?? "");
-  const [allDay, setAllDay] = React.useState(false);
-  const [startVal, setStartVal] = React.useState(toLocalDatetimeValue(defaultStart));
-  const [endVal, setEndVal] = React.useState(toLocalDatetimeValue(defaultEnd));
-  const [startDate, setStartDate] = React.useState(prefillDate ?? new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = React.useState(prefillDate ?? new Date().toISOString().slice(0, 10));
-  const [location, setLocation] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [attendeeInput, setAttendeeInput] = React.useState("");
-  const [attendees, setAttendees] = React.useState<string[]>(prefillAttendees ?? []);
-  const [submitting, setSubmitting] = React.useState(false);
-  const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
+function formReducer(s: EventFormState, patch: Partial<EventFormState>): EventFormState {
+  return { ...s, ...patch };
+}
 
+export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees, prefillTitle }: Props) {
   const templates = useEventTemplates();
   const calendars = useCalendars();
 
-  // Default to the user's last-used calendar, falling back to the local default.
-  // Computed lazily via a function initializer so we only touch localStorage once.
-  const [calendarLocalId, setCalendarLocalId] = React.useState<string>(() => {
+  const initialCalId = React.useMemo(() => {
     if (calendars.length === 0) return "local-default";
     return defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id;
-  });
+  // The default needs to be recomputed whenever the modal opens, but the
+  // calendar list itself rarely changes — list identity is the trigger.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calendars]);
 
-  function applyTemplate(tmpl: EventTemplate) {
-    setTitle(tmpl.title);
-    setDescription(tmpl.description ?? "");
-    setLocation(tmpl.location ?? "");
-    const currentStart = localDatetimeToTs(startVal);
-    setEndVal(toLocalDatetimeValue(currentStart + tmpl.durationMinutes * 60_000));
-    if (tmpl.defaultAttendees.length > 0) setAttendees(tmpl.defaultAttendees);
-    setTemplateMenuOpen(false);
-  }
+  const [state, dispatch] = React.useReducer(
+    formReducer,
+    null,
+    () => initialState(prefillDate, prefillAttendees, prefillTitle, initialCalId),
+  );
+  const [submitting, setSubmitting] = React.useState(false);
+  const [templateMenuOpen, setTemplateMenuOpen] = React.useState(false);
 
+  // Reset on (re-)open: this is intentional — clicking "New event" twice
+  // should not preserve half-typed state from a closed modal.
   React.useEffect(() => {
     if (!open) return;
-    const ts = prefillDate
-      ? new Date(prefillDate + "T09:00").getTime()
-      : Math.ceil(Date.now() / 3_600_000) * 3_600_000;
-    setTitle(prefillTitle ?? "");
-    setAttendees(prefillAttendees ?? []);
-    setAllDay(false);
-    setStartVal(toLocalDatetimeValue(ts));
-    setEndVal(toLocalDatetimeValue(ts + 3_600_000));
-    setStartDate(prefillDate ?? new Date().toISOString().slice(0, 10));
-    setEndDate(prefillDate ?? new Date().toISOString().slice(0, 10));
-    setLocation("");
-    setDescription("");
-    setAttendeeInput("");
-    if (calendars.length > 0) {
-      setCalendarLocalId(
-        defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id,
-      );
-    }
+    const cid = calendars.length === 0
+      ? "local-default"
+      : defaultWritableCalendar(calendars, getAppPreferences().lastUsedCalendarLocalId).id;
+    dispatch(initialState(prefillDate, prefillAttendees, prefillTitle, cid));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefillTitle, prefillAttendees, prefillDate]);
 
-  function addAttendee() {
-    const email = attendeeInput.trim();
-    if (email && !attendees.includes(email)) {
-      setAttendees((prev) => [...prev, email]);
-    }
-    setAttendeeInput("");
+  function applyTemplate(tmpl: EventTemplate) {
+    const currentStart = localDatetimeToTs(state.startVal);
+    dispatch({
+      title: tmpl.title,
+      description: tmpl.description ?? "",
+      location: tmpl.location ?? "",
+      endVal: toLocalDatetimeValue(currentStart + tmpl.durationMinutes * 60_000),
+      attendees: tmpl.defaultAttendees.length > 0 ? tmpl.defaultAttendees : state.attendees,
+    });
+    setTemplateMenuOpen(false);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) { toast.error("Title is required"); return; }
+    if (!state.title.trim()) { toast.error("Title is required"); return; }
 
-    const startTs = allDay ? new Date(startDate + "T00:00:00").getTime() : localDatetimeToTs(startVal);
-    const endTs = allDay ? new Date(endDate + "T00:00:00").getTime() : localDatetimeToTs(endVal);
+    const startTs = state.allDay
+      ? new Date(state.startDate + "T00:00:00").getTime()
+      : localDatetimeToTs(state.startVal);
+    const endTs = state.allDay
+      ? new Date(state.endDate + "T00:00:00").getTime()
+      : localDatetimeToTs(state.endVal);
     // Sync routing is driven by the target calendar's provider (EP-14): the modal
     // pushes to Google only when the user chose a Google-backed calendar.
-    // A local calendar — even with a Gmail account connected — stays purely local.
-    const selectedCalendar = calendars.find((c) => c.id === calendarLocalId);
+    const selectedCalendar = calendars.find((c) => c.id === state.calendarLocalId);
     const target = resolveSyncTarget(selectedCalendar);
     const vaultId = selectedCalendar?.vaultId ?? localStore.vault?.id ?? "local";
-    // Timed events carry the user's IANA timezone (Phase 1); all-day events are
-    // floating (no tzid).
-    const tzid = allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tzid = state.allDay ? undefined : Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     setSubmitting(true);
     try {
-      // Google branch: try the push; preserve the merged graceful-fallback so a
-      // 403 (missing scope), offline, or other failure still produces the local
-      // event with a warning toast (commit e088ea3).
-      // Local branch: skip the IPC entirely — no Google contact at all.
+      // Google branch: try the push; preserve the graceful-fallback from
+      // commit e088ea3 so 403 / offline / API errors still produce the local
+      // event with a warning toast.
       let eventId: string;
       let externalId: string | undefined;
       let syncWarning: string | undefined;
@@ -133,13 +136,13 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
         try {
           eventId = await createCalendarEvent({
             accountId: target.accountId,
-            title: title.trim(),
+            title: state.title.trim(),
             startTs,
             endTs,
-            allDay,
-            location: location.trim() || undefined,
-            description: description.trim() || undefined,
-            attendeeEmails: attendees,
+            allDay: state.allDay,
+            location: state.location.trim() || undefined,
+            description: state.description.trim() || undefined,
+            attendeeEmails: state.attendees,
             timeZone: tzid,
           });
           externalId = eventId;
@@ -159,24 +162,29 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           vaultId,
           accountId: selectedCalendar?.accountId ?? "local",
           calendarId: target.kind === "google" ? target.externalCalendarId : "primary",
-          calendarLocalId,
+          calendarLocalId: state.calendarLocalId,
           externalId,
-          title: title.trim(),
+          title: state.title.trim(),
           startTs,
           endTs,
-          allDay,
+          allDay: state.allDay,
           startTzid: tzid,
           endTzid: tzid,
-          location: location.trim() || undefined,
-          description: description.trim() || undefined,
+          location: state.location.trim() || undefined,
+          description: state.description.trim() || undefined,
+          notes: state.notes.trim() || undefined,
+          conferenceUrl: state.conferenceUrl.trim() || undefined,
+          colorId: state.colorId,
+          visibility: state.visibility === "default" ? undefined : state.visibility,
+          transparency: state.transparency === "opaque" ? undefined : state.transparency,
+          reminders: state.reminders.length > 0 ? state.reminders : undefined,
           status: "confirmed",
           attendees: [],
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
       });
-      // Remember the choice so the next New Event opens on the same calendar.
-      saveAppPreferences({ lastUsedCalendarLocalId: calendarLocalId });
+      saveAppPreferences({ lastUsedCalendarLocalId: state.calendarLocalId });
       if (syncWarning) {
         toast.warning(syncWarning);
       } else {
@@ -206,137 +214,42 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
                 </Dialog.Close>
               </div>
 
-              <div className="space-y-3">
-                {templates.length > 0 && (
-                  <div className="relative">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setTemplateMenuOpen((v) => !v)}
-                    >
-                      Use template
-                      <ChevronDown size={12} />
-                    </Button>
-                    {templateMenuOpen && (
-                      <div className="absolute left-0 top-full z-10 mt-1 w-56 rounded-sm border border-border-default bg-surface-2 shadow-l2 py-1">
-                        {templates.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            className="w-full px-3 py-2 text-left text-small text-text-primary hover:bg-surface-3"
-                            onClick={() => applyTemplate(t)}
-                          >
-                            <div className="truncate font-medium">{t.name}</div>
-                            <div className="truncate text-caption text-text-tertiary">
-                              {t.title || "(no title)"} · {t.durationMinutes} min
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                <input
-                  autoFocus
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Event title"
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-
-                <label className="flex items-center gap-2 text-small text-text-secondary cursor-pointer">
-                  <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="accent-accent" />
-                  All day
-                </label>
-
-                {allDay ? (
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">Start date</label>
-                      <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">End date</label>
-                      <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">Start</label>
-                      <input type="datetime-local" value={startVal} onChange={(e) => setStartVal(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                    <div className="flex-1">
-                      <label className="mb-1 block text-small text-text-secondary">End</label>
-                      <input type="datetime-local" value={endVal} onChange={(e) => setEndVal(e.target.value)}
-                        className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none" />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label className="mb-1 block text-small text-text-secondary">Calendar</label>
-                  <select
-                    value={calendarLocalId}
-                    onChange={(e) => setCalendarLocalId(e.target.value)}
-                    className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary focus:border-accent focus:outline-none"
+              {templates.length > 0 && (
+                <div className="relative mb-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setTemplateMenuOpen((v) => !v)}
                   >
-                    {calendars.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({providerBadge(c)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <input
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Location (optional)"
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                />
-
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Description (optional)"
-                  rows={3}
-                  className="w-full rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none resize-none"
-                />
-
-                <div>
-                  <label className="mb-1 block text-small text-text-secondary">Attendees</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={attendeeInput}
-                      onChange={(e) => setAttendeeInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addAttendee(); } }}
-                      placeholder="email@example.com"
-                      className="flex-1 rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                    />
-                    <Button type="button" variant="secondary" size="sm" onClick={addAttendee}>
-                      <Plus size={14} />
-                    </Button>
-                  </div>
-                  {attendees.length > 0 && (
-                    <ul className="mt-2 space-y-1">
-                      {attendees.map((email) => (
-                        <li key={email} className="flex items-center justify-between text-small text-text-secondary">
-                          <span>{email}</span>
-                          <button type="button" onClick={() => setAttendees((prev) => prev.filter((e) => e !== email))}
-                            className="text-text-muted hover:text-danger transition-colors">
-                            <Trash2 size={12} />
-                          </button>
-                        </li>
+                    Use template
+                    <ChevronDown size={12} />
+                  </Button>
+                  {templateMenuOpen && (
+                    <div className="absolute left-0 top-full z-10 mt-1 w-56 rounded-sm border border-border-default bg-surface-2 shadow-l2 py-1">
+                      {templates.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-small text-text-primary hover:bg-surface-3"
+                          onClick={() => applyTemplate(t)}
+                        >
+                          <div className="truncate font-medium">{t.name}</div>
+                          <div className="truncate text-caption text-text-tertiary">
+                            {t.title || "(no title)"} · {t.durationMinutes} min
+                          </div>
+                        </button>
                       ))}
-                    </ul>
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
+
+              <EventFormFields
+                value={state}
+                onChange={(patch) => dispatch(patch)}
+                calendars={calendars}
+              />
 
               <div className="mt-5 flex justify-end gap-2">
                 <Dialog.Close asChild>
