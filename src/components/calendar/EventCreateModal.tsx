@@ -106,24 +106,35 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
 
     setSubmitting(true);
     try {
-      // When a Gmail account exists, push to Google and key the local row by the
-      // returned Google event id; otherwise create a local-only event with a
-      // client-generated id (externalId stays undefined until it is synced).
+      // Try Google push when a Gmail account is connected. If Google succeeds
+      // we key the local row by the returned Google event id; if Google fails
+      // (no calendar scope, offline, 4xx/5xx) we fall back to a local-only
+      // event with a client UUID. The local event is always created — Google
+      // sync is best-effort, per the EP-14 standalone-calendar design.
       let eventId: string;
       let externalId: string | undefined;
+      let syncWarning: string | undefined;
       if (gmailAccount) {
-        eventId = await createCalendarEvent({
-          accountId: gmailAccount.id,
-          title: title.trim(),
-          startTs,
-          endTs,
-          allDay,
-          location: location.trim() || undefined,
-          description: description.trim() || undefined,
-          attendeeEmails: attendees,
-          timeZone: tzid,
-        });
-        externalId = eventId;
+        try {
+          eventId = await createCalendarEvent({
+            accountId: gmailAccount.id,
+            title: title.trim(),
+            startTs,
+            endTs,
+            allDay,
+            location: location.trim() || undefined,
+            description: description.trim() || undefined,
+            attendeeEmails: attendees,
+            timeZone: tzid,
+          });
+          externalId = eventId;
+        } catch (err) {
+          eventId = crypto.randomUUID();
+          const msg = err instanceof Error ? err.message : String(err);
+          syncWarning = msg.includes("403")
+            ? "Saved locally — reconnect Gmail to enable Google Calendar sync"
+            : `Saved locally — Google sync failed: ${msg}`;
+        }
       } else {
         eventId = crypto.randomUUID();
       }
@@ -149,7 +160,11 @@ export function EventCreateModal({ open, onClose, prefillDate, prefillAttendees,
           updatedAt: Date.now(),
         },
       });
-      toast.success("Event created");
+      if (syncWarning) {
+        toast.warning(syncWarning);
+      } else {
+        toast.success("Event created");
+      }
       onClose();
     } catch (err) {
       toast.error(`Failed to create event: ${err instanceof Error ? err.message : String(err)}`);
