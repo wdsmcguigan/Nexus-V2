@@ -1,7 +1,6 @@
 import * as React from "react";
-import { Plus, Trash2, ChevronRight, Video, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, Video, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { cn } from "@/lib/utils";
 import { providerBadge } from "@/lib/calendars";
 import type {
   Calendar,
@@ -44,26 +43,13 @@ interface Props {
   value: EventFormState;
   onChange: (patch: Partial<EventFormState>) => void;
   calendars: Calendar[];
-  /** Auto-open the "More options" panel if any field inside it has a value. */
-  initialMoreOpen?: boolean;
 }
 
-export function EventFormFields({ value, onChange, calendars, initialMoreOpen }: Props) {
-  const hasMoreField =
-    !!value.conferenceUrl ||
-    !!value.colorId ||
-    value.visibility !== "default" ||
-    value.transparency !== "opaque" ||
-    value.reminders.length > 0 ||
-    !!value.notes ||
-    !!value.rrule ||
-    value.attachments.length > 0;
-
+export function EventFormFields({ value, onChange, calendars }: Props) {
   // Compute dtstart for the recurrence editor — drives the default UNTIL.
   const dtstart = value.allDay
     ? (new Date(value.startDate + "T00:00:00").getTime() || Date.now())
     : (new Date(value.startVal).getTime() || Date.now());
-  const [moreOpen, setMoreOpen] = React.useState(initialMoreOpen ?? hasMoreField);
   const [attendeeInput, setAttendeeInput] = React.useState("");
 
   function addAttendee() {
@@ -208,22 +194,7 @@ export function EventFormFields({ value, onChange, calendars, initialMoreOpen }:
         )}
       </div>
 
-      {/* ── More options disclosure ───────────────────────────────────────── */}
-      <button
-        type="button"
-        onClick={() => setMoreOpen((v) => !v)}
-        className="flex items-center gap-1 text-small text-text-secondary hover:text-text-primary transition-colors"
-        aria-expanded={moreOpen}
-      >
-        <ChevronRight
-          size={12}
-          className={cn("transition-transform", moreOpen && "rotate-90")}
-        />
-        More options
-      </button>
-
-      {moreOpen && (
-        <div className="space-y-3 pl-3 border-l border-border-subtle">
+      {/* ── Conference URL, color, reminders, recurrence, attachments, visibility/availability, notes ── */}
           <div>
             <div className="mb-1 flex items-center gap-1.5 text-small text-text-secondary">
               <Video size={12} className="text-text-tertiary" />
@@ -311,8 +282,6 @@ export function EventFormFields({ value, onChange, calendars, initialMoreOpen }:
               className="w-full resize-none rounded-sm border border-border-default bg-surface-1 px-3 py-2 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
             />
           </div>
-        </div>
-      )}
     </div>
   );
 }
