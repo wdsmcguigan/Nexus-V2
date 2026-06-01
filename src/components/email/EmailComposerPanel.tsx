@@ -774,6 +774,27 @@ export function EmailComposerPanel() {
     }
   }
 
+  function handleSaveAsDraft() {
+    // Flush the debounced autosave first so any unsaved keystrokes are
+    // persisted before we close. Then close — the next compose-on-this-key
+    // will rehydrate from the same `_draftKey`.
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const bodyHtml = editor?.getHTML() ?? "";
+    saveDraft(_draftKey, {
+      subject,
+      recipients,
+      ccRecipients,
+      bccRecipients,
+      bodyHtml,
+      savedAt: Date.now(),
+    });
+    toast.success("Draft saved");
+    setComposerOpen(false);
+  }
+
   const allAccounts = Array.from(localStore.accounts.values());
   const fromAccount = allAccounts.find((a) => a.id === fromAccountId) ?? allAccounts[0];
 
@@ -938,6 +959,16 @@ export function EmailComposerPanel() {
           <Input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
+            onKeyDown={(e) => {
+              // Tab from Subject jumps directly into the body editor, skipping
+              // the formatting toolbar buttons in between (which are click-only
+              // anyway, matching Gmail/Outlook convention). Shift+Tab keeps the
+              // default backwards traversal to Cc/Bcc/To.
+              if (e.key === "Tab" && !e.shiftKey) {
+                e.preventDefault();
+                editor?.commands.focus("start");
+              }
+            }}
             size="sm"
             className="border-none bg-transparent px-0 hover:border-none focus:border-none focus:shadow-none"
           />
@@ -1144,9 +1175,14 @@ export function EmailComposerPanel() {
               <span className="ml-1 font-mono text-mono-xs text-text-tertiary">Click to undo</span>
             </button>
           )}
-          <Button variant="ghost" size="md" className="ml-auto" onClick={handleDiscard}>
-            Discard
-          </Button>
+          <div className="ml-auto flex items-center gap-1">
+            <Button variant="ghost" size="md" onClick={handleSaveAsDraft}>
+              Save as draft
+            </Button>
+            <Button variant="ghost" size="md" onClick={handleDiscard}>
+              Discard
+            </Button>
+          </div>
         </div>
 
         {/* Send later datetime picker */}
