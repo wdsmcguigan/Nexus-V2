@@ -25,7 +25,7 @@ import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 import type { ModuleKey } from "@/data/types";
-import { resolvePanelColor } from "@/lib/panelColors";
+import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
 import { getAppPreferences } from "@/lib/appPreferences";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
@@ -329,6 +329,19 @@ export function Workspace() {
     return () => { window.removeEventListener("keydown", onKey); resetPrefix(); };
   }, []);
 
+  // Subscribe to workspace changes so the data attribute updates when the
+  // user toggles per-workspace tint or switches workspaces.
+  const activeWs = useWorkspace((s) =>
+    s.workspaces.find((w) => w.id === s.activeWorkspaceId),
+  );
+  // Note: app preferences change very rarely (only via Settings panel), and
+  // SettingsPanel already triggers a re-render when it edits prefs via the
+  // existing pattern. So reading directly here is safe.
+  const bodyTintLevel = resolveBodyTintLevel(
+    getAppPreferences().panelColors,
+    activeWs?.panelColors,
+  );
+
   return (
     <TooltipProvider delayDuration={600}>
       <div
@@ -344,7 +357,7 @@ export function Workspace() {
       >
         <WorkspaceChrome onShowHistory={() => setHistoryOpen(true)} />
 
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1" data-body-tint-level={bodyTintLevel}>
           <DockviewReact
             className="h-full w-full"
             components={DV_COMPONENTS}
