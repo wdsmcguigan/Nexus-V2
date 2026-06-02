@@ -562,14 +562,33 @@ pub async fn sync_gmail_now(
     Ok(stats)
 }
 
+/// Diagnostic result returned from `refresh_account_photos` so the UI can show
+/// the user exactly what happened to their profile photo refresh attempt.
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PhotoRefreshResult {
+    /// True iff the account row's photo_url was updated this call.
+    pub photo_updated: bool,
+    /// The URL that was stored (if photo_updated).
+    pub photo_url: Option<String>,
+    /// Which API actually returned the photo: "userinfo" | "people_api" | null.
+    pub source: Option<String>,
+    /// Human-readable explanation (always populated).
+    pub diagnostic: String,
+}
+
 /// Backfill the profile photo for a Gmail account and refresh all contact photos.
 /// Safe to call for existing accounts that predate the photo_url column.
+///
+/// The own-account photo lookup runs INLINE (with a People API fallback) so the
+/// returned diagnostic accurately reflects what happened. Contact photo and
+/// otherContacts sync continue to run as background spawns since they're slow.
 #[tauri::command]
 pub async fn refresh_account_photos(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
     account_id: String,
-) -> std::result::Result<(), String> {
+) -> std::result::Result<PhotoRefreshResult, String> {
     let vault_path = state
         .vault_path
         .lock()
@@ -591,32 +610,86 @@ pub async fn refresh_account_photos(
             .map_err(|e| e.to_string())?
     };
     if provider != "gmail" {
-        return Ok(());
+        return Ok(PhotoRefreshResult {
+            photo_updated: false,
+            photo_url: None,
+            source: None,
+            diagnostic: format!("Skipped: provider is '{provider}', not 'gmail'."),
+        });
     }
 
     let access_token = get_valid_token(&state, &account_id).await?;
     let vault_id_clone = vault_id.clone();
     let account_id_clone = account_id.clone();
     let app_handle = app.clone();
+    let http = reqwest::Client::new();
 
+    // ── Step 1: try userinfo (fast, the canonical OIDC `picture` field) ──
+    let (mut photo_url, mut source) = match crate::gmail::oauth::fetch_userinfo(&http, &access_token).await {
+        Ok((_, Some(url))) => (Some(url), Some("userinfo".to_string())),
+        Ok((_, None)) => {
+            log::info!("refresh_account_photos: userinfo returned no picture; trying People API fallback");
+            (None, None)
+        }
+        Err(e) => {
+            log::warn!("refresh_account_photos: fetch_userinfo error: {e}; trying People API fallback");
+            (None, None)
+        }
+    };
+
+    // ── Step 2: People API fallback when userinfo had nothing ──
+    if photo_url.is_none() {
+        match crate::gmail::contacts::fetch_self_photo(&http, &access_token).await {
+            Ok(Some(url)) => {
+                photo_url = Some(url);
+                source = Some("people_api".to_string());
+            }
+            Ok(None) => log::info!("refresh_account_photos: People API also returned no photo"),
+            Err(e) => log::warn!("refresh_account_photos: fetch_self_photo error: {e}"),
+        }
+    }
+
+    // ── Step 3: save to DB if we got a URL ──
+    let photo_updated = if let Some(ref url) = photo_url {
+        match crate::db::VaultDb::open(&vault_path, "nexus") {
+            Ok(db) => match db.update_account_photo(&account_id, url) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::warn!("update_account_photo error: {e}");
+                    false
+                }
+            },
+            Err(e) => {
+                log::warn!("refresh_account_photos: DB open error: {e}");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
+    let diagnostic = match (&photo_url, &source) {
+        (Some(_), Some(s)) if s == "userinfo" => "Photo updated from Google userinfo.".to_string(),
+        (Some(_), Some(s)) if s == "people_api" => {
+            "Photo updated from Google People API (userinfo returned none).".to_string()
+        }
+        (None, _) => {
+            "Google returned no profile photo for this account from either the userinfo or the People API. \
+             If you've set a photo in Google recently, disconnect and reconnect the account to refresh OAuth permissions."
+                .to_string()
+        }
+        _ => "Photo refreshed.".to_string(),
+    };
+    log::info!("refresh_account_photos: {diagnostic}");
+
+    // Emit hydrate event so the frontend re-reads the account row immediately.
+    if photo_updated {
+        let _ = app.emit("vault:hydrate-needed", ());
+    }
+
+    // ── Step 4: kick off contact photo refresh in the background ──
     tokio::spawn(async move {
         let http = reqwest::Client::new();
-
-        // Fetch own profile photo
-        match crate::gmail::oauth::fetch_userinfo(&http, &access_token).await {
-            Ok((_, Some(photo_url))) => {
-                match crate::db::VaultDb::open(&vault_path, "nexus") {
-                    Ok(db) => {
-                        if let Err(e) = db.update_account_photo(&account_id_clone, &photo_url) {
-                            log::warn!("update_account_photo error: {e}");
-                        }
-                    }
-                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
-                }
-            }
-            Ok((_, None)) => {}
-            Err(e) => log::warn!("fetch_userinfo error: {e}"),
-        }
 
         // Refresh contact photos via People API
         match crate::gmail::contacts::fetch_contact_photos(&http, &access_token).await {
@@ -661,7 +734,12 @@ pub async fn refresh_account_photos(
         let _ = app_handle.emit("vault:hydrate-needed", ());
     });
 
-    Ok(())
+    Ok(PhotoRefreshResult {
+        photo_updated,
+        photo_url,
+        source,
+        diagnostic,
+    })
 }
 
 /// Batch re-fetch HTML bodies for all messages missing from message_bodies.

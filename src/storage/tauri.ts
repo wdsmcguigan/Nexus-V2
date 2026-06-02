@@ -179,7 +179,14 @@ export async function syncGmailNow(accountId: string): Promise<{ fetched: number
   return invoke("sync_gmail_now", { accountId });
 }
 
-export async function refreshAccountPhotos(accountId: string): Promise<void> {
+export interface PhotoRefreshResult {
+  photoUpdated: boolean;
+  photoUrl: string | null;
+  source: "userinfo" | "people_api" | null;
+  diagnostic: string;
+}
+
+export async function refreshAccountPhotos(accountId: string): Promise<PhotoRefreshResult> {
   return invoke("refresh_account_photos", { accountId });
 }
 

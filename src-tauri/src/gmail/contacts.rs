@@ -301,6 +301,37 @@ fn map_other_contact(person: &serde_json::Value, vault_id: &str) -> Option<serde
     }))
 }
 
+/// Fetch the authenticated user's own profile photo via the People API.
+/// This is a fallback for cases where the OIDC `userinfo` endpoint returns
+/// `picture: null` even when the account has a profile photo — some Workspace
+/// configurations and certain privacy settings cause this. The People API
+/// `people/me?personFields=photos` route is more reliable for the self photo.
+///
+/// Returns the photo URL on success, or None if the response has no photos
+/// array (in which case the account genuinely has no profile photo).
+pub async fn fetch_self_photo(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Option<String>> {
+    let resp: serde_json::Value = client
+        .get("https://people.googleapis.com/v1/people/me?personFields=photos")
+        .bearer_auth(access_token)
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // photos[] may contain entries with `default: true` (Google's placeholder
+    // silhouette) — skip those and return the first non-default URL.
+    let photo_url = resp["photos"].as_array().and_then(|arr| {
+        arr.iter()
+            .find(|p| p["default"].as_bool() != Some(true))
+            .and_then(|p| p["url"].as_str())
+            .map(str::to_string)
+    });
+    Ok(photo_url)
+}
+
 /// Fetch contact photos only (kept for backwards compatibility with the photo-only sync path).
 /// Returns a map of lowercase email address → photo URL.
 pub async fn fetch_contact_photos(

@@ -260,16 +260,14 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
     if (!isTauri()) return;
     setRefreshingPhoto(true);
     try {
-      await refreshAccountPhotos(accountId);
-      // The Rust side runs the fetch in a background task and emits
-      // vault:hydrate-needed when it finishes. We don't get the new URL
-      // back inline — the Avatar component will re-render automatically
-      // when the hydrate event fires (usually within 1-2s).
-      toast.success(
-        photoUrl
-          ? "Refreshing photo from Google… if your avatar doesn't change in a few seconds, Google didn't return a new picture."
-          : "Fetching photo from Google… if your avatar stays as initials, Google didn't return a picture for this account.",
-      );
+      const result = await refreshAccountPhotos(accountId);
+      if (result.photoUpdated) {
+        toast.success(result.diagnostic);
+      } else {
+        // No photo returned from either API — surface the diagnostic so the
+        // user knows exactly what to try next (reconnect, etc.).
+        toast.error(result.diagnostic, { duration: 10000 });
+      }
     } catch (e) {
       console.warn("refresh_account_photos error:", e);
       toast.error(`Photo refresh failed: ${e instanceof Error ? e.message : String(e)}`);
