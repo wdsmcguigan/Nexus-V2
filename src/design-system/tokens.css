@@ -262,6 +262,84 @@
   max-width: none;
   cursor: grab;
 }
+
+/* ─── Panel color identity ────────────────────────────────────────────────
+ * Reads --module-color set per dockview group by Workspace.tsx (the active
+ * tab's color) and --body-tint-level set on the workspace root.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* Tab-bar wash — unfocused panel: 8% */
+.dv-theme-nexus .dv-tabs-and-actions-container {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 8%,
+    var(--color-surface-1)
+  );
+  transition: background-color 120ms ease-out;
+}
+
+/* Focused panel bumps to 14% — keyed off Panel.tsx's data-panel-focused */
+.dv-theme-nexus [data-panel-focused="true"] .dv-tabs-and-actions-container {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 14%,
+    var(--color-surface-1)
+  );
+}
+
+/* Active-tab underline */
+.dv-theme-nexus .tab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--module-color, var(--color-accent));
+  opacity: 0.75;
+}
+
+/* 1 px top divider on the panel body (Level 2 + Level 3) */
+.dv-theme-nexus .panel-body::before {
+  content: "";
+  display: block;
+  height: 1px;
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 25%,
+    transparent
+  );
+}
+
+/* Level 2 + Level 3: selected-row tint + 2 px module-color side strip */
+.dv-theme-nexus [data-selected="true"] {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 14%,
+    var(--color-surface-2)
+  );
+  box-shadow: inset 2px 0 0 var(--module-color, transparent);
+}
+
+/* Level 3 only — atmospheric body wash */
+[data-body-tint-level="L3"] .dv-theme-nexus .panel-body {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 3%,
+    var(--color-surface-1)
+  );
+}
+
+/* Level 3 only — tinted row hover */
+[data-body-tint-level="L3"]
+  .dv-theme-nexus
+  [data-list-row]:hover:not([data-selected="true"]) {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 8%,
+    transparent
+  );
+}
 .dv-theme-nexus .tab.active-tab {
   border-bottom-color: var(--color-border-subtle);
   color: var(--color-text-secondary);
