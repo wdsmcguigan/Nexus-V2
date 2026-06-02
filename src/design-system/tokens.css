@@ -268,8 +268,11 @@
  * tab's color) and --body-tint-level set on the workspace root.
  * ───────────────────────────────────────────────────────────────────────── */
 
-/* Tab-bar wash — unfocused panel: 8% */
-.dv-theme-nexus .dv-tabs-and-actions-container {
+/* Tab-bar wash — unfocused panel: 8%
+ * Note: dockview's actual class is .tabs-and-actions-container (no dv- prefix).
+ * The dv-* variables (e.g. --dv-tabs-and-actions-container-background-color)
+ * are CSS variable names, not class names. */
+.dv-theme-nexus .tabs-and-actions-container {
   background: color-mix(
     in oklch,
     var(--module-color, transparent) 8%,
@@ -278,8 +281,11 @@
   transition: background-color 120ms ease-out;
 }
 
-/* Focused panel bumps to 14% — keyed off Panel.tsx's data-panel-focused */
-.dv-theme-nexus [data-panel-focused="true"] .dv-tabs-and-actions-container {
+/* Focused panel bumps to 14% — uses dockview's .active-group class which it
+ * applies to the groupview element that has focus. The tab bar is a child of
+ * the groupview, not of the Panel body, so [data-panel-focused] (on Panel.tsx)
+ * can't reach the tab bar via descendant selector. */
+.dv-theme-nexus .groupview.active-group > .tabs-and-actions-container {
   background: color-mix(
     in oklch,
     var(--module-color, transparent) 14%,
@@ -287,8 +293,11 @@
   );
 }
 
-/* Active-tab underline */
-.dv-theme-nexus .tab.active::after {
+/* Active-tab underline — dockview uses .tab.active-tab, not .tab.active */
+.dv-theme-nexus .tab.active-tab {
+  position: relative;
+}
+.dv-theme-nexus .tab.active-tab::after {
   content: "";
   position: absolute;
   left: 8px;
