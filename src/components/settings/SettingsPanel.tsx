@@ -37,7 +37,10 @@ import {
   X as XIcon,
   Users,
   Calendar,
+  ImageIcon,
 } from "lucide-react";
+import { toast } from "sonner";
+import { Avatar } from "@/components/ui/Avatar";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -47,6 +50,7 @@ import { useAccounts } from "@/storage/useStore";
 import {
   isTauri,
   syncGmailNow,
+  refreshAccountPhotos,
   startGmailOAuth,
   disconnectAccount,
   getRelayStatus,
@@ -244,10 +248,35 @@ function DisconnectModal({
 
 function AccountRow({ accountId, email }: { accountId: string; email: string }) {
   const [syncing, setSyncing] = React.useState(false);
+  const [refreshingPhoto, setRefreshingPhoto] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [modalOpen, setModalOpen] = React.useState(false);
   const syncProgress = useWorkspace((s) => s.syncProgress);
   const isSyncingNow = syncing || (syncProgress?.accountId === accountId && (syncProgress?.total ?? 0) > 0);
+  const account = useAccounts().find((a) => a.id === accountId);
+  const photoUrl = account?.photoUrl;
+
+  async function handleRefreshPhoto() {
+    if (!isTauri()) return;
+    setRefreshingPhoto(true);
+    try {
+      await refreshAccountPhotos(accountId);
+      // The Rust side runs the fetch in a background task and emits
+      // vault:hydrate-needed when it finishes. We don't get the new URL
+      // back inline — the Avatar component will re-render automatically
+      // when the hydrate event fires (usually within 1-2s).
+      toast.success(
+        photoUrl
+          ? "Refreshing photo from Google… if your avatar doesn't change in a few seconds, Google didn't return a new picture."
+          : "Fetching photo from Google… if your avatar stays as initials, Google didn't return a picture for this account.",
+      );
+    } catch (e) {
+      console.warn("refresh_account_photos error:", e);
+      toast.error(`Photo refresh failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRefreshingPhoto(false);
+    }
+  }
 
   async function handleSync() {
     if (!isTauri()) return;
@@ -288,16 +317,29 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft">
-          <Mail size={14} className="text-accent" />
-        </div>
+        <Avatar name={email} size={32} src={photoUrl} email={email} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-body text-text-primary">{email}</div>
           <div className="mt-0.5 flex items-center gap-1 text-small text-text-tertiary">
             {statusIcon}
             <span>{statusLabel}</span>
+            {!photoUrl && (
+              <span className="ml-2 font-mono text-mono-xs text-text-muted">
+                · no photo on file
+              </span>
+            )}
           </div>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Refresh profile photo from Google"
+          onClick={handleRefreshPhoto}
+          disabled={refreshingPhoto || disconnecting}
+        >
+          {refreshingPhoto ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
+        </Button>
         <Button
           variant="ghost"
           size="sm"
