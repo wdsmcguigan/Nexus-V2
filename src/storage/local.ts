@@ -575,6 +575,18 @@ export class LocalStore {
     return id ? (this.contacts.get(id) ?? null) : null;
   }
 
+  /** Returns the user's own account.photoUrl if the email matches one of their accounts. */
+  accountPhotoUrlForEmail(email: string | undefined): string | undefined {
+    if (!email) return undefined;
+    const lower = email.toLowerCase();
+    for (const account of this.accounts.values()) {
+      if (account.email.toLowerCase() === lower && account.photoUrl) {
+        return account.photoUrl;
+      }
+    }
+    return undefined;
+  }
+
   private _insertContactIndexes(contact: Contact): void {
     this.contacts.set(contact.id, contact);
     for (const e of contact.emails) {

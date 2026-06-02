@@ -233,7 +233,7 @@ function FoundContactCard({
   if (compact) {
     return (
       <div className="flex items-start gap-3">
-        <Avatar name={contact.name} size={36} colorSeed={colorSeed} src={contact.photoUrl} />
+        <Avatar name={contact.name} size={36} colorSeed={colorSeed} src={contact.photoUrl ?? localStore.accountPhotoUrlForEmail(contact.emails[0])} email={contact.emails[0]} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-body-strong text-text-primary">
             <EditableField
@@ -307,7 +307,7 @@ function FoundContactCard({
     <div className="flex flex-col gap-4 p-4">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <Avatar name={contact.name} size={56} colorSeed={colorSeed} src={contact.photoUrl} />
+        <Avatar name={contact.name} size={56} colorSeed={colorSeed} src={contact.photoUrl ?? localStore.accountPhotoUrlForEmail(contact.emails[0])} email={contact.emails[0]} />
         <div className="min-w-0 flex-1">
           <div className="text-h2 font-bold text-text-primary">
             <EditableField

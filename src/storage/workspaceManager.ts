@@ -3,7 +3,7 @@
  * Synchronous so layout is available before first React render.
  */
 
-import type { MetadataFilter, StarStyle } from "@/data/types";
+import type { MetadataFilter, PanelColorPrefs, StarStyle } from "@/data/types";
 import type { ShortcutAction } from "@/lib/shortcuts";
 
 export interface ListPanelSnapshotState {
@@ -43,6 +43,8 @@ export interface WorkspaceSnapshot {
   activeStars: StarStyle[];
   /** Custom key bindings: action → key string. Absent key = use default. */
   keyBindings: Partial<Record<ShortcutAction, string>>;
+  /** Per-workspace panel color override. Absent means inherit user-level prefs. */
+  panelColors?: PanelColorPrefs;
 }
 
 export interface WorkspacesData {

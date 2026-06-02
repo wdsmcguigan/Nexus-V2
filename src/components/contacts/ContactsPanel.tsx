@@ -43,6 +43,8 @@ function ContactRow({
   return (
     <button
       onClick={onSelect}
+      data-list-row
+      data-selected={isSelected ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-xs px-3 py-2 text-left transition-colors",
         isSelected
@@ -50,7 +52,7 @@ function ContactRow({
           : "hover:bg-surface-2 text-text-primary",
       )}
     >
-      <Avatar name={name} size={32} colorSeed={colorSeed} src={photoUrl} />
+      <Avatar name={name} size={32} colorSeed={colorSeed} src={photoUrl ?? localStore.accountPhotoUrlForEmail(primaryEmail)} email={primaryEmail} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-strong">{name}</div>
         <div className="truncate font-mono text-mono-xs text-text-tertiary">

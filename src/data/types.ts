@@ -663,3 +663,31 @@ export interface EventTemplate {
   defaultAttendees: string[];
   createdAt: number;
 }
+
+// ─── Panel Color Identity ────────────────────────────────────────────────────
+
+/**
+ * Identifies a Nexus dockview module type. Values MUST match the keys in
+ * DV_COMPONENTS in src/components/Workspace.tsx — if you add a new module,
+ * add it here too and add a default in DEFAULT_MODULE_COLORS in
+ * src/lib/panelColors.ts.
+ */
+export type ModuleKey =
+  | "nav"
+  | "list"
+  | "viewer"
+  | "inspector"
+  | "contacts"
+  | "calendar"
+  | "settings";
+
+export interface PanelColorPrefs {
+  /**
+   * Per-module color override. Value is either a token reference like
+   * "link-4" (resolves to var(--color-link-4)) or a hex string like
+   * "#aabbcc". Missing keys fall through to the system default.
+   */
+  colors: Partial<Record<ModuleKey, string>>;
+  /** Body-tint intensity. L2 = selected row + divider only. L3 = adds wash + hover. */
+  bodyTintLevel: "L2" | "L3";
+}

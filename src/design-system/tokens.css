@@ -232,7 +232,11 @@
   --dv-tabs-and-actions-container-background-color: var(--color-surface-1);
   --dv-tabs-container-scrollbar-color: var(--color-border-strong);
   --dv-group-view-background-color: var(--color-surface-1);
-  --dv-paneview-active-outline-color: var(--color-accent);
+  /* Active-group outline is intentionally transparent — the
+   * module-color tab-bar wash (8% → 14% on focus) and active-tab
+   * underline from the panel-color-identity feature are the single
+   * source of truth for focused-panel signalling. */
+  --dv-paneview-active-outline-color: transparent;
   --dv-tab-divider-color: var(--color-border-subtle);
   --dv-active-tab-background-color: var(--color-surface-2);
   --dv-inactive-tab-background-color: transparent;
@@ -261,6 +265,101 @@
   min-width: 0;
   max-width: none;
   cursor: grab;
+}
+
+/* ─── Panel color identity ────────────────────────────────────────────────
+ * Reads --module-color set per dockview group by Workspace.tsx (the active
+ * tab's color) and --body-tint-level set on the workspace root.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* Tab-bar wash — unfocused panel: 8%
+ * Note: dockview's actual class is .tabs-and-actions-container (no dv- prefix).
+ * The dv-* variables (e.g. --dv-tabs-and-actions-container-background-color)
+ * are CSS variable names, not class names. */
+.dv-theme-nexus .tabs-and-actions-container {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 8%,
+    var(--color-surface-1)
+  );
+  transition: background-color 120ms ease-out;
+}
+
+/* Focused panel bumps to 14% — uses dockview's .active-group class which it
+ * applies to the groupview element that has focus. The tab bar is a child of
+ * the groupview, not of the Panel body, so [data-panel-focused] (on Panel.tsx)
+ * can't reach the tab bar via descendant selector. */
+.dv-theme-nexus .groupview.active-group > .tabs-and-actions-container {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 14%,
+    var(--color-surface-1)
+  );
+}
+
+/* Active-tab underline.
+ * Targets the inner .dv-default-tab element (not the outer .tab) so the
+ * underline width tracks the tab's text content, not the full tab bar.
+ * dockview makes the outer .tab `flex-grow: 1` in singleTabMode="fullwidth",
+ * which would stretch a `.tab::after` underline across the whole panel; the
+ * inner .dv-default-tab is content-sized (min-width: 80px) regardless. */
+.dv-theme-nexus .tab.active-tab .dv-default-tab::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--module-color, var(--color-accent));
+  opacity: 0.75;
+}
+
+/* 1 px top divider on the panel body (Level 2 + Level 3) */
+.dv-theme-nexus .panel-body::before {
+  content: "";
+  display: block;
+  height: 1px;
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 25%,
+    transparent
+  );
+}
+
+/* Level 2 + Level 3: selected-row tint + 2 px module-color side strip */
+.dv-theme-nexus [data-selected="true"] {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 14%,
+    var(--color-surface-2)
+  );
+  box-shadow: inset 2px 0 0 var(--module-color, transparent);
+}
+
+/* Level 3 only — atmospheric body wash
+ * 7% chosen empirically: 3% (the original brainstorm value) is below the
+ * perceptible threshold once panel content covers most of the body area on
+ * the dark theme.
+ * Selector note: .dv-theme-nexus is on the OUTER workspace shell; the
+ * [data-body-tint-level] attribute is on the inner DockviewReact wrapper.
+ * So .dv-theme-nexus must come FIRST (as ancestor), not nested inside. */
+.dv-theme-nexus [data-body-tint-level="L3"] .panel-body {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 7%,
+    var(--color-surface-1)
+  );
+}
+
+/* Level 3 only — tinted row hover */
+.dv-theme-nexus
+  [data-body-tint-level="L3"]
+  [data-list-row]:hover:not([data-selected="true"]) {
+  background: color-mix(
+    in oklch,
+    var(--module-color, transparent) 14%,
+    transparent
+  );
 }
 .dv-theme-nexus .tab.active-tab {
   border-bottom-color: var(--color-border-subtle);

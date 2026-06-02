@@ -28,7 +28,10 @@ export function PanelHeader({
         compact ? "h-7" : "h-8",
         "panel-focused:border-border-default",
         "relative",
-        "panel-focused:before:absolute panel-focused:before:inset-x-0 panel-focused:before:top-0 panel-focused:before:h-0.5 panel-focused:before:bg-accent",
+        // Note: a `panel-focused:before:bg-accent` 2px top accent line was
+        // removed here — the module-color tab-bar wash + active-tab
+        // underline added by the panel-color-identity feature now carry
+        // the focus signal on their own.
         className,
       )}
       {...props}

@@ -38,6 +38,7 @@ import {
   Users,
   Calendar,
 } from "lucide-react";
+import { Avatar } from "@/components/ui/Avatar";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
 import { PanelHeader } from "@/components/panel/PanelHeader";
@@ -64,6 +65,7 @@ import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
 import { CalendarSettings } from "@/components/settings/CalendarSettings";
+import { PanelColorsSettings } from "@/components/settings/PanelColorsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -247,6 +249,8 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
   const [modalOpen, setModalOpen] = React.useState(false);
   const syncProgress = useWorkspace((s) => s.syncProgress);
   const isSyncingNow = syncing || (syncProgress?.accountId === accountId && (syncProgress?.total ?? 0) > 0);
+  const account = useAccounts().find((a) => a.id === accountId);
+  const photoUrl = account?.photoUrl;
 
   async function handleSync() {
     if (!isTauri()) return;
@@ -287,14 +291,17 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft">
-          <Mail size={14} className="text-accent" />
-        </div>
+        <Avatar name={email} size={32} src={photoUrl} email={email} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-body text-text-primary">{email}</div>
           <div className="mt-0.5 flex items-center gap-1 text-small text-text-tertiary">
             {statusIcon}
             <span>{statusLabel}</span>
+            {!photoUrl && (
+              <span className="ml-2 font-mono text-mono-xs text-text-muted">
+                · no photo on file
+              </span>
+            )}
           </div>
         </div>
         <Button
@@ -1701,6 +1708,9 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                   Translation API v2.
                 </p>
               </div>
+
+              {/* Panel Colors */}
+              <PanelColorsSettings />
             </div>
           )}
 

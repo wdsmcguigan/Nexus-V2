@@ -196,6 +196,142 @@ fn map_person_to_contact(person: &serde_json::Value, vault_id: &str) -> Option<s
     }))
 }
 
+/// Fetch "Other contacts" (people the user has emailed but hasn't saved in Google Contacts)
+/// that have a Google profile photo. Returns contact JSON shaped for `VaultDb::upsert_contact`
+/// with `source = "google_other"` so we can distinguish them from explicitly-saved contacts.
+///
+/// Skips entries without a photo — they would add only the sender's display name (already
+/// available from message headers) without any avatar improvement.
+pub async fn fetch_other_contacts(
+    client: &reqwest::Client,
+    access_token: &str,
+    vault_id: &str,
+) -> Result<Vec<serde_json::Value>> {
+    let mut contacts = Vec::new();
+    let mut page_token: Option<String> = None;
+
+    loop {
+        let mut url = "https://people.googleapis.com/v1/otherContacts\
+            ?readMask=emailAddresses,names,photos&pageSize=1000"
+            .to_string();
+        if let Some(ref pt) = page_token {
+            url.push_str(&format!("&pageToken={pt}"));
+        }
+
+        let resp: serde_json::Value = client
+            .get(&url)
+            .bearer_auth(access_token)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(others) = resp["otherContacts"].as_array() {
+            for person in others {
+                if let Some(contact) = map_other_contact(person, vault_id) {
+                    contacts.push(contact);
+                }
+            }
+        }
+
+        page_token = resp["nextPageToken"].as_str().map(str::to_string);
+        if page_token.is_none() {
+            break;
+        }
+    }
+
+    Ok(contacts)
+}
+
+fn map_other_contact(person: &serde_json::Value, vault_id: &str) -> Option<serde_json::Value> {
+    let resource_name = person["resourceName"].as_str()?;
+
+    let emails: Vec<String> = person["emailAddresses"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| e["value"].as_str())
+                .map(|s| s.to_lowercase())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if emails.is_empty() {
+        return None;
+    }
+
+    let photo_url = person["photos"]
+        .as_array()
+        .and_then(|p| p.first())
+        .and_then(|p| p["url"].as_str())
+        .map(str::to_string)?;
+
+    let name = person["names"]
+        .as_array()
+        .and_then(|n| n.first())
+        .and_then(|n| n["displayName"].as_str())
+        .unwrap_or(&emails[0])
+        .to_string();
+
+    let now = chrono::Utc::now().timestamp_millis();
+    let id = format!("google-{}", resource_name.replace('/', "-"));
+
+    Some(serde_json::json!({
+        "id": id,
+        "vaultId": vault_id,
+        "name": name,
+        "emails": emails,
+        "phones": [],
+        "company": null,
+        "title": null,
+        "photoUrl": photo_url,
+        "notes": null,
+        "birthday": null,
+        "socialProfiles": [],
+        "addresses": [],
+        "source": "google_other",
+        "externalId": resource_name,
+        "importance": "normal",
+        "tags": [],
+        "alwaysShowImages": false,
+        "location": null,
+        "website": null,
+        "createdAt": now,
+        "updatedAt": now
+    }))
+}
+
+/// Fetch the authenticated user's own profile photo via the People API.
+/// This is a fallback for cases where the OIDC `userinfo` endpoint returns
+/// `picture: null` even when the account has a profile photo — some Workspace
+/// configurations and certain privacy settings cause this. The People API
+/// `people/me?personFields=photos` route is more reliable for the self photo.
+///
+/// Returns the photo URL on success, or None if the response has no photos
+/// array (in which case the account genuinely has no profile photo).
+pub async fn fetch_self_photo(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<Option<String>> {
+    let resp: serde_json::Value = client
+        .get("https://people.googleapis.com/v1/people/me?personFields=photos")
+        .bearer_auth(access_token)
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    // photos[] may contain entries with `default: true` (Google's placeholder
+    // silhouette) — skip those and return the first non-default URL.
+    let photo_url = resp["photos"].as_array().and_then(|arr| {
+        arr.iter()
+            .find(|p| p["default"].as_bool() != Some(true))
+            .and_then(|p| p["url"].as_str())
+            .map(str::to_string)
+    });
+    Ok(photo_url)
+}
+
 /// Fetch contact photos only (kept for backwards compatibility with the photo-only sync path).
 /// Returns a map of lowercase email address → photo URL.
 pub async fn fetch_contact_photos(

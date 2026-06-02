@@ -93,7 +93,7 @@ export function Panel({
           )}
         </div>
       )}
-      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="panel-body flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
   );
 }

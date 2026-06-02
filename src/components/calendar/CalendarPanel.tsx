@@ -87,7 +87,7 @@ export function CalendarPanel() {
   const mStartIso = monthStart(focusDate);
 
   return (
-    <div className="flex h-full flex-col bg-surface-1" onWheel={handleWheel}>
+    <div className="panel-body flex h-full flex-col bg-surface-1" onWheel={handleWheel}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2 gap-2">
         <div className="flex items-center gap-1">
