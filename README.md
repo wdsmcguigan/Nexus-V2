@@ -29,7 +29,17 @@ Where other email clients give you folders and stars, Nexus gives you a full met
 
 ## Screenshots
 
-_Screenshots coming soon._
+**Dockable multi-panel workspace (dark theme)** — navigation, mail list, message reader, and settings side by side.
+
+![Nexus dark-theme workspace with navigation, mail list, reader, and settings panels](docs/SCREENSHOTS/SCR-1.png)
+
+**Message reader with metadata inspector (dark theme)** — view a message alongside its labels, tags, workflow status, and custom fields.
+
+![Nexus message reader with the metadata inspector open](docs/SCREENSHOTS/SCR-2.png)
+
+**Light theme with inline calendar** — the same workspace in light mode, with the calendar agenda docked beside the reader.
+
+![Nexus light-theme workspace with the calendar agenda panel](docs/SCREENSHOTS/SCR-3.png)
 
 ---
 
