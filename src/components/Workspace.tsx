@@ -24,6 +24,9 @@ import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
+import type { ModuleKey } from "@/data/types";
+import { resolvePanelColor } from "@/lib/panelColors";
+import { getAppPreferences } from "@/lib/appPreferences";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -118,6 +121,31 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   nav.api.setSize({ width: 275 });
 }
 
+/**
+ * Set --module-color on a dockview group element based on its active panel.
+ * The CSS rules in tokens.css consume this property to render the tab-bar
+ * wash, active-tab underline, top divider, and selected-row tint.
+ */
+function applyModuleColor(group: { activePanel?: { id: string } | null; element?: HTMLElement }) {
+  const el = group.element;
+  if (!el) return;
+  const activeId = group.activePanel?.id;
+  if (!activeId) {
+    el.style.removeProperty("--module-color");
+    return;
+  }
+  // Active panel ids in our layout match DV_COMPONENTS keys, with optional
+  // "viewer-2" / "inspector-abc123" disambiguation suffixes. Strip the suffix
+  // to get the module key.
+  const moduleKey = activeId.split("-")[0] as ModuleKey;
+  const userPrefs = getAppPreferences().panelColors;
+  const activeWs = useWorkspace.getState().workspaces.find(
+    (w) => w.id === useWorkspace.getState().activeWorkspaceId,
+  );
+  const wsPrefs = activeWs?.panelColors;
+  el.style.setProperty("--module-color", resolvePanelColor(moduleKey, userPrefs, wsPrefs));
+}
+
 function initLayout(event: DockviewReadyEvent) {
   const { api } = event;
   setDockviewApi(api);
@@ -140,6 +168,20 @@ function initLayout(event: DockviewReadyEvent) {
   // Trigger auto-save on any dockview layout change (resize, rearrange, float).
   api.onDidLayoutChange(() => {
     scheduleAutoSave();
+  });
+
+  // Apply --module-color to every existing group on initial load.
+  api.groups.forEach(applyModuleColor);
+
+  // Re-apply when the active panel inside any group changes (user clicks a tab
+  // or drags one in/out).
+  api.onDidActivePanelChange(() => {
+    api.groups.forEach(applyModuleColor);
+  });
+
+  // Re-apply when groups are added (new tab dropped into a new column).
+  api.onDidAddGroup((group) => {
+    applyModuleColor(group);
   });
 
   // Clean up viewerInspectorMap when panels are removed via their X button,
