@@ -285,6 +285,8 @@ function SystemLabelRow({ label }: { label: LabelType }) {
   return (
     <button
       type="button"
+      data-list-row
+      data-selected={active ? "true" : undefined}
       onClick={() => setFolder(label.id)}
       data-label-id={label.id}
       onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragOver(true); }}
@@ -390,6 +392,8 @@ function LabelTreeNode({ label, depth = 0 }: { label: LabelType; depth?: number 
         <ContextMenu items={ctxItems}>
           <button
             type="button"
+            data-list-row
+            data-selected={active ? "true" : undefined}
             onClick={() => setFolder(label.id)}
             data-label-id={label.id}
             style={{ paddingLeft: indentPx + 8 }}
@@ -556,6 +560,8 @@ function FolderTreeNode({
         <ContextMenu items={ctxItems}>
           <button
             type="button"
+            data-list-row
+            data-selected={active ? "true" : undefined}
             onClick={() => setFolder(folder.id)}
             data-folder-id={folder.id}
             style={{ paddingLeft: indentPx + 8 }}

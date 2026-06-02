@@ -43,6 +43,8 @@ function ContactRow({
   return (
     <button
       onClick={onSelect}
+      data-list-row
+      data-selected={isSelected ? "true" : undefined}
       className={cn(
         "flex w-full items-center gap-2 rounded-xs px-3 py-2 text-left transition-colors",
         isSelected

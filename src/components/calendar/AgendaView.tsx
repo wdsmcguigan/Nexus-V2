@@ -42,6 +42,7 @@ function EventRow({ event }: EventRowProps) {
       <EventHoverCard event={event}>
         <button
           type="button"
+          data-list-row
           className={cn(
             "w-full flex items-start gap-2 rounded-xs px-2 py-1 text-left transition-colors",
             isCancelled
