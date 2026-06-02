@@ -261,16 +261,12 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
     setRefreshingPhoto(true);
     try {
       const result = await refreshAccountPhotos(accountId);
-      // Log the full result to the console so we can diagnose what Google
-      // actually returned + what was persisted.
-      console.info("[refresh_account_photos]", result);
       if (result.photoUpdated) {
-        toast.success(
-          `${result.diagnostic}\n\nStored URL: ${result.photoUrl?.slice(0, 80) ?? "(none)"}`,
-          { duration: 8000 },
-        );
+        toast.success(result.diagnostic);
       } else {
-        toast.error(result.diagnostic, { duration: 12000 });
+        // No photo returned — surface the diagnostic so the user knows
+        // exactly what to try next (reconnect, etc.).
+        toast.error(result.diagnostic, { duration: 10000 });
       }
     } catch (e) {
       console.warn("refresh_account_photos error:", e);
