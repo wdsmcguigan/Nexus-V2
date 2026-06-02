@@ -337,8 +337,11 @@
 /* Level 3 only — atmospheric body wash
  * 7% chosen empirically: 3% (the original brainstorm value) is below the
  * perceptible threshold once panel content covers most of the body area on
- * the dark theme. */
-[data-body-tint-level="L3"] .dv-theme-nexus .panel-body {
+ * the dark theme.
+ * Selector note: .dv-theme-nexus is on the OUTER workspace shell; the
+ * [data-body-tint-level] attribute is on the inner DockviewReact wrapper.
+ * So .dv-theme-nexus must come FIRST (as ancestor), not nested inside. */
+.dv-theme-nexus [data-body-tint-level="L3"] .panel-body {
   background: color-mix(
     in oklch,
     var(--module-color, transparent) 7%,
@@ -347,8 +350,8 @@
 }
 
 /* Level 3 only — tinted row hover */
-[data-body-tint-level="L3"]
-  .dv-theme-nexus
+.dv-theme-nexus
+  [data-body-tint-level="L3"]
   [data-list-row]:hover:not([data-selected="true"]) {
   background: color-mix(
     in oklch,

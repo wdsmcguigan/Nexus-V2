@@ -127,7 +127,7 @@ export const EmailRow = React.memo(function EmailRow({
       role="row"
       aria-selected={inSelectionSet}
       data-list-row
-      data-selected={inSelectionSet ? "true" : undefined}
+      data-selected={selected ? "true" : undefined}
       data-density={density}
       data-state={selected ? "selected" : focused ? "focused" : "default"}
       draggable
