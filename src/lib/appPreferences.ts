@@ -3,6 +3,8 @@
  * Stored in a separate localStorage key so they survive workspace switches.
  */
 
+import type { PanelColorPrefs } from "@/data/types";
+
 export interface AppPreferences {
   /** Whether OS-level desktop notifications fire on new mail. */
   notificationsEnabled: boolean;
@@ -21,6 +23,8 @@ export interface AppPreferences {
   /** Last calendar the user wrote a new event to. Used to default the
    * calendar picker on the next New Event modal open. */
   lastUsedCalendarLocalId?: string;
+  /** Panel color identity preferences (defaults + body-tint level). */
+  panelColors: PanelColorPrefs;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -31,6 +35,7 @@ const DEFAULTS: AppPreferences = {
   translateApiKey: "",
   contactsSyncEnabled: {},
   calendarSyncEnabled: {},
+  panelColors: { colors: {}, bodyTintLevel: "L2" },
 };
 
 const STORAGE_KEY = "nexus_app_prefs_v1";
