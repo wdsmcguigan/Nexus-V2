@@ -330,11 +330,14 @@
   box-shadow: inset 2px 0 0 var(--module-color, transparent);
 }
 
-/* Level 3 only — atmospheric body wash */
+/* Level 3 only — atmospheric body wash
+ * 7% chosen empirically: 3% (the original brainstorm value) is below the
+ * perceptible threshold once panel content covers most of the body area on
+ * the dark theme. */
 [data-body-tint-level="L3"] .dv-theme-nexus .panel-body {
   background: color-mix(
     in oklch,
-    var(--module-color, transparent) 3%,
+    var(--module-color, transparent) 7%,
     var(--color-surface-1)
   );
 }
@@ -345,7 +348,7 @@
   [data-list-row]:hover:not([data-selected="true"]) {
   background: color-mix(
     in oklch,
-    var(--module-color, transparent) 8%,
+    var(--module-color, transparent) 14%,
     transparent
   );
 }

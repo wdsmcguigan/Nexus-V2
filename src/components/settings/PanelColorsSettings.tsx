@@ -138,7 +138,7 @@ export function PanelColorsSettings() {
                 : "border-border-subtle text-text-tertiary hover:bg-surface-2",
             )}
           >
-            {level === "L2" ? "Level 2 (default)" : "Level 3 (immersive)"}
+            {level === "L2" ? "Subtle" : "Immersive"}
           </button>
         ))}
       </div>
