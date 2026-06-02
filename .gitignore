@@ -21,3 +21,6 @@ validation-screenshots/
 .env.*
 !.env.example
 src-tauri/~/
+
+# Brainstorming visual companion sessions (per-session, not source)
+.superpowers/
