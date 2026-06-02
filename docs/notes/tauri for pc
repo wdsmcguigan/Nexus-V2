@@ -1,0 +1,87 @@
+Yes, Tauri works perfectly on PC (Windows). In fact, delivering lightweight Windows applications is one of the framework's biggest strengths.
+Here is how Tauri handles Windows compared to what you experienced on Mac:
+## The Rendering Engine
+On your Mac, Tauri relies on Apple's WKWebView to render your app's frontend. On Windows, it uses **Microsoft Edge WebView2**.
+Because WebView2 is built directly into Windows 10 and 11, your application doesn't need to bundle a browser like Electron does. This means your Windows executable (.exe or .msi) will be incredibly small — often between 3MB and 8MB — and will use a fraction of the RAM.
+## Building for Windows
+Your frontend code, your Rust backend, and your SQLite database will generally work exactly the same on Windows. However, because Tauri relies heavily on native OS toolchains, cross-compiling a Windows app directly from a Mac is quite difficult.
+To actually generate the Windows installer for your app, you have two main options:
+ 1. **Use a Windows Machine:** You can clone your repository onto a PC, install the Microsoft C++ Build Tools and the Windows Rust toolchain (x86_64-pc-windows-msvc), and run tauri build.
+ 2. **Use GitHub Actions:** This is the most common approach for Mac developers. You can set up a CI/CD pipeline using the official tauri-action. When you push your code to GitHub, it automatically spins up a temporary Windows server in the cloud, compiles your code into an .msi installer, and attaches it to a release.
+
+
+Setting up a GitHub Action is the perfect workaround for compiling a Windows app from a Mac. It offloads the heavy lifting to Microsoft's cloud infrastructure.
+Here is a step-by-step guide to creating an automated pipeline that will build your Windows executable (.exe and .msi) every time you push your code.
+### Step 1: Create the Workflow File
+In the root directory of your Tauri project on your Mac, you need to create a specific folder structure that GitHub recognizes.
+ 1. Create a folder named .github (notice the dot at the beginning).
+ 2. Inside that, create a folder named workflows.
+ 3. Inside workflows, create a file named windows-build.yml.
+### Step 2: Add the Configuration Code
+Open the windows-build.yml file and paste the following configuration. This script tells GitHub to spin up a Windows machine, install Node.js and Rust, build your frontend, and then compile your Tauri app.
+```yaml
+name: Build Windows App
+
+# This tells GitHub to run the action whenever you push to the 'main' branch
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies
+        # Change 'npm install' to 'yarn install' or 'pnpm install' if you use those
+        run: npm install
+
+      - name: Build and bundle Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # This token is automatically provided by GitHub Actions
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # This creates a draft release on GitHub with your installer attached
+          tagName: v__VERSION__
+          releaseName: 'App v__VERSION__'
+          releaseBody: 'Automated Windows Build'
+          releaseDraft: true
+          prerelease: false
+
+```
+### Step 3: Grant Permissions (If necessary)
+Because this action creates a "Release" on your GitHub repository to host the installer files, GitHub Actions needs permission to write to your repo.
+ 1. Go to your repository on GitHub.com.
+ 2. Click **Settings** > **Actions** > **General**.
+ 3. Scroll down to **Workflow permissions**.
+ 4. Ensure **"Read and write permissions"** is selected and save.
+### Step 4: Push to GitHub
+Now, simply commit your new workflow file and push it to your repository:
+```bash
+git add .github/workflows/windows-build.yml
+git commit -m "Add Windows build action"
+git push origin main
+
+```
+### Step 5: Download your Windows App
+Once you push, GitHub will automatically start the build process.
+ 1. Go to your repository on GitHub.com.
+ 2. Click the **Actions** tab at the top. You will see your "Build Windows App" workflow running. (Note: Rust compilation takes a few minutes, so this usually takes about 10-15 minutes to finish).
+ 3. Once the workflow turns green (completed), click on the **Releases** section on the right side of your repository's main page.
+ 4. You will see a new **Draft Release**. Inside its "Assets" section, you will find your compiled .msi (installer) and .exe files!
+You can now send that .msi file to any Windows user, and they can install your app natively.
