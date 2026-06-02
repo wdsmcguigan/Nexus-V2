@@ -64,6 +64,7 @@ import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
 import { CalendarSettings } from "@/components/settings/CalendarSettings";
+import { PanelColorsSettings } from "@/components/settings/PanelColorsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
@@ -1701,6 +1702,9 @@ export function SettingsPanel({ panelId }: { panelId: string }) {
                   Translation API v2.
                 </p>
               </div>
+
+              {/* Panel Colors */}
+              <PanelColorsSettings />
             </div>
           )}
 
