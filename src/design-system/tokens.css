@@ -297,11 +297,13 @@
   );
 }
 
-/* Active-tab underline — dockview uses .tab.active-tab, not .tab.active */
-.dv-theme-nexus .tab.active-tab {
-  position: relative;
-}
-.dv-theme-nexus .tab.active-tab::after {
+/* Active-tab underline.
+ * Targets the inner .dv-default-tab element (not the outer .tab) so the
+ * underline width tracks the tab's text content, not the full tab bar.
+ * dockview makes the outer .tab `flex-grow: 1` in singleTabMode="fullwidth",
+ * which would stretch a `.tab::after` underline across the whole panel; the
+ * inner .dv-default-tab is content-sized (min-width: 80px) regardless. */
+.dv-theme-nexus .tab.active-tab .dv-default-tab::after {
   content: "";
   position: absolute;
   left: 8px;
