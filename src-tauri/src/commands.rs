@@ -649,38 +649,82 @@ pub async fn refresh_account_photos(
         }
     }
 
-    // ── Step 3: save to DB if we got a URL ──
-    let photo_updated = if let Some(ref url) = photo_url {
-        match crate::db::VaultDb::open(&vault_path, "nexus") {
-            Ok(db) => match db.update_account_photo(&account_id, url) {
-                Ok(()) => true,
-                Err(e) => {
-                    log::warn!("update_account_photo error: {e}");
-                    false
-                }
-            },
-            Err(e) => {
-                log::warn!("refresh_account_photos: DB open error: {e}");
-                false
-            }
+    // ── Step 3: save via state.db so the in-memory connection used by
+    // build_hydrate_payload sees the write immediately. Opening a fresh
+    // VaultDb worked correctness-wise (WAL mode propagates), but in
+    // practice the hydrate that fires next sometimes raced with the
+    // write. Using the same connection eliminates the race entirely. ──
+    // Also: treat empty-string picture URLs as "no photo" — some Google
+    // accounts return "" instead of omitting the field, and we don't want
+    // to store an empty URL that React would treat as falsy on render.
+    if let Some(ref url) = photo_url {
+        if url.trim().is_empty() {
+            photo_url = None;
+            source = None;
         }
+    }
+    let (photo_updated, persisted_url) = if let Some(ref url) = photo_url {
+        let result = {
+            let db_guard = state
+                .db
+                .lock()
+                .map_err(|_| "vault lock poisoned".to_string())?;
+            match db_guard.as_ref() {
+                Some(db) => match db.update_account_photo(&account_id, url) {
+                    Ok(()) => {
+                        // Read it back through the same connection to verify.
+                        let row: rusqlite::Result<Option<String>> = db
+                            .conn
+                            .query_row(
+                                "SELECT photo_url FROM accounts WHERE id = ?1",
+                                rusqlite::params![&account_id],
+                                |r| r.get::<_, Option<String>>(0),
+                            );
+                        let stored = row.ok().flatten();
+                        (stored.is_some(), stored)
+                    }
+                    Err(e) => {
+                        log::warn!("update_account_photo error: {e}");
+                        (false, None)
+                    }
+                },
+                None => {
+                    log::warn!("refresh_account_photos: state.db not open");
+                    (false, None)
+                }
+            }
+        };
+        result
     } else {
-        false
+        (false, None)
     };
 
-    let diagnostic = match (&photo_url, &source) {
-        (Some(_), Some(s)) if s == "userinfo" => "Photo updated from Google userinfo.".to_string(),
+    let diagnostic = match (&persisted_url, &source) {
+        (Some(_), Some(s)) if s == "userinfo" => {
+            "Photo updated from Google userinfo.".to_string()
+        }
         (Some(_), Some(s)) if s == "people_api" => {
             "Photo updated from Google People API (userinfo returned none).".to_string()
+        }
+        (Some(_), _) => "Photo refreshed.".to_string(),
+        (None, _) if photo_url.is_some() => {
+            "Google returned a photo URL but the database write didn't persist. \
+             Check the Tauri log for update_account_photo errors."
+                .to_string()
         }
         (None, _) => {
             "Google returned no profile photo for this account from either the userinfo or the People API. \
              If you've set a photo in Google recently, disconnect and reconnect the account to refresh OAuth permissions."
                 .to_string()
         }
-        _ => "Photo refreshed.".to_string(),
     };
-    log::info!("refresh_account_photos: {diagnostic}");
+    log::info!(
+        "refresh_account_photos: {diagnostic} (stored: {:?})",
+        persisted_url.as_deref().map(|u| &u[..u.len().min(60)])
+    );
+    // Make the actually-stored URL visible in the returned result so the
+    // frontend can show it to the user when debugging.
+    let photo_url = persisted_url.or(photo_url);
 
     // Emit hydrate event so the frontend re-reads the account row immediately.
     if photo_updated {
