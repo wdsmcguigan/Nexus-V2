@@ -232,7 +232,11 @@
   --dv-tabs-and-actions-container-background-color: var(--color-surface-1);
   --dv-tabs-container-scrollbar-color: var(--color-border-strong);
   --dv-group-view-background-color: var(--color-surface-1);
-  --dv-paneview-active-outline-color: var(--color-accent);
+  /* Active-group outline is intentionally transparent — the
+   * module-color tab-bar wash (8% → 14% on focus) and active-tab
+   * underline from the panel-color-identity feature are the single
+   * source of truth for focused-panel signalling. */
+  --dv-paneview-active-outline-color: transparent;
   --dv-tab-divider-color: var(--color-border-subtle);
   --dv-active-tab-background-color: var(--color-surface-2);
   --dv-inactive-tab-background-color: transparent;
