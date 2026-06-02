@@ -34,6 +34,7 @@ import type {
   Status,
   StarStyle,
   CustomFieldDef,
+  PanelColorPrefs,
 } from "@/data/types";
 import type { DockviewApi } from "dockview";
 
@@ -329,6 +330,9 @@ interface WorkspaceState {
   recolorFolder: (folderId: string, color: number) => void;
   deleteFolder: (folderId: string) => void;
   moveToFolder: (messageId: string, folderId: string) => void;
+
+  // Panel colors (workspace-level override)
+  setActiveWorkspacePanelColors: (next: PanelColorPrefs | undefined) => void;
 }
 
 const DENSITIES: Density[] = ["compact", "comfortable", "cozy"];
@@ -970,6 +974,22 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   moveToFolder: (messageId, folderId) => {
     Mut.moveToFolder(localStore, messageId, folderId);
   },
+
+  // ── Panel colors (workspace-level override) ────────────────────────────────
+
+  setActiveWorkspacePanelColors: (next) =>
+    set((s) => {
+      const updatedWorkspaces = s.workspaces.map((w) =>
+        w.id === s.activeWorkspaceId
+          ? { ...w, panelColors: next, updatedAt: Date.now() }
+          : w,
+      );
+      saveWorkspacesToStorage({
+        workspaces: updatedWorkspaces,
+        activeId: s.activeWorkspaceId,
+      });
+      return { workspaces: updatedWorkspaces };
+    }),
 }));
 
 // ─── Auto-save subscription ───────────────────────────────────────────────────
