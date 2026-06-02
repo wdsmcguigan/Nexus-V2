@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>NEXUS — Enter the Inbox Universe</title>
+    <meta
+      name="description"
+      content="NEXUS is a local-first, privacy-first email client reimagined as a living digital universe. Airtable-grade metadata, kanban workflows, and zero-knowledge sync — rendered in light."
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="NEXUS — Enter the Inbox Universe" />
+    <meta
+      property="og:description"
+      content="A local-first email client rendered as a next-gen digital universe. Holographic interfaces, cinematic motion, zero-knowledge sync."
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* ───────────────────────────── TOKENS ───────────────────────────── */
+      :root {
+        --void: #04050a;
+        --void-2: #070912;
+        --ink: #0b0e1a;
+
+        --cyan: #22d3ee;
+        --azure: #4f7cff;
+        --indigo: #6366f1;
+        --violet: #a855f7;
+        --magenta: #e040fb;
+        --rose: #ff5d8f;
+
+        --text: #eef2ff;
+        --text-2: #aab4d4;
+        --text-3: #6b7596;
+
+        --glass: rgba(18, 22, 42, 0.45);
+        --glass-line: rgba(140, 170, 255, 0.16);
+        --glass-line-strong: rgba(160, 190, 255, 0.34);
+
+        --neon: linear-gradient(110deg, var(--cyan) 0%, var(--azure) 35%, var(--violet) 70%, var(--magenta) 100%);
+        --neon-soft: linear-gradient(110deg, rgba(34, 211, 238, 0.9), rgba(168, 85, 247, 0.9));
+
+        --shadow-deep: 0 40px 120px -30px rgba(0, 0, 0, 0.9);
+        --glow-cyan: 0 0 40px rgba(34, 211, 238, 0.35);
+        --glow-violet: 0 0 50px rgba(168, 85, 247, 0.35);
+
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html { scroll-behavior: smooth; }
+
+      body {
+        background: var(--void);
+        color: var(--text);
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        overflow-x: hidden;
+        cursor: none;
+      }
+
+      /* hide native cursor only on pointer devices */
+      @media (hover: none) { body { cursor: auto; } }
+
+      ::selection { background: rgba(168, 85, 247, 0.4); color: #fff; }
+
+      h1, h2, h3, .display { font-family: 'Space Grotesk', 'Inter', sans-serif; }
+      .mono { font-family: 'JetBrains Mono', monospace; }
+
+      a { color: inherit; text-decoration: none; }
+
+      /* ───────────────────────────── PRELOADER ───────────────────────────── */
+      #boot {
+        position: fixed; inset: 0; z-index: 200;
+        background: var(--void);
+        display: grid; place-items: center;
+        transition: opacity 1s var(--ease-out), visibility 1s;
+      }
+      #boot.gone { opacity: 0; visibility: hidden; pointer-events: none; }
+      .boot-core {
+        text-align: center;
+        display: flex; flex-direction: column; align-items: center; gap: 28px;
+      }
+      .boot-ring {
+        width: 72px; height: 72px; border-radius: 50%;
+        border: 1.5px solid rgba(140, 170, 255, 0.12);
+        border-top-color: var(--cyan);
+        border-right-color: var(--violet);
+        animation: spin 0.9s linear infinite;
+        box-shadow: var(--glow-cyan);
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .boot-label {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase;
+        color: var(--text-3);
+      }
+      .boot-bar {
+        width: 220px; height: 2px; border-radius: 2px;
+        background: rgba(140, 170, 255, 0.1); overflow: hidden;
+      }
+      .boot-bar > i {
+        display: block; height: 100%; width: 0%;
+        background: var(--neon); box-shadow: var(--glow-cyan);
+        transition: width 0.3s var(--ease-soft);
+      }
+
+      /* ───────────────────────────── CANVAS LAYERS ───────────────────────────── */
+      #fx, #nebula {
+        position: fixed; inset: 0; width: 100%; height: 100%;
+        z-index: 0; pointer-events: none;
+      }
+      #nebula { z-index: -1; }
+
+      .vignette {
+        position: fixed; inset: 0; z-index: 1; pointer-events: none;
+        background:
+          radial-gradient(120% 80% at 50% -10%, transparent 40%, rgba(4, 5, 10, 0.5) 100%),
+          radial-gradient(100% 100% at 50% 120%, transparent 50%, rgba(4, 5, 10, 0.85) 100%);
+      }
+      .grain {
+        position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.04;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        mix-blend-mode: overlay;
+      }
+
+      /* ───────────────────────────── CURSOR ───────────────────────────── */
+      .cursor-dot, .cursor-ring {
+        position: fixed; top: 0; left: 0; z-index: 150; pointer-events: none;
+        border-radius: 50%; transform: translate(-50%, -50%);
+        mix-blend-mode: screen;
+      }
+      .cursor-dot { width: 6px; height: 6px; background: var(--cyan); box-shadow: var(--glow-cyan); }
+      .cursor-ring {
+        width: 34px; height: 34px;
+        border: 1px solid rgba(168, 85, 247, 0.7);
+        transition: width 0.25s var(--ease-out), height 0.25s var(--ease-out), border-color 0.25s;
+      }
+      .cursor-ring.hot { width: 56px; height: 56px; border-color: var(--cyan); }
+      @media (hover: none) { .cursor-dot, .cursor-ring { display: none; } }
+
+      /* ───────────────────────────── SCROLL PROGRESS ───────────────────────────── */
+      .scroll-rail {
+        position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 120;
+        background: transparent;
+      }
+      .scroll-rail > i {
+        display: block; height: 100%; width: 0%;
+        background: var(--neon); box-shadow: 0 0 12px rgba(79, 124, 255, 0.8);
+      }
+
+      /* ───────────────────────────── NAV ───────────────────────────── */
+      nav {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 22px clamp(20px, 5vw, 64px);
+        transition: background 0.4s, backdrop-filter 0.4s, padding 0.4s;
+      }
+      nav.docked {
+        background: rgba(6, 8, 18, 0.6);
+        backdrop-filter: blur(18px) saturate(140%);
+        border-bottom: 1px solid var(--glass-line);
+        padding-top: 16px; padding-bottom: 16px;
+      }
+      .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; letter-spacing: 0.18em; }
+      .brand .glyph {
+        width: 30px; height: 30px; border-radius: 9px;
+        background: var(--neon); position: relative;
+        box-shadow: var(--glow-violet);
+        animation: pulseGlow 4s var(--ease-soft) infinite;
+      }
+      .brand .glyph::after {
+        content: ''; position: absolute; inset: 6px; border-radius: 5px;
+        background: var(--void);
+      }
+      .brand .glyph::before {
+        content: ''; position: absolute; inset: 11px; border-radius: 50%;
+        background: var(--cyan); box-shadow: var(--glow-cyan);
+      }
+      @keyframes pulseGlow {
+        0%, 100% { filter: brightness(1) saturate(1); }
+        50% { filter: brightness(1.3) saturate(1.4); }
+      }
+      .nav-links { display: flex; gap: 36px; font-size: 13.5px; color: var(--text-2); }
+      .nav-links a { position: relative; transition: color 0.25s; }
+      .nav-links a::after {
+        content: ''; position: absolute; left: 0; bottom: -6px; height: 1px; width: 0;
+        background: var(--neon); transition: width 0.3s var(--ease-out);
+      }
+      .nav-links a:hover { color: var(--text); }
+      .nav-links a:hover::after { width: 100%; }
+      @media (max-width: 820px) { .nav-links { display: none; } }
+
+      .btn {
+        position: relative; display: inline-flex; align-items: center; gap: 9px;
+        padding: 11px 22px; border-radius: 999px; font-size: 13.5px; font-weight: 600;
+        border: 1px solid var(--glass-line-strong); color: var(--text);
+        background: var(--glass); backdrop-filter: blur(10px);
+        overflow: hidden; transition: transform 0.3s var(--ease-out), border-color 0.3s, box-shadow 0.3s;
+      }
+      .btn::before {
+        content: ''; position: absolute; inset: 0; opacity: 0;
+        background: var(--neon-soft); transition: opacity 0.3s; z-index: -1;
+      }
+      .btn:hover { transform: translateY(-2px); border-color: transparent; box-shadow: 0 12px 40px -10px rgba(120, 90, 255, 0.6); }
+      .btn:hover::before { opacity: 1; }
+      .btn.ghost { background: transparent; }
+
+      /* ───────────────────────────── LAYOUT ───────────────────────────── */
+      main { position: relative; z-index: 2; }
+      section { position: relative; padding: clamp(90px, 14vh, 180px) clamp(20px, 6vw, 80px); }
+      .wrap { max-width: 1200px; margin: 0 auto; }
+
+      .eyebrow {
+        display: inline-flex; align-items: center; gap: 10px;
+        font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.34em;
+        text-transform: uppercase; color: var(--text-2);
+        padding: 7px 14px; border-radius: 999px;
+        border: 1px solid var(--glass-line); background: rgba(20, 26, 50, 0.4);
+        backdrop-filter: blur(8px);
+      }
+      .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: var(--glow-cyan); animation: blink 2.4s infinite; }
+      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+      .grad-text {
+        background: var(--neon); -webkit-background-clip: text; background-clip: text;
+        -webkit-text-fill-color: transparent; color: transparent;
+      }
+
+      /* ───────────────────────────── HERO ───────────────────────────── */
+      #hero {
+        min-height: 100vh; display: flex; flex-direction: column; justify-content: center;
+        align-items: center; text-align: center; padding-top: 120px;
+      }
+      .hero-inner { max-width: 920px; position: relative; }
+      .hero-title {
+        font-size: clamp(48px, 11vw, 148px); line-height: 0.92; font-weight: 700;
+        letter-spacing: -0.03em; margin: 26px 0 8px;
+        position: relative;
+      }
+      .hero-title .line { display: block; overflow: hidden; }
+      .hero-title .reveal { display: inline-block; transform: translateY(110%); }
+      .hero-sub {
+        font-size: clamp(16px, 2vw, 21px); color: var(--text-2);
+        max-width: 620px; margin: 22px auto 0; line-height: 1.6; font-weight: 300;
+      }
+      .hero-cta { display: flex; gap: 16px; justify-content: center; margin-top: 42px; flex-wrap: wrap; }
+      .hero-scroll {
+        position: absolute; bottom: 34px; left: 50%; transform: translateX(-50%);
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.3em;
+        color: var(--text-3); text-transform: uppercase;
+      }
+      .hero-scroll .mouse {
+        width: 22px; height: 36px; border-radius: 12px; border: 1px solid var(--glass-line-strong);
+        position: relative;
+      }
+      .hero-scroll .mouse::after {
+        content: ''; position: absolute; top: 7px; left: 50%; transform: translateX(-50%);
+        width: 3px; height: 7px; border-radius: 2px; background: var(--cyan);
+        animation: scrollDot 1.8s var(--ease-soft) infinite;
+      }
+      @keyframes scrollDot { 0%{opacity:0; top:7px} 30%{opacity:1} 60%{opacity:1; top:18px} 100%{opacity:0; top:18px} }
+
+      .hero-stats {
+        display: flex; gap: clamp(24px, 5vw, 64px); justify-content: center; margin-top: 64px;
+        flex-wrap: wrap;
+      }
+      .stat { text-align: center; }
+      .stat .n { font-family: 'Space Grotesk'; font-size: clamp(24px, 4vw, 38px); font-weight: 700; }
+      .stat .l { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-3); margin-top: 6px; }
+
+      /* ───────────────────────────── HOLO PANEL ───────────────────────────── */
+      .holo-stage { perspective: 1600px; margin-top: 84px; }
+      .holo {
+        position: relative; max-width: 980px; margin: 0 auto;
+        border-radius: 20px; overflow: hidden;
+        border: 1px solid var(--glass-line-strong);
+        background: linear-gradient(160deg, rgba(20, 26, 52, 0.7), rgba(10, 13, 28, 0.55));
+        backdrop-filter: blur(20px) saturate(140%);
+        box-shadow: var(--shadow-deep), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        transform-style: preserve-3d;
+        transition: transform 0.2s var(--ease-soft);
+      }
+      .holo::before {
+        content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 5;
+        background: linear-gradient(115deg, transparent 30%, rgba(140, 180, 255, 0.07) 48%, transparent 60%);
+        background-size: 250% 250%; animation: sheen 7s linear infinite;
+      }
+      @keyframes sheen { 0%{background-position: 200% 0} 100%{background-position: -60% 0} }
+      .holo-bar {
+        display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+        border-bottom: 1px solid var(--glass-line); background: rgba(8, 10, 22, 0.5);
+      }
+      .holo-bar .dots { display: flex; gap: 7px; }
+      .holo-bar .dots i { width: 11px; height: 11px; border-radius: 50%; opacity: 0.8; }
+      .holo-bar .dots i:nth-child(1){ background: #ff5f57; }
+      .holo-bar .dots i:nth-child(2){ background: #febc2e; }
+      .holo-bar .dots i:nth-child(3){ background: #28c840; }
+      .holo-bar .url {
+        flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3);
+        text-align: center;
+      }
+      .holo-body { display: grid; grid-template-columns: 200px 1fr; min-height: 380px; }
+      @media (max-width: 720px){ .holo-body { grid-template-columns: 1fr; } .holo-rail { display: none; } }
+      .holo-rail { border-right: 1px solid var(--glass-line); padding: 18px 14px; background: rgba(8, 10, 22, 0.35); }
+      .rail-item {
+        display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 9px;
+        font-size: 13px; color: var(--text-2); margin-bottom: 3px;
+      }
+      .rail-item .ic { width: 16px; height: 16px; border-radius: 5px; background: rgba(140,170,255,0.18); }
+      .rail-item.active { background: rgba(79, 124, 255, 0.16); color: var(--text); border: 1px solid rgba(79,124,255,0.3); }
+      .rail-item.active .ic { background: var(--neon); box-shadow: var(--glow-cyan); }
+      .rail-tag { display:flex; align-items:center; gap:9px; padding: 7px 12px; font-size: 12px; color: var(--text-3); }
+      .rail-tag .swatch { width: 9px; height: 9px; border-radius: 50%; }
+
+      .holo-list { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+      .mail {
+        display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px;
+        padding: 13px 16px; border-radius: 12px;
+        border: 1px solid var(--glass-line); background: rgba(16, 20, 40, 0.5);
+        transition: transform 0.3s var(--ease-out), border-color 0.3s, background 0.3s;
+      }
+      .mail:hover { transform: translateX(6px); border-color: var(--glass-line-strong); background: rgba(24, 30, 58, 0.65); }
+      .mail .av { width: 34px; height: 34px; border-radius: 10px; background: var(--neon-soft); display:grid; place-items:center; font-weight:700; font-size:13px; color:#06070d; }
+      .mail .who { font-size: 13.5px; font-weight: 600; }
+      .mail .sub { font-size: 12.5px; color: var(--text-3); margin-top: 2px; }
+      .mail .meta { display: flex; gap: 7px; align-items: center; }
+      .pill { font-size: 10px; font-family: 'JetBrains Mono', monospace; padding: 4px 9px; border-radius: 999px; letter-spacing: 0.08em; }
+      .pill.cy { background: rgba(34,211,238,0.14); color: var(--cyan); border:1px solid rgba(34,211,238,0.3); }
+      .pill.vi { background: rgba(168,85,247,0.14); color: #d3a4ff; border:1px solid rgba(168,85,247,0.3); }
+      .pill.az { background: rgba(79,124,255,0.14); color: #9bb4ff; border:1px solid rgba(79,124,255,0.3); }
+
+      .holo-float {
+        position: absolute; border-radius: 16px; padding: 16px 18px;
+        border: 1px solid var(--glass-line-strong); background: var(--glass);
+        backdrop-filter: blur(16px); box-shadow: var(--shadow-deep);
+        z-index: 8;
+      }
+      .holo-float.f1 { top: -34px; right: -26px; }
+      .holo-float.f2 { bottom: -30px; left: -30px; }
+      @media (max-width: 720px){ .holo-float { display: none; } }
+      .hf-title { font-family:'JetBrains Mono'; font-size: 10px; letter-spacing: 0.2em; color: var(--text-3); text-transform: uppercase; }
+      .hf-val { font-family:'Space Grotesk'; font-size: 26px; font-weight: 700; margin-top: 4px; }
+      .spark { display: flex; align-items: flex-end; gap: 3px; height: 30px; margin-top: 8px; }
+      .spark i { width: 5px; border-radius: 2px; background: var(--neon); opacity: 0.85; }
+
+      /* ───────────────────────────── SECTION HEADERS ───────────────────────────── */
+      .sec-head { max-width: 720px; margin-bottom: 60px; }
+      .sec-head.center { margin-left: auto; margin-right: auto; text-align: center; }
+      .sec-title {
+        font-size: clamp(30px, 5vw, 56px); font-weight: 700; line-height: 1.05;
+        letter-spacing: -0.02em; margin: 18px 0 0;
+      }
+      .sec-desc { color: var(--text-2); font-size: clamp(15px, 1.6vw, 18px); line-height: 1.65; margin-top: 18px; font-weight: 300; }
+
+      /* ───────────────────────────── FEATURE CARDS ───────────────────────────── */
+      .grid { display: grid; gap: 22px; }
+      .grid.c3 { grid-template-columns: repeat(3, 1fr); }
+      .grid.c2 { grid-template-columns: repeat(2, 1fr); }
+      @media (max-width: 920px){ .grid.c3 { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 640px){ .grid.c3, .grid.c2 { grid-template-columns: 1fr; } }
+
+      .card {
+        position: relative; padding: 28px; border-radius: 18px; overflow: hidden;
+        border: 1px solid var(--glass-line); background: var(--glass);
+        backdrop-filter: blur(14px) saturate(130%);
+        transition: transform 0.4s var(--ease-out), border-color 0.4s, box-shadow 0.4s;
+        transform-style: preserve-3d;
+      }
+      .card::after {
+        content: ''; position: absolute; width: 360px; height: 360px; border-radius: 50%;
+        background: radial-gradient(circle, rgba(120, 90, 255, 0.18), transparent 60%);
+        left: var(--mx, 50%); top: var(--my, 50%); transform: translate(-50%, -50%);
+        opacity: 0; transition: opacity 0.4s; pointer-events: none;
+      }
+      .card:hover { transform: translateY(-6px); border-color: var(--glass-line-strong); box-shadow: 0 30px 70px -30px rgba(80, 60, 200, 0.6); }
+      .card:hover::after { opacity: 1; }
+      .card .ico {
+        width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center;
+        background: linear-gradient(150deg, rgba(34,211,238,0.18), rgba(168,85,247,0.18));
+        border: 1px solid var(--glass-line-strong); margin-bottom: 20px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+      }
+      .card .ico svg { width: 24px; height: 24px; }
+      .card h3 { font-size: 19px; font-weight: 600; margin-bottom: 9px; font-family: 'Space Grotesk'; }
+      .card p { color: var(--text-2); font-size: 14.5px; line-height: 1.6; font-weight: 300; }
+      .card .tag { display:inline-block; margin-top: 16px; font-family:'JetBrains Mono'; font-size: 10.5px; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase; }
+
+      .card.span2 { grid-column: span 2; }
+      @media (max-width: 920px){ .card.span2 { grid-column: span 2; } }
+      @media (max-width: 640px){ .card.span2 { grid-column: span 1; } }
+
+      /* ───────────────────────────── ORBIT / UNIVERSE SECTION ───────────────────────────── */
+      .orbit-stage {
+        position: relative; height: clamp(420px, 60vh, 620px); display: grid; place-items: center;
+        margin-top: 30px;
+      }
+      .orbit-core {
+        width: 150px; height: 150px; border-radius: 50%; position: relative; z-index: 3;
+        background: radial-gradient(circle at 35% 30%, #fff, var(--cyan) 30%, var(--violet) 70%, var(--magenta));
+        box-shadow: 0 0 80px rgba(120, 90, 255, 0.6), 0 0 140px rgba(34, 211, 238, 0.4), inset 0 0 40px rgba(255,255,255,0.4);
+        animation: floaty 6s var(--ease-soft) infinite;
+      }
+      @keyframes floaty { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-16px) } }
+      .ring {
+        position: absolute; border-radius: 50%; border: 1px solid var(--glass-line);
+        top: 50%; left: 50%; transform: translate(-50%, -50%) rotateX(74deg);
+      }
+      .ring.r1 { width: 320px; height: 320px; animation: orbit 14s linear infinite; }
+      .ring.r2 { width: 480px; height: 480px; border-color: rgba(34,211,238,0.16); animation: orbit 22s linear infinite reverse; }
+      .ring.r3 { width: 640px; height: 640px; border-color: rgba(168,85,247,0.12); animation: orbit 30s linear infinite; }
+      @keyframes orbit { to { transform: translate(-50%, -50%) rotateX(74deg) rotateZ(360deg); } }
+      .planet {
+        position: absolute; width: 14px; height: 14px; border-radius: 50%;
+        top: -7px; left: 50%; transform: translateX(-50%);
+        background: var(--cyan); box-shadow: var(--glow-cyan);
+      }
+      .ring.r2 .planet { background: var(--violet); box-shadow: var(--glow-violet); }
+      .ring.r3 .planet { background: var(--magenta); box-shadow: 0 0 30px rgba(224,64,251,0.6); }
+
+      .orbit-chip {
+        position: absolute; z-index: 4; padding: 11px 16px; border-radius: 13px;
+        border: 1px solid var(--glass-line-strong); background: var(--glass);
+        backdrop-filter: blur(14px); font-size: 12.5px; display: flex; align-items: center; gap: 10px;
+        box-shadow: var(--shadow-deep); animation: floaty 7s var(--ease-soft) infinite;
+      }
+      .orbit-chip .led { width: 8px; height: 8px; border-radius: 50%; }
+      .orbit-chip.c1 { top: 12%; left: 8%; animation-delay: -1s; }
+      .orbit-chip.c2 { top: 22%; right: 6%; animation-delay: -3s; }
+      .orbit-chip.c3 { bottom: 14%; left: 12%; animation-delay: -2s; }
+      .orbit-chip.c4 { bottom: 22%; right: 10%; animation-delay: -4s; }
+      @media (max-width: 640px){ .orbit-chip { font-size: 11px; padding: 8px 12px; } .orbit-chip.c1{left:0} .orbit-chip.c2{right:0} }
+
+      /* ───────────────────────────── SPLIT FEATURE ───────────────────────────── */
+      .split { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(30px, 6vw, 80px); align-items: center; }
+      @media (max-width: 880px){ .split { grid-template-columns: 1fr; } }
+      .split .visual {
+        position: relative; aspect-ratio: 4/3; border-radius: 20px; overflow: hidden;
+        border: 1px solid var(--glass-line-strong);
+        background: linear-gradient(160deg, rgba(20,26,52,0.6), rgba(8,10,22,0.6));
+        backdrop-filter: blur(14px); box-shadow: var(--shadow-deep);
+      }
+      .kanban { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 20px; height: 100%; }
+      .kcol { border-radius: 12px; background: rgba(8,10,22,0.4); border: 1px solid var(--glass-line); padding: 12px; display:flex; flex-direction:column; gap:10px; }
+      .kcol .ktitle { font-family:'JetBrains Mono'; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); }
+      .kcard { padding: 11px; border-radius: 9px; background: rgba(22,28,54,0.7); border: 1px solid var(--glass-line); font-size: 11.5px; color: var(--text-2); animation: floaty 5s ease-in-out infinite; }
+      .kcard .bar { height: 4px; border-radius: 2px; margin-top: 8px; background: var(--neon); opacity: 0.7; }
+
+      /* ───────────────────────────── MARQUEE ───────────────────────────── */
+      .marquee { overflow: hidden; border-top: 1px solid var(--glass-line); border-bottom: 1px solid var(--glass-line); padding: 26px 0; background: rgba(8,10,22,0.35); }
+      .marquee .track { display: flex; gap: 60px; width: max-content; animation: scroll 28s linear infinite; }
+      .marquee .item { font-family:'Space Grotesk'; font-size: clamp(20px, 3vw, 34px); font-weight: 600; color: var(--text-3); display: flex; align-items: center; gap: 60px; white-space: nowrap; }
+      .marquee .item .star { color: var(--cyan); }
+      @keyframes scroll { to { transform: translateX(-50%); } }
+
+      /* ───────────────────────────── CTA ───────────────────────────── */
+      #cta { text-align: center; }
+      .cta-card {
+        position: relative; max-width: 860px; margin: 0 auto; padding: clamp(40px, 7vw, 80px);
+        border-radius: 28px; overflow: hidden;
+        border: 1px solid var(--glass-line-strong);
+        background: linear-gradient(160deg, rgba(24,30,60,0.6), rgba(10,13,28,0.5));
+        backdrop-filter: blur(18px); box-shadow: var(--shadow-deep);
+      }
+      .cta-card::before {
+        content: ''; position: absolute; inset: -2px; z-index: -1; border-radius: 30px;
+        background: conic-gradient(from 0deg, var(--cyan), var(--violet), var(--magenta), var(--azure), var(--cyan));
+        filter: blur(26px); opacity: 0.5; animation: spin 14s linear infinite;
+      }
+      .cta-card h2 { font-size: clamp(30px, 6vw, 60px); font-weight: 700; line-height: 1.04; letter-spacing: -0.02em; }
+      .cta-card p { color: var(--text-2); font-size: 17px; margin-top: 18px; font-weight: 300; }
+      .cta-card .hero-cta { margin-top: 36px; }
+
+      /* ───────────────────────────── FOOTER ───────────────────────────── */
+      footer { border-top: 1px solid var(--glass-line); padding: 56px clamp(20px, 6vw, 80px) 40px; position: relative; z-index: 2; }
+      .foot-grid { max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 30px; }
+      .foot-col h4 { font-family:'JetBrains Mono'; font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--text-3); margin-bottom: 16px; }
+      .foot-col a { display: block; color: var(--text-2); font-size: 13.5px; margin-bottom: 11px; transition: color 0.2s; }
+      .foot-col a:hover { color: var(--cyan); }
+      .foot-bottom { max-width: 1200px; margin: 44px auto 0; padding-top: 24px; border-top: 1px solid var(--glass-line); display:flex; justify-content: space-between; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--text-3); font-family:'JetBrains Mono'; }
+
+      /* ───────────────────────────── REVEAL ───────────────────────────── */
+      .reveal-up { opacity: 0; transform: translateY(40px); transition: opacity 0.9s var(--ease-out), transform 0.9s var(--ease-out); }
+      .reveal-up.in { opacity: 1; transform: none; }
+      .reveal-up.d1 { transition-delay: 0.08s; }
+      .reveal-up.d2 { transition-delay: 0.16s; }
+      .reveal-up.d3 { transition-delay: 0.24s; }
+      .reveal-up.d4 { transition-delay: 0.32s; }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+        .reveal-up { opacity: 1; transform: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- BOOT / PRELOADER -->
+    <div id="boot">
+      <div class="boot-core">
+        <div class="boot-ring"></div>
+        <div class="boot-label" id="bootLabel">Initializing universe</div>
+        <div class="boot-bar"><i id="bootBar"></i></div>
+      </div>
+    </div>
+
+    <!-- BACKGROUND CANVAS LAYERS -->
+    <canvas id="nebula"></canvas>
+    <canvas id="fx"></canvas>
+    <div class="vignette"></div>
+    <div class="grain"></div>
+
+    <!-- CURSOR -->
+    <div class="cursor-dot" id="cDot"></div>
+    <div class="cursor-ring" id="cRing"></div>
+
+    <!-- SCROLL PROGRESS -->
+    <div class="scroll-rail"><i id="scrollFill"></i></div>
+
+    <!-- NAV -->
+    <nav id="nav">
+      <a class="brand" href="#hero"><span class="glyph"></span> NEXUS</a>
+      <div class="nav-links">
+        <a href="#system">System</a>
+        <a href="#universe">Universe</a>
+        <a href="#flow">Flow</a>
+        <a href="#vault">Vault</a>
+      </div>
+      <a class="btn" href="#cta">Enter <span aria-hidden="true">→</span></a>
+    </nav>
+
+    <main>
+      <!-- HERO -->
+      <section id="hero">
+        <div class="hero-inner">
+          <span class="eyebrow"><span class="dot"></span> Local-first · Zero-knowledge · v2</span>
+          <h1 class="hero-title">
+            <span class="line"><span class="reveal" data-reveal>Your inbox</span></span>
+            <span class="line"><span class="reveal grad-text" data-reveal>is a universe.</span></span>
+          </h1>
+          <p class="hero-sub">
+            NEXUS reimagines email as a living digital space — Airtable-grade metadata, kanban
+            workflows, and zero-knowledge sync, rendered in light and motion.
+          </p>
+          <div class="hero-cta">
+            <a class="btn" href="#cta">Launch NEXUS <span aria-hidden="true">→</span></a>
+            <a class="btn ghost" href="#system">Explore the system</a>
+          </div>
+
+          <div class="hero-stats">
+            <div class="stat reveal-up d1"><div class="n grad-text">100%</div><div class="l">Local-first</div></div>
+            <div class="stat reveal-up d2"><div class="n grad-text">0-Knowledge</div><div class="l">E2EE Sync</div></div>
+            <div class="stat reveal-up d3"><div class="n grad-text">∞</div><div class="l">Custom fields</div></div>
+            <div class="stat reveal-up d4"><div class="n grad-text">5+</div><div class="l">Providers</div></div>
+          </div>
+        </div>
+
+        <div class="hero-scroll">
+          <div class="mouse"></div>
+          <span>Scroll to descend</span>
+        </div>
+      </section>
+
+      <!-- HOLOGRAPHIC PANEL -->
+      <section id="system">
+        <div class="wrap">
+          <div class="sec-head center reveal-up">
+            <span class="eyebrow"><span class="dot"></span> The Interface</span>
+            <h2 class="sec-title">A workspace that <span class="grad-text">floats in space</span></h2>
+            <p class="sec-desc">Every message is a record. Every record carries structure — tags, fields, status, notes. The whole surface tilts, glows, and responds to you.</p>
+          </div>
+
+          <div class="holo-stage reveal-up d1">
+            <div class="holo" id="holo" data-tilt>
+              <div class="holo-bar">
+                <div class="dots"><i></i><i></i><i></i></div>
+                <div class="url mono">nexus://vault/inbox · synced</div>
+                <div class="pill cy mono">● live</div>
+              </div>
+              <div class="holo-body">
+                <aside class="holo-rail">
+                  <div class="rail-item active"><span class="ic"></span> Inbox</div>
+                  <div class="rail-item"><span class="ic"></span> Kanban</div>
+                  <div class="rail-item"><span class="ic"></span> Calendar</div>
+                  <div class="rail-item"><span class="ic"></span> Contacts</div>
+                  <div style="height:14px"></div>
+                  <div class="rail-tag"><span class="swatch" style="background:var(--cyan)"></span> Investors</div>
+                  <div class="rail-tag"><span class="swatch" style="background:var(--violet)"></span> Product</div>
+                  <div class="rail-tag"><span class="swatch" style="background:var(--rose)"></span> Urgent</div>
+                  <div class="rail-tag"><span class="swatch" style="background:#28c840"></span> Done</div>
+                </aside>
+                <div class="holo-list">
+                  <div class="mail"><div class="av">A</div><div><div class="who">Ava Chen</div><div class="sub">Re: Series A term sheet — let's align Thursday</div></div><div class="meta"><span class="pill vi mono">investor</span></div></div>
+                  <div class="mail"><div class="av">N</div><div><div class="who">Nexus Relay</div><div class="sub">Cross-device sync complete · 3 devices</div></div><div class="meta"><span class="pill cy mono">sync</span></div></div>
+                  <div class="mail"><div class="av">K</div><div><div class="who">Kai Rivera</div><div class="sub">Design review: holographic panel motion</div></div><div class="meta"><span class="pill az mono">product</span></div></div>
+                  <div class="mail"><div class="av">M</div><div><div class="who">Maya Okafor</div><div class="sub">Q3 roadmap + custom field schema v4</div></div><div class="meta"><span class="pill vi mono">planning</span></div></div>
+                  <div class="mail"><div class="av">T</div><div><div class="who">Theo Lindqvist</div><div class="sub">Vault encryption audit — all green ✓</div></div><div class="meta"><span class="pill cy mono">security</span></div></div>
+                </div>
+              </div>
+              <div class="holo-float f1">
+                <div class="hf-title">Triaged today</div>
+                <div class="hf-val grad-text">248</div>
+                <div class="spark" id="spark1"></div>
+              </div>
+              <div class="holo-float f2">
+                <div class="hf-title">Sync latency</div>
+                <div class="hf-val grad-text">12ms</div>
+                <div class="spark" id="spark2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- FEATURE GRID -->
+      <section id="features">
+        <div class="wrap">
+          <div class="sec-head reveal-up">
+            <span class="eyebrow"><span class="dot"></span> Capabilities</span>
+            <h2 class="sec-title">Power tools, <span class="grad-text">reimagined</span></h2>
+            <p class="sec-desc">Everything you outgrew Gmail for — engineered into a single, fluid surface.</p>
+          </div>
+
+          <div class="grid c3">
+            <article class="card reveal-up d1" data-glow>
+              <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="url(#g1)" stroke-width="1.7"><defs><linearGradient id="g1" x1="0" y1="0" x2="24" y2="24"><stop stop-color="#22d3ee"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></div>
+              <h3>Database-grade metadata</h3>
+              <p>Attach custom fields, statuses, and structured notes to any message. Your inbox becomes a queryable workspace, not a pile.</p>
+              <span class="tag">EP-0 · EP-2</span>
+            </article>
+
+            <article class="card reveal-up d2" data-glow>
+              <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="url(#g1)" stroke-width="1.7"><rect x="3" y="4" width="5" height="16" rx="1"/><rect x="10" y="4" width="5" height="10" rx="1"/><rect x="17" y="4" width="4" height="13" rx="1"/></svg></div>
+              <h3>Kanban workflows</h3>
+              <p>Drag conversations across boards. Triage Series-A threads, support tickets, and launches with movement that feels physical.</p>
+              <span class="tag">EP-1</span>
+            </article>
+
+            <article class="card reveal-up d3" data-glow>
+              <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="url(#g1)" stroke-width="1.7"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+              <h3>Zero-knowledge sync</h3>
+              <p>Cross-device E2EE through a self-hosted relay. The server only ever sees ciphertext — your keys never leave your machine.</p>
+              <span class="tag">EP-5 · Vault</span>
+            </article>
+
+            <article class="card span2 reveal-up d1" data-glow>
+              <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="url(#g1)" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div>
+              <h3>FTS5 search + a real rules engine</h3>
+              <p>Full-text search across your entire vault in milliseconds, with a deterministic rules engine that tags, files, and routes mail automatically. Multi-provider: Gmail, IMAP with real IDLE, Outlook OAuth, and JMAP — all unified into one stream.</p>
+              <span class="tag">EP-3 · EP-6 · EP-7</span>
+            </article>
+
+            <article class="card reveal-up d2" data-glow>
+              <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="url(#g1)" stroke-width="1.7"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg></div>
+              <h3>Native calendar</h3>
+              <p>Google Calendar sync, week/month grids, drag-to-reschedule, and compose-to-event. Time and mail in one continuum.</p>
+              <span class="tag">EP-11 · EP-13</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- UNIVERSE / ORBIT -->
+      <section id="universe">
+        <div class="wrap">
+          <div class="sec-head center reveal-up">
+            <span class="eyebrow"><span class="dot"></span> The Architecture</span>
+            <h2 class="sec-title">One core. <span class="grad-text">Infinite orbits.</span></h2>
+            <p class="sec-desc">A single encrypted vault sits at the center. Providers, devices, and views orbit around it — every mutation flowing through one path.</p>
+          </div>
+
+          <div class="orbit-stage reveal-up d1">
+            <div class="ring r3"><span class="planet"></span></div>
+            <div class="ring r2"><span class="planet"></span></div>
+            <div class="ring r1"><span class="planet"></span></div>
+            <div class="orbit-core"></div>
+
+            <div class="orbit-chip c1"><span class="led" style="background:var(--cyan)"></span> SQLCipher Vault</div>
+            <div class="orbit-chip c2"><span class="led" style="background:var(--violet)"></span> Mutation Pipeline</div>
+            <div class="orbit-chip c3"><span class="led" style="background:var(--magenta)"></span> Lamport Clock</div>
+            <div class="orbit-chip c4"><span class="led" style="background:#28c840"></span> E2EE Relay</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- MARQUEE -->
+      <div class="marquee">
+        <div class="track" id="track">
+          <span class="item"><span class="star">✦</span> Gmail <span class="star">✦</span> IMAP IDLE <span class="star">✦</span> Outlook OAuth <span class="star">✦</span> JMAP <span class="star">✦</span> Local-first <span class="star">✦</span> Zero-knowledge <span class="star">✦</span> Kanban <span class="star">✦</span> FTS5 <span class="star">✦</span></span>
+          <span class="item"><span class="star">✦</span> Gmail <span class="star">✦</span> IMAP IDLE <span class="star">✦</span> Outlook OAuth <span class="star">✦</span> JMAP <span class="star">✦</span> Local-first <span class="star">✦</span> Zero-knowledge <span class="star">✦</span> Kanban <span class="star">✦</span> FTS5 <span class="star">✦</span></span>
+        </div>
+      </div>
+
+      <!-- FLOW / SPLIT -->
+      <section id="flow">
+        <div class="wrap split">
+          <div class="reveal-up">
+            <span class="eyebrow"><span class="dot"></span> The Flow</span>
+            <h2 class="sec-title">Motion that <span class="grad-text">means something</span></h2>
+            <p class="sec-desc">Every intent flows through a single mutation pipeline — optimistic in the UI, durable in the vault, and eventually consistent across every device. Drag a card and the universe rearranges itself, in real time.</p>
+            <div class="hero-cta" style="justify-content:flex-start">
+              <a class="btn" href="#cta">See it move <span aria-hidden="true">→</span></a>
+            </div>
+          </div>
+          <div class="visual reveal-up d2" data-tilt>
+            <div class="kanban">
+              <div class="kcol"><span class="ktitle">Triage</span>
+                <div class="kcard" style="animation-delay:-0.5s">Series A term sheet<div class="bar"></div></div>
+                <div class="kcard" style="animation-delay:-1.5s">Design review<div class="bar"></div></div>
+              </div>
+              <div class="kcol"><span class="ktitle">Active</span>
+                <div class="kcard" style="animation-delay:-1s">Vault audit<div class="bar" style="background:var(--cyan)"></div></div>
+                <div class="kcard" style="animation-delay:-2s">Roadmap v4<div class="bar" style="background:var(--cyan)"></div></div>
+                <div class="kcard" style="animation-delay:-2.5s">Relay setup<div class="bar"></div></div>
+              </div>
+              <div class="kcol"><span class="ktitle">Done</span>
+                <div class="kcard" style="animation-delay:-1.2s">Encryption ✓<div class="bar" style="background:#28c840"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VAULT / SPLIT REVERSE -->
+      <section id="vault">
+        <div class="wrap split">
+          <div class="visual reveal-up" data-tilt style="order:-1">
+            <div style="position:absolute;inset:0;display:grid;place-items:center">
+              <svg width="70%" viewBox="0 0 200 200" fill="none">
+                <defs><linearGradient id="vg" x1="0" y1="0" x2="200" y2="200"><stop stop-color="#22d3ee"/><stop offset="0.5" stop-color="#6366f1"/><stop offset="1" stop-color="#e040fb"/></linearGradient></defs>
+                <path d="M100 14l72 32v52c0 44-31 70-72 88-41-18-72-44-72-88V46z" stroke="url(#vg)" stroke-width="2"/>
+                <path d="M100 40l48 21v34c0 29-20 46-48 58-28-12-48-29-48-58V61z" stroke="url(#vg)" stroke-width="1.2" opacity="0.6"/>
+                <circle cx="100" cy="96" r="16" stroke="url(#vg)" stroke-width="2"/>
+                <path d="M100 96v22" stroke="url(#vg)" stroke-width="2"/>
+                <circle cx="100" cy="96" r="5" fill="url(#vg)"/>
+              </svg>
+            </div>
+          </div>
+          <div class="reveal-up d1">
+            <span class="eyebrow"><span class="dot"></span> The Vault</span>
+            <h2 class="sec-title">Encrypted at rest. <span class="grad-text">Yours alone.</span></h2>
+            <p class="sec-desc">All mail lives in a local SQLite vault sealed with SQLCipher. Sync is XChaCha20-Poly1305 over a relay that only stores ciphertext. No cloud reads your mail — not us, not anyone.</p>
+            <div class="grid c2" style="margin-top:28px">
+              <div class="card" style="padding:20px"><div class="hf-title">Encryption</div><div style="font-family:'Space Grotesk';font-weight:600;margin-top:6px">XChaCha20-Poly1305</div></div>
+              <div class="card" style="padding:20px"><div class="hf-title">Integrity</div><div style="font-family:'Space Grotesk';font-weight:600;margin-top:6px">BLAKE3 hashing</div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CTA -->
+      <section id="cta">
+        <div class="cta-card reveal-up">
+          <span class="eyebrow"><span class="dot"></span> Be early</span>
+          <h2 style="margin-top:20px">Enter the <span class="grad-text">inbox universe</span></h2>
+          <p>Reclaim your inbox as a space you control — local, encrypted, and impossibly fast. Built for power users who outgrew stars and folders.</p>
+          <div class="hero-cta">
+            <a class="btn" href="https://github.com/wdsmcguigan/nexus-v2" target="_blank" rel="noopener">Get NEXUS <span aria-hidden="true">→</span></a>
+            <a class="btn ghost" href="#hero">Back to top</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="foot-grid">
+        <div class="foot-col" style="max-width:280px">
+          <a class="brand" href="#hero" style="margin-bottom:16px"><span class="glyph"></span> NEXUS</a>
+          <p style="color:var(--text-3);font-size:13.5px;line-height:1.6;font-weight:300">A local-first, privacy-first email client rendered as a digital universe.</p>
+        </div>
+        <div class="foot-col"><h4>Product</h4><a href="#system">Interface</a><a href="#features">Features</a><a href="#universe">Architecture</a><a href="#vault">Security</a></div>
+        <div class="foot-col"><h4>System</h4><a href="#flow">Mutation pipeline</a><a href="#universe">E2EE relay</a><a href="#features">Multi-provider</a></div>
+        <div class="foot-col"><h4>Connect</h4><a href="https://github.com/wdsmcguigan/nexus-v2" target="_blank" rel="noopener">GitHub</a><a href="#cta">Get early access</a></div>
+      </div>
+      <div class="foot-bottom">
+        <span>© 2026 NEXUS · Local-first email</span>
+        <span>nexus://vault · zero-knowledge</span>
+      </div>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
