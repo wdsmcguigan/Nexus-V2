@@ -37,9 +37,7 @@ import {
   X as XIcon,
   Users,
   Calendar,
-  ImageIcon,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Avatar } from "@/components/ui/Avatar";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Panel } from "@/components/panel/Panel";
@@ -50,7 +48,6 @@ import { useAccounts } from "@/storage/useStore";
 import {
   isTauri,
   syncGmailNow,
-  refreshAccountPhotos,
   startGmailOAuth,
   disconnectAccount,
   getRelayStatus,
@@ -248,33 +245,12 @@ function DisconnectModal({
 
 function AccountRow({ accountId, email }: { accountId: string; email: string }) {
   const [syncing, setSyncing] = React.useState(false);
-  const [refreshingPhoto, setRefreshingPhoto] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [modalOpen, setModalOpen] = React.useState(false);
   const syncProgress = useWorkspace((s) => s.syncProgress);
   const isSyncingNow = syncing || (syncProgress?.accountId === accountId && (syncProgress?.total ?? 0) > 0);
   const account = useAccounts().find((a) => a.id === accountId);
   const photoUrl = account?.photoUrl;
-
-  async function handleRefreshPhoto() {
-    if (!isTauri()) return;
-    setRefreshingPhoto(true);
-    try {
-      const result = await refreshAccountPhotos(accountId);
-      if (result.photoUpdated) {
-        toast.success(result.diagnostic);
-      } else {
-        // No photo returned — surface the diagnostic so the user knows
-        // exactly what to try next (reconnect, etc.).
-        toast.error(result.diagnostic, { duration: 10000 });
-      }
-    } catch (e) {
-      console.warn("refresh_account_photos error:", e);
-      toast.error(`Photo refresh failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setRefreshingPhoto(false);
-    }
-  }
 
   async function handleSync() {
     if (!isTauri()) return;
@@ -328,16 +304,6 @@ function AccountRow({ accountId, email }: { accountId: string; email: string }) 
             )}
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          iconOnly
-          aria-label="Refresh profile photo from Google"
-          onClick={handleRefreshPhoto}
-          disabled={refreshingPhoto || disconnecting}
-        >
-          {refreshingPhoto ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
-        </Button>
         <Button
           variant="ghost"
           size="sm"
