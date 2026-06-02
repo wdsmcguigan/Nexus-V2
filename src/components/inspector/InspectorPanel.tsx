@@ -84,7 +84,7 @@ function ParticipantRow({
       onClick={() => openContactsPanel(contact?.id, allParticipantEmails)}
       className="group/pr flex w-full items-center gap-2.5 rounded-sm py-1.5 px-1 -mx-1 text-left hover:bg-surface-2 transition-colors"
     >
-      <Avatar name={displayName} size={32} colorSeed={colorSeed} src={contact?.photoUrl} />
+      <Avatar name={displayName} size={32} colorSeed={colorSeed} src={contact?.photoUrl ?? localStore.accountPhotoUrlForEmail(email)} email={email} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-small text-text-primary">{displayName}</span>

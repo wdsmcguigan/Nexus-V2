@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn, initials } from "@/lib/utils";
 import type { PanelLink } from "@/design-system/tokens";
 
@@ -8,6 +8,11 @@ interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   size?: number;
   colorSeed?: PanelLink;
   src?: string;
+  /**
+   * When provided, Avatar tries Gravatar (SHA-256 of the lowercased email, `d=404`)
+   * and a domain favicon (DuckDuckGo) as additional fallbacks before showing initials.
+   */
+  email?: string;
 }
 
 const COLOR_VAR: Record<PanelLink, string> = {
@@ -20,20 +25,91 @@ const COLOR_VAR: Record<PanelLink, string> = {
   19: "var(--color-link-19)", 20: "var(--color-link-20)", 21: "var(--color-link-21)",
 };
 
+const gravatarHashCache = new Map<string, string>();
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function useGravatarHash(email: string | undefined): string | undefined {
+  const normalized = useMemo(
+    () => (email ? email.toLowerCase().trim() : undefined),
+    [email],
+  );
+  const [hash, setHash] = useState<string | undefined>(() =>
+    normalized ? gravatarHashCache.get(normalized) : undefined,
+  );
+
+  useEffect(() => {
+    if (!normalized) {
+      setHash(undefined);
+      return;
+    }
+    const cached = gravatarHashCache.get(normalized);
+    if (cached) {
+      setHash(cached);
+      return;
+    }
+    let cancelled = false;
+    sha256Hex(normalized)
+      .then((h) => {
+        if (cancelled) return;
+        gravatarHashCache.set(normalized, h);
+        setHash(h);
+      })
+      .catch(() => {
+        // crypto.subtle unavailable — silently skip Gravatar fallback
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [normalized]);
+
+  return hash;
+}
+
 export function Avatar({
   name,
   size = 20,
   colorSeed = 8,
   src,
+  email,
   className,
   style,
   ...props
 }: AvatarProps) {
-  const [imgFailed, setImgFailed] = useState(false);
+  const gravatarHash = useGravatarHash(email);
+
+  const candidates = useMemo(() => {
+    const list: string[] = [];
+    if (src) list.push(src);
+    if (gravatarHash) {
+      list.push(`https://gravatar.com/avatar/${gravatarHash}?d=404&s=128`);
+    }
+    const domain = email?.split("@")[1]?.toLowerCase();
+    if (domain) {
+      list.push(`https://icons.duckduckgo.com/ip3/${domain}.ico`);
+    }
+    return list;
+  }, [src, gravatarHash, email]);
+
+  const [errorIdx, setErrorIdx] = useState(0);
+
+  // Reset to first candidate whenever the source list changes (e.g. hash resolves).
+  useEffect(() => {
+    setErrorIdx(0);
+  }, [candidates]);
+
   const inits = initials(name);
   const single = size <= 20;
   const hue = COLOR_VAR[colorSeed];
-  const showImg = src && !imgFailed;
+  const currentSrc = candidates[errorIdx];
+  const showImg = !!currentSrc;
+
   return (
     <div
       role="img"
@@ -54,10 +130,11 @@ export function Avatar({
     >
       {showImg ? (
         <img
-          src={src}
+          key={currentSrc}
+          src={currentSrc}
           alt={name}
           className="w-full h-full object-cover"
-          onError={() => setImgFailed(true)}
+          onError={() => setErrorIdx((i) => i + 1)}
         />
       ) : single ? (
         inits[0]

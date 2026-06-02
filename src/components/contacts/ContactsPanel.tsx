@@ -50,7 +50,7 @@ function ContactRow({
           : "hover:bg-surface-2 text-text-primary",
       )}
     >
-      <Avatar name={name} size={32} colorSeed={colorSeed} src={photoUrl} />
+      <Avatar name={name} size={32} colorSeed={colorSeed} src={photoUrl ?? localStore.accountPhotoUrlForEmail(primaryEmail)} email={primaryEmail} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-body-strong">{name}</div>
         <div className="truncate font-mono text-mono-xs text-text-tertiary">

@@ -824,7 +824,7 @@ export function NavigationPanel() {
               )}
             >
               <div className="relative shrink-0">
-                <Avatar name={a.email} size={20} colorSeed={8} src={a.photoUrl} />
+                <Avatar name={a.email} size={20} colorSeed={8} src={a.photoUrl} email={a.email} />
                 <div
                   className={cn(
                     "absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-surface-1",

@@ -174,7 +174,7 @@ function ThreadMessageRow({ msg }: { msg: Message }) {
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-surface-2 transition-colors duration-fast"
       >
-        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} src={senderContact?.photoUrl} />
+        <Avatar name={msg.fromAddr.name} size={24} colorSeed={colorSeed} src={senderContact?.photoUrl ?? localStore.accountPhotoUrlForEmail(msg.fromAddr.email)} email={msg.fromAddr.email} />
         <div className="min-w-0 flex-1">
           {expanded ? (
             <span className="font-sans text-body-strong text-text-secondary">{msg.fromAddr.name}</span>
@@ -766,7 +766,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
               type="button"
               className="flex shrink-0 cursor-default items-center gap-3 rounded-sm px-1 -mx-1 hover:bg-surface-2 transition-colors"
             >
-              <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl} />
+              <Avatar name={msg.fromAddr.name} size={40} colorSeed={colorSeed} src={senderContact?.photoUrl ?? localStore.accountPhotoUrlForEmail(msg.fromAddr.email)} email={msg.fromAddr.email} />
               <span className="max-w-[160px] truncate font-sans text-body-strong text-text-primary">
                 {msg.fromAddr.name}
               </span>

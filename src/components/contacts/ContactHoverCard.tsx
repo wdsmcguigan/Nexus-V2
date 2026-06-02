@@ -129,7 +129,7 @@ function FoundContactContent({
       {/* Header */}
       <div className="p-3">
         <div className="flex items-start gap-3">
-          <Avatar name={displayName} size={48} colorSeed={colorSeed} src={contact.photoUrl} />
+          <Avatar name={displayName} size={48} colorSeed={colorSeed} src={contact.photoUrl ?? localStore.accountPhotoUrlForEmail(contact.emails[0])} email={contact.emails[0]} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="font-sans text-body-strong text-text-primary truncate">{displayName}</span>

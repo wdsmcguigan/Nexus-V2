@@ -62,7 +62,7 @@ function KanbanCard({ message: msg, isDragging }: CardProps) {
     >
       {/* From + date */}
       <div className="flex items-center gap-1.5">
-        <Avatar name={msg.fromAddr.name} size={16} colorSeed={colorSeed} src={senderContact?.photoUrl} />
+        <Avatar name={msg.fromAddr.name} size={16} colorSeed={colorSeed} src={senderContact?.photoUrl ?? localStore.accountPhotoUrlForEmail(msg.fromAddr.email)} email={msg.fromAddr.email} />
         <span className="min-w-0 flex-1 truncate font-sans text-small font-medium text-text-secondary">
           {msg.fromAddr.name}
         </span>

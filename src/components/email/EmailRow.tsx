@@ -25,6 +25,7 @@ import { pickPanelLink } from "@/design-system/tokens";
 import type { Message, StarStyle, Label, Status } from "@/data/types";
 import type { Density } from "@/design-system/tokens";
 import { useContactByEmail } from "@/storage/useStore";
+import { localStore } from "@/storage/local";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -207,7 +208,7 @@ export const EmailRow = React.memo(function EmailRow({
       {/* Avatar */}
       {showAvatar && (
         <div className="flex shrink-0 items-start self-start pt-1 pr-2">
-          <Avatar name={msg.fromAddr.name} size={cozy ? 28 : 20} colorSeed={fromColorSeed} src={senderContact?.photoUrl} />
+          <Avatar name={msg.fromAddr.name} size={cozy ? 28 : 20} colorSeed={fromColorSeed} src={senderContact?.photoUrl ?? localStore.accountPhotoUrlForEmail(msg.fromAddr.email)} email={msg.fromAddr.email} />
         </div>
       )}
 

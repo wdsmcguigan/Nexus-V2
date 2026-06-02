@@ -430,6 +430,29 @@ pub async fn start_gmail_oauth(
             Err(e) => log::warn!("Google Contacts fetch failed: {e}"),
         }
 
+        // Sync "other" contacts — people the user has emailed but hasn't saved. Only
+        // entries with a Google profile photo are imported; their `source` is
+        // "google_other" so they can be distinguished from explicitly-saved contacts.
+        match crate::gmail::contacts::fetch_other_contacts(&http, &access_token, &vault_id_clone).await {
+            Ok(others) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        let mut count = 0usize;
+                        for contact in &others {
+                            if let Err(e) = db.upsert_contact(&vault_id_clone, contact) {
+                                log::warn!("upsert other-contact error: {e}");
+                            } else {
+                                count += 1;
+                            }
+                        }
+                        log::info!("Synced {count} other-contact photos");
+                    }
+                    Err(e) => log::warn!("Could not open DB for other-contacts: {e}"),
+                }
+            }
+            Err(e) => log::warn!("fetch_other_contacts failed: {e}"),
+        }
+
         let _ = app_handle.emit("vault:hydrate-needed", ());
     });
 
@@ -610,6 +633,29 @@ pub async fn refresh_account_photos(
                 }
             }
             Err(e) => log::warn!("fetch_contact_photos error: {e}"),
+        }
+
+        // Refresh "other" contacts (people user has emailed but not saved) via People API.
+        // Only entries with a Google profile photo are imported; their `source` is
+        // "google_other" so they can be distinguished from explicitly-saved contacts.
+        match crate::gmail::contacts::fetch_other_contacts(&http, &access_token, &vault_id_clone).await {
+            Ok(others) => {
+                match crate::db::VaultDb::open(&vault_path, "nexus") {
+                    Ok(db) => {
+                        let mut count = 0usize;
+                        for contact in &others {
+                            if let Err(e) = db.upsert_contact(&vault_id_clone, contact) {
+                                log::warn!("upsert other-contact error: {e}");
+                            } else {
+                                count += 1;
+                            }
+                        }
+                        log::info!("Refreshed {count} other-contact photos");
+                    }
+                    Err(e) => log::warn!("refresh_account_photos: DB open error: {e}"),
+                }
+            }
+            Err(e) => log::warn!("fetch_other_contacts error: {e}"),
         }
 
         let _ = app_handle.emit("vault:hydrate-needed", ());
