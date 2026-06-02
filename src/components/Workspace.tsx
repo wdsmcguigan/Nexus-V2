@@ -19,14 +19,14 @@ import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { EventCreateModal } from "@/components/calendar/EventCreateModal";
-import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave } from "@/state/workspace";
+import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave, getDockviewApi } from "@/state/workspace";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 import type { ModuleKey } from "@/data/types";
 import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
-import { getAppPreferences } from "@/lib/appPreferences";
+import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -334,9 +334,18 @@ export function Workspace() {
   const activeWs = useWorkspace((s) =>
     s.workspaces.find((w) => w.id === s.activeWorkspaceId),
   );
-  // Note: app preferences change very rarely (only via Settings panel), and
-  // SettingsPanel already triggers a re-render when it edits prefs via the
-  // existing pattern. So reading directly here is safe.
+
+  // Bump on every saveAppPreferences call so swatch changes immediately
+  // re-render this component and re-apply --module-color to all groups.
+  const prefsVersion = useAppPreferencesVersion();
+
+  // Re-apply --module-color to every dockview group whenever the active
+  // workspace, its color overrides, or user-level prefs change.
+  React.useEffect(() => {
+    const api = getDockviewApi();
+    api?.groups.forEach(applyModuleColor);
+  }, [activeWs?.id, activeWs?.panelColors, prefsVersion]);
+
   const bodyTintLevel = resolveBodyTintLevel(
     getAppPreferences().panelColors,
     activeWs?.panelColors,

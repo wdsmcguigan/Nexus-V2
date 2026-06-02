@@ -3,6 +3,7 @@
  * Stored in a separate localStorage key so they survive workspace switches.
  */
 
+import * as React from "react";
 import type { PanelColorPrefs } from "@/data/types";
 
 export interface AppPreferences {
@@ -42,6 +43,32 @@ const STORAGE_KEY = "nexus_app_prefs_v1";
 
 let _cache: AppPreferences | null = null;
 
+// ─── Subscription machinery ───────────────────────────────────────────────────
+
+const _listeners = new Set<() => void>();
+
+/**
+ * Subscribe to app-preferences changes. The callback fires after every
+ * successful `saveAppPreferences` call. Returns an unsubscribe function.
+ */
+export function subscribeAppPreferences(cb: () => void): () => void {
+  _listeners.add(cb);
+  return () => { _listeners.delete(cb); };
+}
+
+/**
+ * React hook that returns a version counter that increments on every
+ * `saveAppPreferences` call. Use as a render dependency to react to pref edits.
+ */
+export function useAppPreferencesVersion(): number {
+  return React.useSyncExternalStore(
+    subscribeAppPreferences,
+    () => _prefsVersion,
+  );
+}
+
+let _prefsVersion = 0;
+
 export function getAppPreferences(): AppPreferences {
   if (_cache) return _cache;
   try {
@@ -65,6 +92,8 @@ export function saveAppPreferences(updates: Partial<AppPreferences>): void {
   } catch {
     // quota exceeded — silently ignore
   }
+  _prefsVersion += 1;
+  _listeners.forEach((cb) => cb());
 }
 
 /** Invalidate the in-memory cache (useful after external storage changes). */

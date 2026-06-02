@@ -59,7 +59,9 @@ describe("resolvePanelColor", () => {
   });
 
   it("falls all the way through to system default when neither layer covers it", () => {
-    const user: PanelColorPrefs = { colors: { list: "link-7" }, bodyTintLevel: "L2" };
+    // user overrides "list" with link-2 (amber), not "calendar" — so calendar
+    // must come from the system default (link-7 / rose), not from user.colors.list.
+    const user: PanelColorPrefs = { colors: { list: "link-2" }, bodyTintLevel: "L2" };
     const ws: PanelColorPrefs = { colors: {}, bodyTintLevel: "L2" };
     expect(resolvePanelColor("calendar", user, ws)).toBe("var(--color-link-7)");
   });
