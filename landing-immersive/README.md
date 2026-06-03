@@ -39,8 +39,7 @@ read from the visitor's device, **no cookie-consent banner is required**.
 Operator: **Absurdity Media** · contact `mediaabsurdity@gmail.com`.
 
 > These documents are tailored drafts, **not legal advice** — have counsel
-> review before relying on them. One placeholder remains: the governing-law
-> **state** in `terms.html` (`[STATE]`) must be set to your US state.
+> review before relying on them. Governing law is set to **California, USA**.
 
 ## The experience
 
