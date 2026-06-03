@@ -254,6 +254,18 @@ export function Workspace() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // ⌘⇧N / Ctrl+Shift+N opens the composer in a separate OS window.
+  React.useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useWorkspace.getState().openComposerWindow();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Global `z` = undo, `Z` (Shift+z) = redo
   React.useEffect(() => {
     function onKey(e: KeyboardEvent) {

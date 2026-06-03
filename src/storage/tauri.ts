@@ -25,6 +25,18 @@ async function listen(event: string, handler: (payload: unknown) => void): Promi
   return _listen(event, (e) => handler(e.payload));
 }
 
+async function emitEvent(event: string, payload?: unknown): Promise<void> {
+  const { emit } = await import("@tauri-apps/api/event");
+  await emit(event, payload);
+}
+
+/** Authoritative current window label (e.g. "main" or "popout-composer-…"). */
+export async function getCurrentWindowLabel(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  return getCurrentWebviewWindow().label;
+}
+
 // ─── Vault / DB ───────────────────────────────────────────────────────────────
 
 export interface HydratePayload {
@@ -274,6 +286,108 @@ export async function onNewMessages(
   cb: (payload: { messageIds: string[] }) => void,
 ): Promise<() => void> {
   return listen("gmail:new-messages", cb as (p: unknown) => void);
+}
+
+// ─── Multi-window (de-dockable panels) ────────────────────────────────────────
+
+export interface WindowGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  monitorName: string | null;
+  scaleFactor: number;
+}
+
+export interface MonitorInfo {
+  name: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+}
+
+/** Pop-out window kinds. "panel" hosts a generic detached dockview panel. */
+export type PopoutKind = "composer" | "viewer" | "panel";
+
+/**
+ * Spawn a pop-out OS window. `payload` is an opaque string the new window
+ * pulls via {@link takePopoutPayload}. Returns the new window label.
+ */
+export async function openPopoutWindow(
+  kind: PopoutKind,
+  opts?: { targetId?: string; payload?: string; geometry?: WindowGeometry },
+): Promise<string> {
+  return invoke<string>("open_popout_window", {
+    kind,
+    targetId: opts?.targetId ?? null,
+    payload: opts?.payload ?? null,
+    geometry: opts?.geometry ?? null,
+  });
+}
+
+/** Envelope handed to a pop-out at creation: `{ kind, targetId, payload }`. */
+export interface PopoutEnvelope {
+  kind: PopoutKind;
+  targetId: string | null;
+  payload: string | null;
+}
+
+export async function takePopoutPayload(label: string): Promise<PopoutEnvelope | null> {
+  const raw = await invoke<string | null>("take_popout_payload", { label });
+  return raw ? (JSON.parse(raw) as PopoutEnvelope) : null;
+}
+
+export async function closePopoutWindow(label: string): Promise<void> {
+  return invoke<void>("close_popout_window", { label });
+}
+
+export async function listMonitors(): Promise<MonitorInfo[]> {
+  return invoke<MonitorInfo[]>("list_monitors");
+}
+
+export async function getWindowGeometry(label: string): Promise<WindowGeometry | null> {
+  return invoke<WindowGeometry | null>("get_window_geometry", { label });
+}
+
+export interface RemoteMutationEvent {
+  kind: string;
+  payload: unknown;
+  lamport: number;
+  originWindow: string;
+}
+
+/** Fires in every window when any window commits a mutation to the DB. */
+export async function onMutationApplied(
+  cb: (e: RemoteMutationEvent) => void,
+): Promise<() => void> {
+  return listen("vault:mutation-applied", cb as (p: unknown) => void);
+}
+
+export interface UiPrefPayload {
+  theme?: "dark" | "light";
+  density?: "compact" | "comfortable" | "cozy";
+}
+
+/** Broadcast a shared UI preference (theme/density) to all windows. */
+export async function broadcastUiPref(pref: UiPrefPayload): Promise<void> {
+  if (!isTauri()) return;
+  await emitEvent("ui:pref-changed", pref);
+}
+
+export async function onUiPrefChanged(cb: (p: UiPrefPayload) => void): Promise<() => void> {
+  return listen("ui:pref-changed", cb as (p: unknown) => void);
+}
+
+/** Emitted by a pop-out window as it closes so the main window can untrack it. */
+export async function emitPopoutClosed(label: string): Promise<void> {
+  if (!isTauri()) return;
+  await emitEvent("popout:closed", { label });
+}
+
+export async function onPopoutClosed(cb: (p: { label: string }) => void): Promise<() => void> {
+  return listen("popout:closed", cb as (p: unknown) => void);
 }
 
 // ─── EP-5 Relay ───────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@
 import { create } from "zustand";
 import type { Density, Theme } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
+import { broadcastUiPref, openPopoutWindow } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import {
   loadWorkspacesFromStorage,
@@ -236,6 +237,8 @@ interface WorkspaceState {
   setComposerOpen: (open: boolean) => void;
   composerContext: ComposerContext | null;
   openComposer: (ctx?: ComposerContext) => void;
+  /** Open the composer in a separate OS window (Shift-click / ⌘⇧N). */
+  openComposerWindow: (ctx?: ComposerContext) => void;
 
   // Command palette
   paletteOpen: boolean;
@@ -531,20 +534,27 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setTheme: (t) => {
     document.documentElement.classList.toggle("dark", t === "dark");
     set({ theme: t });
+    void broadcastUiPref({ theme: t });
   },
   toggleTheme: () => {
     const next = get().theme === "dark" ? "light" : "dark";
     document.documentElement.classList.toggle("dark", next === "dark");
     set({ theme: next });
+    void broadcastUiPref({ theme: next });
   },
 
   // ── Density ────────────────────────────────────────────────────────────────
 
   density: _activeWs.density,
-  setDensity: (d) => set({ density: d }),
+  setDensity: (d) => {
+    set({ density: d });
+    void broadcastUiPref({ density: d });
+  },
   cycleDensity: () => {
     const i = DENSITIES.indexOf(get().density);
-    set({ density: DENSITIES[(i + 1) % DENSITIES.length]! });
+    const next = DENSITIES[(i + 1) % DENSITIES.length]!;
+    set({ density: next });
+    void broadcastUiPref({ density: next });
   },
 
   // ── Folder / label selection ───────────────────────────────────────────────
@@ -886,6 +896,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   composerContext: null,
   setComposerOpen: (open) => set(open ? { composerOpen: true } : { composerOpen: false, composerContext: null }),
   openComposer: (ctx) => set({ composerOpen: true, composerContext: ctx ?? null }),
+  openComposerWindow: (ctx) => {
+    void openPopoutWindow("composer", { payload: ctx ? JSON.stringify(ctx) : undefined });
+  },
 
   // ── Command palette ────────────────────────────────────────────────────────
 

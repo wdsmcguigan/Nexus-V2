@@ -3,6 +3,7 @@ mod commands;
 pub mod crypto;
 mod db;
 mod gmail;
+mod popout;
 pub mod providers;
 mod relay;
 pub mod smtp;
@@ -22,6 +23,8 @@ pub struct AppState {
     pub token_refresh_lock: AsyncMutex<()>,
     /// Whether desktop notifications are enabled (controlled by frontend preference).
     pub notifications_enabled: Mutex<bool>,
+    /// Payload envelopes handed to pop-out windows at creation, keyed by label.
+    pub popout_payloads: popout::PopoutPayloads,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,6 +41,7 @@ pub fn run() {
             relay: Arc::new(Mutex::new(relay::RelayState::default())),
             token_refresh_lock: AsyncMutex::new(()),
             notifications_enabled: Mutex::new(true),
+            popout_payloads: popout::PopoutPayloads::default(),
         })
         .invoke_handler(tauri::generate_handler![
             commands::load_vault_data,
@@ -109,6 +113,12 @@ pub fn run() {
             commands::discover_caldav,
             commands::add_caldav_account,
             commands::sync_caldav_calendar,
+            // Multi-window / de-dockable panels
+            popout::open_popout_window,
+            popout::take_popout_payload,
+            popout::close_popout_window,
+            popout::list_monitors,
+            popout::get_window_geometry,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously.
