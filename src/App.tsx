@@ -1,7 +1,8 @@
 import { Component, useState, useEffect, type ReactNode } from "react";
 import { Workspace } from "@/components/Workspace";
 import { VaultSetup } from "@/components/onboarding/VaultSetup";
-import { isTauri, getVaultPath, repairMessageBodies } from "@/storage/tauri";
+import { PopoutHost } from "@/windows/PopoutHost";
+import { isTauri, getVaultPath, getCurrentWindowLabel, repairMessageBodies } from "@/storage/tauri";
 import { bodyStore } from "@/storage/bodyStore";
 
 interface ErrorBoundaryState {
@@ -40,21 +41,39 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 
 export default function App() {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  // Non-null once we know this is a de-docked pop-out window (skips onboarding).
+  const [popoutLabel, setPopoutLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isTauri()) {
       setShowOnboarding(false);
       return;
     }
-    getVaultPath().then((path) => {
+    (async () => {
+      // Pop-out windows skip onboarding entirely — they only ever spawn when a
+      // vault already exists, and render a single detached panel.
+      const label = await getCurrentWindowLabel();
+      if (label && label.startsWith("popout-")) {
+        setPopoutLabel(label);
+        return;
+      }
+      const path = await getVaultPath();
       const pendingStep = localStorage.getItem("nexus-onboarding-step");
       const hasPendingStep = pendingStep === "mode" || pendingStep === "accounts" || pendingStep === "gmail";
       setShowOnboarding(!path || hasPendingStep);
       if (path && !hasPendingStep) {
         repairMessageBodies().then(() => bodyStore.clear()).catch(() => {});
       }
-    });
+    })();
   }, []);
+
+  if (popoutLabel) {
+    return (
+      <ErrorBoundary>
+        <PopoutHost label={popoutLabel} />
+      </ErrorBoundary>
+    );
+  }
 
   // Loading state while we check for an existing vault
   if (showOnboarding === null) {

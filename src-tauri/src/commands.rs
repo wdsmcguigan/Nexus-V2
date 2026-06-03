@@ -116,9 +116,23 @@ pub async fn set_client_mode(
     Ok(())
 }
 
+/// Broadcast envelope for a committed mutation, consumed by sibling windows to
+/// patch their in-memory store without a full re-hydrate. `origin_window` lets
+/// the originating window ignore its own echo (it already applied optimistically).
+#[derive(Serialize, Clone)]
+struct MutationEvent {
+    kind: String,
+    payload: JsonValue,
+    lamport: i64,
+    #[serde(rename = "originWindow")]
+    origin_window: String,
+}
+
 #[tauri::command]
 pub async fn apply_mutation(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
     kind: String,
     payload: JsonValue,
     device_id: String,
@@ -172,6 +186,18 @@ pub async fn apply_mutation(
             log::warn!("local-first FS effect failed ({kind}): {e}");
         }
     }
+
+    // Broadcast to all windows so siblings patch their store. The originating
+    // window ignores its own echo (matched on origin_window in the frontend).
+    let _ = app.emit(
+        "vault:mutation-applied",
+        MutationEvent {
+            kind,
+            payload,
+            lamport,
+            origin_window: window.label().to_string(),
+        },
+    );
 
     Ok(())
 }

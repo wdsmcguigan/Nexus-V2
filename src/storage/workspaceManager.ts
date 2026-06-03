@@ -5,11 +5,21 @@
 
 import type { MetadataFilter, PanelColorPrefs, StarStyle } from "@/data/types";
 import type { ShortcutAction } from "@/lib/shortcuts";
+import type { PopoutKind, WindowGeometry } from "@/storage/tauri";
 
 export interface ListPanelSnapshotState {
   filter: MetadataFilter;
   selectedFolderId: string;
   selectedSavedViewId: string | null;
+}
+
+/** A panel detached into its own OS window, restored on next launch. */
+export interface DetachedWindowSnapshot {
+  kind: PopoutKind;
+  /** Message id for viewer/inspector windows; null for the rest. */
+  targetId: string | null;
+  /** Last-known window geometry (physical px) + monitor; null until captured. */
+  geometry: WindowGeometry | null;
 }
 
 export interface WorkspaceSnapshot {
@@ -45,6 +55,8 @@ export interface WorkspaceSnapshot {
   keyBindings: Partial<Record<ShortcutAction, string>>;
   /** Per-workspace panel color override. Absent means inherit user-level prefs. */
   panelColors?: PanelColorPrefs;
+  /** Panels detached into their own OS windows, replayed on next launch. */
+  detachedWindows?: DetachedWindowSnapshot[];
 }
 
 export interface WorkspacesData {
@@ -95,5 +107,6 @@ export function makeDefaultWorkspace(): WorkspaceSnapshot {
     showSnippets: true,
     activeStars: [],
     keyBindings: {},
+    detachedWindows: [],
   };
 }

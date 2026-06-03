@@ -311,6 +311,32 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
   }
 }
 
+/**
+ * Apply a mutation that originated in another window (received via the
+ * `vault:mutation-applied` Tauri broadcast). Patches the local in-memory store
+ * only — it must NOT re-persist to SQLite (the originating window already did)
+ * nor push to the undo stack (undo is a per-window affordance). Advances the
+ * local Lamport clock so subsequent local writes stay causally ordered.
+ */
+export function applyRemoteMutation(
+  kind: MutationKind,
+  payload: unknown,
+  lamport: number,
+  store: LocalStore = _defaultStore,
+): void {
+  if (lamport > _lamport) _lamport = lamport;
+  const mutation: Mutation = {
+    id: `remote-${lamport}`,
+    vaultId: store.vault?.id ?? "local",
+    deviceId: "remote",
+    ts: Date.now(),
+    lamport,
+    kind,
+    payload,
+  };
+  applyMutation(mutation, store);
+}
+
 // ─── Apply ───────────────────────────────────────────────────────────────────
 // Dispatches a single mutation to the appropriate handler.
 

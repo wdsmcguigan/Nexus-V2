@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/schema/acl-manifests/core/schema.json",
   "identifier": "default",
   "description": "Default permissions for Nexus",
-  "windows": ["main"],
+  "windows": ["main", "popout-*"],
   "permissions": [
     "core:default",
     "shell:allow-open",
