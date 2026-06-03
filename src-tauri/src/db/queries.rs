@@ -147,6 +147,40 @@ impl VaultDb {
         Ok(())
     }
 
+    /// Remove all Google-synced calendars (and their events + incremental sync
+    /// state) for one account. Local calendars are untouched. Used when the user
+    /// disconnects calendar sync and chooses to remove the synced data.
+    pub fn remove_synced_calendars(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM calendar_events WHERE account_id = ?1",
+            params![account_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM calendars WHERE account_id = ?1 AND provider = 'google'",
+            params![account_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM calendar_sync WHERE account_id = ?1",
+            params![account_id],
+        )?;
+        Ok(())
+    }
+
+    /// Remove all contacts synced from one account (and clear its delta-sync
+    /// token). Contacts predating `source_account_id` (NULL) and manually-created
+    /// contacts are left in place. contact_emails/contact_phones cascade.
+    pub fn remove_synced_contacts(&self, account_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM contacts WHERE source_account_id = ?1",
+            params![account_id],
+        )?;
+        self.conn.execute(
+            "DELETE FROM contacts_sync WHERE account_id = ?1",
+            params![account_id],
+        )?;
+        Ok(())
+    }
+
     fn load_folders(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, parent_id, name, disk_slug, color, icon, system_kind, position
@@ -608,6 +642,7 @@ impl VaultDb {
         let addresses = contact["addresses"].to_string();
         let source = contact["source"].as_str().unwrap_or("manual");
         let external_id = contact["externalId"].as_str();
+        let source_account_id = contact["sourceAccountId"].as_str();
         let importance = contact["importance"].as_str().unwrap_or("normal");
         let created_at = contact["createdAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
         let updated_at = contact["updatedAt"].as_i64().unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
@@ -616,8 +651,8 @@ impl VaultDb {
             "INSERT INTO contacts (id, vault_id, name, company, title, website, location, notes,
                                    tags_json, photo_url, always_show_images,
                                    birthday, social_json, addresses_json, source, external_id, importance,
-                                   created_at, updated_at)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
+                                   source_account_id, created_at, updated_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
              ON CONFLICT(id) DO UPDATE SET
                name=excluded.name, company=excluded.company, title=excluded.title,
                website=excluded.website, location=excluded.location, notes=excluded.notes,
@@ -630,11 +665,12 @@ impl VaultDb {
                source=excluded.source,
                external_id=COALESCE(excluded.external_id, external_id),
                importance=excluded.importance,
+               source_account_id=COALESCE(excluded.source_account_id, source_account_id),
                updated_at=excluded.updated_at",
             params![id, vault_id, name, company, title, website, location, notes,
                     tags, photo_url, always_show_images,
                     birthday, social, addresses, source, external_id, importance,
-                    created_at, updated_at],
+                    source_account_id, created_at, updated_at],
         )?;
 
         // Rebuild email list

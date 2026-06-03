@@ -265,6 +265,10 @@ pub const EP9_ALTER_SQL: &[&str] = &[
     "ALTER TABLE contacts ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
     "ALTER TABLE contacts ADD COLUMN external_id TEXT",
     "ALTER TABLE contacts ADD COLUMN importance TEXT NOT NULL DEFAULT 'normal'",
+    // Account a synced contact originated from, so "Sync Google Contacts" can be
+    // disconnected with the option to remove only that account's synced contacts.
+    // NULL for manually-created contacts and any synced before this column existed.
+    "ALTER TABLE contacts ADD COLUMN source_account_id TEXT",
 ];
 
 /// EP9 idempotent DDL — contact groups, sync state tables, calendar schema reservation.
