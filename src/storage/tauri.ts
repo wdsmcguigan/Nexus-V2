@@ -401,6 +401,18 @@ export async function onPopoutClosed(cb: (p: { label: string }) => void): Promis
   return listen("popout:closed", cb as (p: unknown) => void);
 }
 
+/** Emitted (debounced) by a pop-out when it is moved/resized. */
+export async function emitPopoutGeometry(label: string, geometry: WindowGeometry): Promise<void> {
+  if (!isTauri()) return;
+  await emitEvent("popout:geometry", { label, geometry });
+}
+
+export async function onPopoutGeometry(
+  cb: (p: { label: string; geometry: WindowGeometry }) => void,
+): Promise<() => void> {
+  return listen("popout:geometry", cb as (p: unknown) => void);
+}
+
 // ─── EP-5 Relay ───────────────────────────────────────────────────────────────
 
 export interface RelayStatus {

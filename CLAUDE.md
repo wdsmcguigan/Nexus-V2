@@ -303,6 +303,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **Tag pseudo-folder IDs:** Tags in the navigation sidebar use the synthetic `selectedFolderId = "tag:<name>"` pattern. `useVisibleMessagesForPanel` and `useSelectionTitle` resolve these pseudo-IDs. Do not pass real folder UUIDs for tag navigation.
 
+**Multi-window / de-dockable panels:** Panels detach into separate OS windows (`src-tauri/src/popout.rs` + `src/windows/`). Each window is an **isolated webview with its own Zustand + in-memory store** but shares the one Rust backend/DB. Consistency rules: (1) every committed mutation is broadcast by `apply_mutation` (`commands.rs`) as `vault:mutation-applied`; sibling windows apply it via `applyRemoteMutation()` (the pure reducer path — never `recordMutation`, to avoid re-persist + double undo), ignoring their own echo by `originWindow`. (2) Background workers (watcher, sync poller, photo refresh, relay) run **only in the main window** — gated on `label === "main"` in `main.tsx`. (3) A pop-out window is identified by its Tauri label `popout-{kind}-{uuid}`; `App.tsx` branches on it. (4) Detached-window geometry persists in `WorkspaceSnapshot.detachedWindows` and is restored (off-screen-clamped) on launch. Window creation lives in Rust, not the JS `WebviewWindow` API.
+
 ---
 
 ## Known Incomplete (read `docs/known-gaps.md` for the full register)

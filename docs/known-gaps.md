@@ -49,6 +49,7 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 | 13 | Sync state UI (per-folder progress, error surfacing) | EP-9 or later | `relay_state.last_error` is captured (`src-tauri/src/relay/mod.rs`) but no per-folder progress surface exists. |
 | 14 | Sender reputation / spam panel | Future | Mentioned in `docs/notes/panels-brainstorm.md` only. |
 | 29 | JMAP OAuth2 + PKCE flow | EP-6 follow-up | JMAP auth today is bearer-token only (user pastes an API token in `JmapFlow`). Add an OAuth2 + PKCE flow mirroring `start_outlook_oauth` so Fastmail / Stalwart users don't have to generate tokens manually. Provider impl in `src-tauri/src/providers/jmap.rs` is unchanged — only the onboarding + token refresh layer needs work. |
+| 30 | Drag-out-to-detach gesture | Multi-window follow-up | De-dockable panels (`src/windows/`, `src-tauri/src/popout.rs`) detach via the per-tab **external-link button** and ⌘⇧N (composer). The spec's "drag a panel outside the workspace bounds to spawn a window" gesture (`docs/UI-DESIGN-SYSTEM-SPEC.md` §6.3.2) is **not** wired — the button covers the same intent more reliably. Re-docking a pop-out back into the main grid is also not yet supported (close it and re-open from the source). |
 
 ---
 

@@ -20,7 +20,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { EventCreateModal } from "@/components/calendar/EventCreateModal";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave, getDockviewApi } from "@/state/workspace";
-import { openPopoutWindow, type PopoutKind } from "@/storage/tauri";
+import { isTauri, openPopoutWindow, type PopoutKind } from "@/storage/tauri";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
@@ -61,21 +61,23 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // Detach a docked panel into its own OS window, then remove it from the main
 // layout. Navigation is intentionally non-detachable. Viewer/inspector carry
 // the currently-shown message so the pop-out opens on the right content.
-function detachPanelToWindow(id: string) {
+async function detachPanelToWindow(id: string) {
   const moduleKey = id.split("-")[0];
   if (!moduleKey || moduleKey === "nav") return;
   const kind = moduleKey as PopoutKind;
-  let targetId: string | undefined;
+  let targetId: string | null = null;
   if (moduleKey === "viewer" || moduleKey === "inspector") {
     const ws = useWorkspace.getState();
-    targetId = ws.viewerPinState[id] ?? ws.selectedEmailId ?? undefined;
+    targetId = ws.viewerPinState[id] ?? ws.selectedEmailId ?? null;
   }
-  void openPopoutWindow(kind, targetId ? { targetId } : undefined);
+  const label = await openPopoutWindow(kind, targetId ? { targetId } : undefined);
+  useWorkspace.getState().trackDetachedWindow(label, kind, targetId);
   getDockviewApi()?.getPanel(id)?.api.close();
 }
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
-  const detachable = props.api.id.split("-")[0] !== "nav";
+  // Detaching requires real OS windows (Tauri); Navigation is never detachable.
+  const detachable = isTauri() && props.api.id.split("-")[0] !== "nav";
   return (
     <div className="group/tab flex h-full items-center pl-1">
       <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
@@ -84,7 +86,7 @@ function DockviewTab(props: IDockviewPanelHeaderProps) {
         <button
           type="button"
           aria-label="Open panel in new window"
-          onClick={() => detachPanelToWindow(props.api.id)}
+          onClick={() => void detachPanelToWindow(props.api.id)}
           className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover/tab:opacity-100"
         >
           <ExternalLink size={10} strokeWidth={2.5} />

@@ -12,8 +12,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::dpi::{PhysicalPosition, PhysicalSize, Position, Size};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl, WebviewWindowBuilder,
+};
 
 /// Pending payloads handed to a pop-out window at creation time, keyed by the
 /// window label. The pop-out pulls (and removes) its payload via
@@ -109,7 +110,7 @@ pub async fn open_popout_window(
     }
 
     let (def_w, def_h) = default_size(&kind);
-    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+    let win = WebviewWindowBuilder::new(&app, label.as_str(), WebviewUrl::App("index.html".into()))
         .title("Nexus")
         .inner_size(def_w, def_h)
         .min_inner_size(360.0, 300.0)

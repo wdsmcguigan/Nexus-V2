@@ -3,7 +3,13 @@ import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { PopoutComposer } from "@/windows/PopoutComposer";
 import { PopoutPanelHost } from "@/windows/PopoutPanelHost";
-import { closePopoutWindow, emitPopoutClosed, type PopoutKind } from "@/storage/tauri";
+import {
+  closePopoutWindow,
+  emitPopoutClosed,
+  emitPopoutGeometry,
+  getWindowGeometry,
+  type PopoutKind,
+} from "@/storage/tauri";
 
 /**
  * Root for every de-docked OS window. Provides the shared providers (theme is
@@ -36,6 +42,33 @@ export function PopoutHost({ label }: { label: string }) {
       });
     })();
     return () => unlisten?.();
+  }, [label]);
+
+  // Report geometry (debounced) on move/resize so the main window can persist
+  // it for multi-monitor restore on next launch.
+  React.useEffect(() => {
+    let unMove: (() => void) | undefined;
+    let unResize: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const report = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const g = await getWindowGeometry(label).catch(() => null);
+        if (g) await emitPopoutGeometry(label, g);
+      }, 600);
+    };
+    (async () => {
+      const { getCurrentWebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const w = getCurrentWebviewWindow();
+      unMove = await w.onMoved(report);
+      unResize = await w.onResized(report);
+      report(); // capture the initial placement once
+    })();
+    return () => {
+      unMove?.();
+      unResize?.();
+      if (timer) clearTimeout(timer);
+    };
   }, [label]);
 
   return (
