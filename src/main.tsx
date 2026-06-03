@@ -17,7 +17,6 @@ import {
   onUiPrefChanged,
   onPopoutClosed,
   onPopoutGeometry,
-  openPopoutWindow,
   startWatcher,
   syncGmailNow,
   refreshAccountPhotos,
@@ -161,27 +160,11 @@ async function initTauri() {
     await onPopoutClosed(({ label }) => {
       useWorkspace.getState().untrackDetachedWindow(label);
     });
-    await restoreDetachedWindows();
+    // persist=false: dockview may not be mounted yet; don't clobber the layout.
+    await useWorkspace.getState().restoreDetachedWindows(false);
   } catch (e) {
     console.error("Failed to load vault data, falling back to fixtures:", e);
     if (isMain) await import("@/data/fixtures");
-  }
-}
-
-/** Re-open the panels that were detached into their own windows last session,
- *  restoring saved geometry (clamped onto a visible monitor by the backend). */
-async function restoreDetachedWindows() {
-  const s = useWorkspace.getState();
-  const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-  const list = ws?.detachedWindows ?? [];
-  for (const d of list) {
-    if (d.kind === "composer") continue; // transient — never restored
-    const label = await openPopoutWindow(d.kind, {
-      targetId: d.targetId ?? undefined,
-      geometry: d.geometry ?? undefined,
-    }).catch(() => null);
-    // persist=false: dockview may not be mounted yet; don't clobber the layout.
-    if (label) s.trackDetachedWindow(label, d.kind, d.targetId, d.geometry, false);
   }
 }
 
