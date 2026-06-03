@@ -43,6 +43,19 @@ landing-immersive/
 - Adapts particle count and DPR to viewport/device for smooth framerates.
 - Touch devices fall back to the native cursor and device-orientation parallax.
 
+## Deploy
+
+This folder is self-describing for Vercel via its own `vercel.json` (framework-less,
+no build, static). Deploy just this page without touching the root app config:
+
+```bash
+npx vercel login                          # one-time
+npx vercel deploy landing-immersive --yes # preview URL (add --prod for stable)
+```
+
+Or import the repo in the Vercel dashboard as a new project with **Root Directory →
+`landing-immersive`** — the bundled `vercel.json` handles the rest (no build command).
+
 ## Content
 
 Copy is drawn from the real product: local-first SQLCipher vault,
