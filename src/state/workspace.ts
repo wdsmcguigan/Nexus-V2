@@ -14,7 +14,7 @@
 import { create } from "zustand";
 import type { Density, Theme } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
-import { broadcastUiPref, isTauri, openPopoutWindow, type PopoutKind, type WindowGeometry } from "@/storage/tauri";
+import { broadcastUiPref, closePopoutWindow, isTauri, openPopoutWindow, type PopoutKind, type WindowGeometry } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import {
   loadWorkspacesFromStorage,
@@ -251,6 +251,9 @@ interface WorkspaceState {
   ) => void;
   untrackDetachedWindow: (label: string) => void;
   setDetachedWindowGeometry: (label: string, geometry: WindowGeometry) => void;
+  /** Re-open the active workspace's saved detached windows. `persist` is false
+   *  at launch (dockview not mounted yet) and true on workspace switch. */
+  restoreDetachedWindows: (persist?: boolean) => Promise<void>;
 
   // Command palette
   paletteOpen: boolean;
@@ -439,6 +442,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
     _isRestoring = true;
 
+    // Detached windows belong to the workspace. Close the outgoing set (its
+    // state is already persisted via track/untrack/geometry) and clear the
+    // runtime registry; trailing popout:closed events then become no-ops.
+    if (isTauri()) {
+      for (const label of Object.keys(s.detachedWindows)) void closePopoutWindow(label);
+      set({ detachedWindows: {} });
+    }
+
     const api = getDockviewApi();
     if (api) {
       const layout = ws.dockviewLayout ?? _defaultLayoutJson;
@@ -481,6 +492,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       w.id === id ? w : w,
     );
     saveWorkspacesToStorage({ workspaces: updatedWorkspaces, activeId: id });
+
+    // Re-open the incoming workspace's detached panels. Dockview is mounted
+    // mid-session, so persist=true writes the fresh labels/geometry back.
+    void get().restoreDetachedWindows(true);
 
     // Reset flag after all synchronous handlers (including onDidLayoutChange)
     setTimeout(() => { _isRestoring = false; }, 0);
@@ -930,13 +945,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (persist) get().saveWorkspace();
   },
   untrackDetachedWindow: (label) => {
+    // Only persist when we actually removed a tracked window. During a
+    // workspace switch the runtime map is cleared first, so the trailing
+    // popout:closed events from the outgoing windows become harmless no-ops
+    // and can't write an empty set into the new workspace.
+    let removed = false;
     set((s) => {
       if (!(label in s.detachedWindows)) return {};
+      removed = true;
       const next = { ...s.detachedWindows };
       delete next[label];
       return { detachedWindows: next };
     });
-    get().saveWorkspace();
+    if (removed) get().saveWorkspace();
   },
   setDetachedWindowGeometry: (label, geometry) => {
     set((s) => {
@@ -945,6 +966,20 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return { detachedWindows: { ...s.detachedWindows, [label]: { ...entry, geometry } } };
     });
     if (get().detachedWindows[label]) get().saveWorkspace();
+  },
+  restoreDetachedWindows: async (persist = false) => {
+    if (!isTauri()) return;
+    const s = get();
+    const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    const list = ws?.detachedWindows ?? [];
+    for (const d of list) {
+      if (d.kind === "composer") continue; // transient — never restored
+      const label = await openPopoutWindow(d.kind, {
+        targetId: d.targetId ?? undefined,
+        geometry: d.geometry ?? undefined,
+      }).catch(() => null);
+      if (label) get().trackDetachedWindow(label, d.kind, d.targetId, d.geometry, persist);
+    }
   },
 
   // ── Command palette ────────────────────────────────────────────────────────
