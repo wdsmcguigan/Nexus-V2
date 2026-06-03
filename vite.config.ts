@@ -6,30 +6,38 @@ import fs from "node:fs";
 // When running under `tauri dev`, TAURI_ENV_DEBUG is set
 const isTauriBuild = process.env.TAURI_ENV_DEBUG !== undefined;
 
-// Copy the standalone immersive landing page into the web build output so the
-// Vercel deployment serves it at /landing-immersive/ alongside the app shell.
+// Copy the standalone static landing pages into the web build output so the
+// Vercel deployment serves each at its own path alongside the app shell.
 // Build-only; the desktop (Tauri) bundle is unaffected at runtime.
-function copyLandingImmersive() {
+function copyLandingPages() {
+  // [source folder, output path under dist/]
+  const pages: Array<[string, string]> = [
+    ["landing", "landing"],
+    ["landing v0.5", "landing-v0.5"],
+    ["landing-immersive", "landing-immersive"],
+  ];
   return {
-    name: "copy-landing-immersive",
+    name: "copy-landing-pages",
     apply: "build" as const,
     closeBundle() {
-      const src = path.resolve(__dirname, "landing-immersive");
-      const dest = path.resolve(__dirname, "dist/landing-immersive");
-      if (!fs.existsSync(src)) return;
-      fs.cpSync(src, dest, {
-        recursive: true,
-        filter: (s) => {
-          const base = path.basename(s);
-          return base !== "README.md" && base !== "vercel.json";
-        },
-      });
+      for (const [from, to] of pages) {
+        const src = path.resolve(__dirname, from);
+        const dest = path.resolve(__dirname, "dist", to);
+        if (!fs.existsSync(src)) continue;
+        fs.cpSync(src, dest, {
+          recursive: true,
+          filter: (s) => {
+            const base = path.basename(s);
+            return base !== "README.md" && base !== "vercel.json";
+          },
+        });
+      }
     },
   };
 }
 
 export default defineConfig({
-  plugins: [react(), copyLandingImmersive()],
+  plugins: [react(), copyLandingPages()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
