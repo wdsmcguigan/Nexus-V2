@@ -6,16 +6,41 @@ living digital universe. A counterpart to the production marketing page in
 
 ## What it is
 
-A **single self-contained experience** with **zero build step and zero runtime
-dependencies** (only Google Fonts over CDN). Open `index.html` in any modern
-browser.
+A **single self-contained experience** with **zero build step, zero runtime
+dependencies, and zero third-party requests** — fonts are self-hosted. Open
+`index.html` in any modern browser.
 
 ```
 landing-immersive/
-├── index.html   # markup + all CSS (design tokens, glassmorphism, layout)
-├── app.js       # the engine (canvas 3D field, nebula, interactions)
-└── favicon.svg
+├── index.html    # hero / marketing page — markup + all CSS, 3D field
+├── app.js        # the engine (canvas 3D field, nebula, interactions)
+├── favicon.svg
+├── fonts.css     # @font-face for the self-hosted variable fonts
+├── fonts/        # Inter / JetBrains Mono / Space Grotesk (latin woff2)
+├── legal.css     # shared styling for the legal/compliance pages
+├── privacy.html  # Privacy Policy
+├── terms.html    # Terms & Conditions
+└── cookies.html  # Cookie Policy
 ```
+
+## Legal & compliance
+
+The site is built for the cleanest possible privacy posture: **no cookies, no
+analytics, no tracking, and no third-party network calls** (fonts are bundled
+locally instead of loaded from Google Fonts). Because nothing is stored on or
+read from the visitor's device, **no cookie-consent banner is required**.
+
+- `privacy.html` — covers the website plus a transparency note on the app's
+  local-first / zero-knowledge data model; includes GDPR and CCPA/CPRA sections.
+- `terms.html` — website terms (acceptable use, IP, disclaimers, liability,
+  governing law).
+- `cookies.html` — documents the no-cookies stance and similar technologies.
+
+Operator: **Absurdity Media** · contact `mediaabsurdity@gmail.com`.
+
+> These documents are tailored drafts, **not legal advice** — have counsel
+> review before relying on them. One placeholder remains: the governing-law
+> **state** in `terms.html` (`[STATE]`) must be set to your US state.
 
 ## The experience
 
