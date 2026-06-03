@@ -532,13 +532,10 @@
       .wl-hdr { text-align:center; margin-bottom:40px; }
       .gf-wrap {
         background:var(--s2); border:1px solid var(--bd1);
-        border-radius:var(--r-xl); overflow:hidden;
+        border-radius:var(--r-xl); padding:48px 40px;
       }
-      .gf-wrap iframe { display:block; width:100%; border:0; min-height:620px; }
-      .gf-fb { padding:52px 40px; text-align:center; }
-      .gf-fb p { font-size:15px; line-height:1.7; color:var(--t1); }
-      .gf-fb a { color:var(--acc); }
-      .gf-fb a:hover { text-decoration:underline; }
+      .gf-wrap a:not(.btn) { color:var(--acc); }
+      .gf-wrap a:not(.btn):hover { text-decoration:underline; }
       .wl-disc {
         margin-top:16px; text-align:center;
         font-family:var(--mono); font-size:11px; color:var(--t3); letter-spacing:.04em;
@@ -1136,50 +1133,11 @@
             </p>
           </div>
 
-          <div class="gf-wrap rv">
-            <!--
-              ╔══════════════════════════════════════════════════════════════╗
-              ║  GOOGLE FORMS SETUP                                          ║
-              ╠══════════════════════════════════════════════════════════════╣
-              ║  1. Go to https://forms.google.com and create a form.        ║
-              ║     Recommended fields:                                      ║
-              ║       • Email (required, Short answer)                       ║
-              ║       • Name (Short answer)                                  ║
-              ║       • Role: User / Contributor / Both (Multiple choice)    ║
-              ║       • Use case: CRM / Research / Triage / Dev / Other      ║
-              ║       • GitHub handle (optional, Short answer)               ║
-              ║       • What would you use Nexus for? (Paragraph)            ║
-              ║                                                              ║
-              ║  2. Click Send → Embed icon (<>) → copy the full src URL.    ║
-              ║     Format:                                                  ║
-              ║       https://docs.google.com/forms/d/e/FORM_ID/            ║
-              ║       viewform?embedded=true                                 ║
-              ║                                                              ║
-              ║  3. Replace GOOGLE_FORM_EMBED_URL below with that URL.       ║
-              ║     The fallback message disappears automatically.           ║
-              ╚══════════════════════════════════════════════════════════════╝
-            -->
-            <iframe
-              id="gf"
-              src="GOOGLE_FORM_EMBED_URL"
-              title="Nexus early access signup"
-              loading="lazy"
-              style="display:none;"
-              width="100%"
-              height="640"
-              frameborder="0"
-              marginheight="0"
-              marginwidth="0"
-            >Loading…</iframe>
-            <div id="gf-fb" class="gf-fb">
-              <p>
-                The signup form isn't wired up yet. In the meantime, email
-                <a href="mailto:wdsmcguigan@gmail.com">wdsmcguigan@gmail.com</a>
-                or
-                <a href="https://github.com/wdsmcguigan/nexus-v2/issues" target="_blank" rel="noopener noreferrer">open an issue on GitHub</a>
-                to express interest.
-              </p>
-            </div>
+          <div class="gf-wrap rv" style="text-align:center;">
+            <a class="btn btn-pri btn-lg" href="mailto:mediaabsurdity@gmail.com?subject=NEXUS%20early%20access">Request early access →</a>
+            <p style="margin-top:14px;font-size:14px;color:var(--t1);">
+              Prefer GitHub? <a href="https://github.com/wdsmcguigan/nexus-v2/issues" target="_blank" rel="noopener noreferrer">Open an issue</a> to say hi.
+            </p>
           </div>
 
           <p class="wl-disc rv">
@@ -1261,20 +1219,6 @@
         var btn = document.getElementById('reset-demo');
         var ifr = document.getElementById('demo-iframe');
         if (btn && ifr) btn.addEventListener('click', function () { ifr.src = ifr.src; });
-      })();
-
-      // Google Forms placeholder detection
-      (function () {
-        var ifr = document.getElementById('gf');
-        var fb  = document.getElementById('gf-fb');
-        if (!ifr || !fb) return;
-        if ((ifr.getAttribute('src') || '').indexOf('GOOGLE_FORM_EMBED_URL') !== -1) {
-          ifr.style.display = 'none';
-          fb.style.display = 'block';
-        } else {
-          ifr.style.display = 'block';
-          fb.style.display = 'none';
-        }
       })();
     </script>
 

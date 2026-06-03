@@ -455,13 +455,6 @@
         }
       }
 
-      /* Tally embed */
-      iframe[data-tally-src] {
-        width: 100%;
-        border: 0;
-        background: transparent;
-      }
-
       /* Anchor offset for sticky-ish nav */
       section[id] {
         scroll-margin-top: 72px;
@@ -1081,43 +1074,14 @@
 
           <div
             class="card"
-            style="padding: 24px; background: var(--color-surface-1);"
+            style="padding: 32px; background: var(--color-surface-1); text-align: center;"
           >
-            <!--
-              TALLY SETUP
-              1. Create a form at https://tally.so
-              2. In Tally → Share → Embed → Copy the form ID (e.g. "mO5VlA")
-              3. Replace TALLY_FORM_ID below with your real ID
-              Recommended fields: email (required), name, role (user/contributor/both),
-              primary use case (CRM/research/triage/dev/other), what you'd want from Nexus,
-              GitHub handle (optional)
-            -->
-            <iframe
-              data-tally-src="https://tally.so/embed/TALLY_FORM_ID?alignLeft=1&hideTitle=1&transparentBackground=1&dynamicHeight=1"
-              loading="lazy"
-              width="100%"
-              height="400"
-              frameborder="0"
-              marginheight="0"
-              marginwidth="0"
-              title="Nexus waitlist signup"
-            ></iframe>
-
-            <!-- Fallback shown when the Tally form hasn't been configured yet -->
-            <div id="tally-fallback" class="hidden">
-              <p class="text-secondary text-center">
-                The signup form isn't configured yet. In the meantime, email
-                <a href="mailto:hello@nexusmail.dev" class="text-accent hover:underline">hello@nexusmail.dev</a>
-                or
-                <a
-                  href="https://github.com/wdsmcguigan/nexus-v2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-accent hover:underline"
-                  >open an issue on GitHub</a
-                >.
-              </p>
-            </div>
+            <a class="btn btn-primary" href="mailto:mediaabsurdity@gmail.com?subject=NEXUS%20early%20access">Request early access →</a>
+            <p class="mt-4 text-sm text-tertiary">
+              Prefer GitHub?
+              <a href="https://github.com/wdsmcguigan/nexus-v2/issues" target="_blank" rel="noopener noreferrer" class="text-accent hover:underline">Open an issue</a>
+              to say hi.
+            </p>
           </div>
 
           <p class="mt-6 text-sm text-tertiary text-center">
@@ -1155,41 +1119,6 @@
           btn.addEventListener('click', function () {
             iframe.src = iframe.src;
           });
-        }
-      })();
-
-      // Tally embed init — only loads if a real form ID has been pasted in
-      (function () {
-        var tallyIframe = document.querySelector('iframe[data-tally-src]');
-        if (!tallyIframe) return;
-        var src = tallyIframe.getAttribute('data-tally-src') || '';
-        if (src.indexOf('TALLY_FORM_ID') !== -1) {
-          // Placeholder still in place — show fallback instead.
-          tallyIframe.style.display = 'none';
-          var fallback = document.getElementById('tally-fallback');
-          if (fallback) fallback.classList.remove('hidden');
-          return;
-        }
-        // Real form configured — load Tally's embed script.
-        var d = document;
-        var w = 'https://tally.so/widgets/embed.js';
-        var v = function () {
-          if (typeof Tally !== 'undefined') {
-            Tally.loadEmbeds();
-          } else {
-            d.querySelectorAll('iframe[data-tally-src]:not([src])').forEach(function (e) {
-              e.src = e.dataset.tallySrc;
-            });
-          }
-        };
-        if (typeof Tally !== 'undefined') {
-          v();
-        } else if (d.querySelector('script[src="' + w + '"]') == null) {
-          var s = d.createElement('script');
-          s.src = w;
-          s.onload = v;
-          s.onerror = v;
-          d.body.appendChild(s);
         }
       })();
     </script>
