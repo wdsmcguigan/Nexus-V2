@@ -2,6 +2,7 @@ import * as React from "react";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { PopoutComposer } from "@/windows/PopoutComposer";
+import { PopoutPanelHost } from "@/windows/PopoutPanelHost";
 import { closePopoutWindow, emitPopoutClosed, type PopoutKind } from "@/storage/tauri";
 
 /**
@@ -43,9 +44,7 @@ export function PopoutHost({ label }: { label: string }) {
         {kind === "composer" ? (
           <PopoutComposer label={label} />
         ) : (
-          <div className="flex h-screen w-screen items-center justify-center text-text-muted">
-            Unsupported window type
-          </div>
+          <PopoutPanelHost label={label} />
         )}
       </div>
       <Toaster position="bottom-right" theme="system" />

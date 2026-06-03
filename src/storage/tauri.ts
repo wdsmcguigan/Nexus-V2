@@ -308,8 +308,19 @@ export interface MonitorInfo {
   scaleFactor: number;
 }
 
-/** Pop-out window kinds. "panel" hosts a generic detached dockview panel. */
-export type PopoutKind = "composer" | "viewer" | "panel";
+/**
+ * Pop-out window kinds. "composer" hosts the message composer; the rest mirror
+ * the detachable dockview module keys (Navigation is intentionally absent — it
+ * is not detachable).
+ */
+export type PopoutKind =
+  | "composer"
+  | "viewer"
+  | "inspector"
+  | "list"
+  | "contacts"
+  | "calendar"
+  | "settings";
 
 /**
  * Spawn a pop-out OS window. `payload` is an opaque string the new window

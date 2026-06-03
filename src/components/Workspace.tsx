@@ -1,7 +1,7 @@
 import * as React from "react";
 import { DockviewReact, DockviewDefaultTab } from "dockview";
 import type { DockviewReadyEvent, IDockviewPanelProps, IDockviewPanelHeaderProps } from "dockview";
-import { GripVertical, X } from "lucide-react";
+import { GripVertical, X, ExternalLink } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/Tooltip";
 import { WorkspaceChrome } from "@/components/chrome/WorkspaceChrome";
@@ -20,6 +20,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { EventCreateModal } from "@/components/calendar/EventCreateModal";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave, getDockviewApi } from "@/state/workspace";
+import { openPopoutWindow, type PopoutKind } from "@/storage/tauri";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
@@ -57,11 +58,38 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // Renders a grip affordance and our own close button so we control the styling.
 // The whole tab element is dockview's drag handle; grip is purely visual.
 
+// Detach a docked panel into its own OS window, then remove it from the main
+// layout. Navigation is intentionally non-detachable. Viewer/inspector carry
+// the currently-shown message so the pop-out opens on the right content.
+function detachPanelToWindow(id: string) {
+  const moduleKey = id.split("-")[0];
+  if (!moduleKey || moduleKey === "nav") return;
+  const kind = moduleKey as PopoutKind;
+  let targetId: string | undefined;
+  if (moduleKey === "viewer" || moduleKey === "inspector") {
+    const ws = useWorkspace.getState();
+    targetId = ws.viewerPinState[id] ?? ws.selectedEmailId ?? undefined;
+  }
+  void openPopoutWindow(kind, targetId ? { targetId } : undefined);
+  getDockviewApi()?.getPanel(id)?.api.close();
+}
+
 function DockviewTab(props: IDockviewPanelHeaderProps) {
+  const detachable = props.api.id.split("-")[0] !== "nav";
   return (
     <div className="group/tab flex h-full items-center pl-1">
       <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
       <DockviewDefaultTab {...props} hideClose />
+      {detachable && (
+        <button
+          type="button"
+          aria-label="Open panel in new window"
+          onClick={() => detachPanelToWindow(props.api.id)}
+          className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs text-text-muted opacity-0 transition-opacity hover:text-text-primary group-hover/tab:opacity-100"
+        >
+          <ExternalLink size={10} strokeWidth={2.5} />
+        </button>
+      )}
       <button
         type="button"
         aria-label="Close panel"
