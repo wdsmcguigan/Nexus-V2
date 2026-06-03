@@ -24,6 +24,7 @@ import {
 } from "@/storage/tauri";
 import { applyRemoteMutation } from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
+import { startGoogleAutoSync } from "@/lib/googleSync";
 import type { MutationKind } from "@/data/types";
 import type { Theme, Density } from "@/design-system/tokens";
 
@@ -140,6 +141,9 @@ async function initTauri() {
     await startWatcher(savedPath).catch((e) =>
       console.warn("Watcher failed to start:", e),
     );
+
+    // Keep Google calendars + contacts fresh for accounts with sync enabled.
+    startGoogleAutoSync();
 
     onSyncProgress((payload) => {
       const ws = useWorkspace.getState();

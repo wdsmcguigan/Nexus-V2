@@ -562,6 +562,16 @@ export async function syncGoogleCalendar(accountId: string): Promise<number> {
   return invoke<number>("sync_google_calendar", { accountId });
 }
 
+/** Remove all contacts synced from this account (and clear its sync token). */
+export async function removeSyncedContacts(accountId: string): Promise<void> {
+  return invoke<void>("remove_synced_contacts", { accountId });
+}
+
+/** Remove all Google-synced calendars + events for this account. */
+export async function removeSyncedCalendars(accountId: string): Promise<void> {
+  return invoke<void>("remove_synced_calendars", { accountId });
+}
+
 function encodeRfc2047(text: string): string {
   if ([...text].every((c) => c.charCodeAt(0) < 128)) return text;
   const bytes = new TextEncoder().encode(text);
