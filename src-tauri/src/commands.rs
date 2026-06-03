@@ -2416,7 +2416,11 @@ pub async fn sync_google_contacts(
         let db = crate::db::VaultDb::open(&vault_path, "nexus")
             .map_err(|e| e.to_string())?;
         for contact in &contacts {
-            db.upsert_contact(&vault_id, contact).map_err(|e| e.to_string())?;
+            // Tag with the originating account so calendar/contacts sync can be
+            // disconnected with the option to remove only this account's data.
+            let mut contact = contact.clone();
+            contact["sourceAccountId"] = serde_json::json!(account_id);
+            db.upsert_contact(&vault_id, &contact).map_err(|e| e.to_string())?;
         }
         db.upsert_contacts_sync(&account_id, next_sync_token.as_deref(), now)
             .map_err(|e| e.to_string())?;
@@ -2587,6 +2591,40 @@ pub async fn sync_google_calendar(
         to_sync.len(),
     );
     Ok(total_count)
+}
+
+/// Remove all Google-synced calendars + events for an account. Called when the
+/// user disconnects calendar sync and chooses to remove the synced data.
+#[tauri::command]
+pub async fn remove_synced_calendars(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.remove_synced_calendars(&account_id).map_err(|e| e.to_string())?;
+    }
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
+}
+
+/// Remove all contacts synced from an account (and clear its sync token). Called
+/// when the user disconnects contacts sync and chooses to remove the synced data.
+#[tauri::command]
+pub async fn remove_synced_contacts(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    account_id: String,
+) -> std::result::Result<(), String> {
+    {
+        let guard = state.db.lock().map_err(|_| "db lock poisoned")?;
+        let db = guard.as_ref().ok_or("Vault not open")?;
+        db.remove_synced_contacts(&account_id).map_err(|e| e.to_string())?;
+    }
+    let _ = app.emit("vault:hydrate-needed", ());
+    Ok(())
 }
 
 #[tauri::command]

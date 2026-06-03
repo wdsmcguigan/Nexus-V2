@@ -59,8 +59,11 @@ import {
   setNotificationPref,
   syncGoogleContacts,
   syncGoogleCalendar,
+  removeSyncedContacts,
+  removeSyncedCalendars,
   type RelayStatus,
 } from "@/storage/tauri";
+import { toast } from "sonner";
 import { CustomFieldsSettings } from "@/components/settings/CustomFieldsSettings";
 import { RulesSettings } from "@/components/settings/RulesSettings";
 import { TemplatesSettings } from "@/components/settings/TemplatesSettings";
@@ -69,7 +72,7 @@ import { PanelColorsSettings } from "@/components/settings/PanelColorsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
 import { loadSignature, saveSignature } from "@/lib/signature";
-import { getAppPreferences, saveAppPreferences } from "@/lib/appPreferences";
+import { getAppPreferences, saveAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
 import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
 import type { StarStyle } from "@/data/types";
@@ -1042,11 +1045,122 @@ function VacationResponderSection({ accountId }: { accountId: string }) {
   );
 }
 
-// ─── Contacts sync section (EP-9) ────────────────────────────────────────────
+// ─── Google sync sections (EP-9/10) ──────────────────────────────────────────
+
+/** Confirmation shown when the user turns OFF a calendar/contacts sync toggle. */
+function SyncDisconnectDialog({
+  open,
+  title,
+  removeLabel,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  removeLabel: string;
+  onClose: () => void;
+  onConfirm: (removeData: boolean) => void;
+}) {
+  const [removeData, setRemoveData] = React.useState(false);
+  React.useEffect(() => {
+    if (open) setRemoveData(false);
+  }, [open]);
+
+  const options: { value: boolean; label: string; description: string; icon: React.ElementType }[] = [
+    {
+      value: false,
+      label: "Stop syncing — keep data",
+      description: "Nothing already synced is removed. You can re-enable syncing at any time.",
+      icon: HardDrive,
+    },
+    {
+      value: true,
+      label: "Stop syncing — remove synced data",
+      description: removeLabel,
+      icon: Trash2,
+    },
+  ];
+
+  return (
+    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[440px] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border-default bg-surface-2 shadow-l4 focus:outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95">
+          <div className="px-5 pb-5 pt-4">
+            <Dialog.Title className="text-body-strong text-text-primary">{title}</Dialog.Title>
+            <p className="mt-3 text-small font-medium text-text-secondary">
+              What should happen to the data already synced into this vault?
+            </p>
+            <div className="mt-2 space-y-2">
+              {options.map((opt) => {
+                const Icon = opt.icon;
+                const isSelected = removeData === opt.value;
+                return (
+                  <label
+                    key={String(opt.value)}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors",
+                      isSelected
+                        ? "border-accent bg-accent-soft"
+                        : "border-border-subtle bg-surface-1 hover:border-border-default hover:bg-surface-2",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="sync-disconnect-action"
+                      checked={isSelected}
+                      onChange={() => setRemoveData(opt.value)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={cn(
+                        "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2",
+                        isSelected ? "border-accent bg-accent" : "border-border-default bg-transparent",
+                      )}
+                    >
+                      {isSelected && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Icon size={13} className={cn(isSelected ? "text-accent" : "text-text-tertiary")} />
+                        <span className="text-small font-medium text-text-primary">{opt.label}</span>
+                      </div>
+                      <p className="mt-0.5 text-small text-text-tertiary leading-snug">{opt.description}</p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="sm">Cancel</Button>
+              </Dialog.Close>
+              <Button
+                variant={removeData ? "destructive" : "secondary"}
+                size="sm"
+                onClick={() => onConfirm(removeData)}
+              >
+                {removeData ? "Disconnect & remove" : "Disconnect"}
+              </Button>
+            </div>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 function CalendarSyncSection({ accountId }: { accountId: string }) {
+  useAppPreferencesVersion();
+  const prefs = getAppPreferences();
+  const enabled = prefs.calendarSyncEnabled[accountId] ?? true;
   const [syncing, setSyncing] = React.useState(false);
   const [lastCount, setLastCount] = React.useState<number | null>(null);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
 
   const handleSyncNow = async () => {
     if (!isTauri()) return;
@@ -1055,40 +1169,79 @@ function CalendarSyncSection({ accountId }: { accountId: string }) {
       const n = await syncGoogleCalendar(accountId);
       setLastCount(n);
     } catch (e) {
-      console.warn("sync_google_calendar error:", e);
+      toast.error(`Calendar sync failed: ${errMsg(e)}`);
     } finally {
       setSyncing(false);
     }
   };
 
-  // Per-calendar visibility/sync toggles moved to Settings → Calendar so there
-  // is a single canonical surface for managing calendars (local + Google).
+  const handleToggle = () => {
+    if (enabled) {
+      setDialogOpen(true);
+    } else {
+      saveAppPreferences({
+        calendarSyncEnabled: { ...prefs.calendarSyncEnabled, [accountId]: true },
+      });
+    }
+  };
+
+  const handleDisconnect = async (removeData: boolean) => {
+    setDialogOpen(false);
+    saveAppPreferences({
+      calendarSyncEnabled: { ...prefs.calendarSyncEnabled, [accountId]: false },
+    });
+    setLastCount(null);
+    if (removeData && isTauri()) {
+      try {
+        await removeSyncedCalendars(accountId);
+        toast.success("Removed synced calendars");
+      } catch (e) {
+        toast.error(`Couldn't remove calendars: ${errMsg(e)}`);
+      }
+    }
+  };
+
   return (
     <div className="border-t border-border-subtle px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
+        <Calendar size={11} />
+        Calendar
+      </div>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-overline uppercase tracking-wider text-text-tertiary">
-          <Calendar size={11} />
-          Calendar
-        </div>
-        {isTauri() && (
+        <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
+          <input type="checkbox" checked={enabled} onChange={handleToggle} className="accent-accent" />
+          Sync Google Calendar
+        </label>
+        {enabled && isTauri() && (
           <Button variant="ghost" size="xs" onClick={handleSyncNow} disabled={syncing}>
             {syncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
             {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
           </Button>
         )}
       </div>
-      <p className="mt-1 text-caption text-text-muted">
-        Manage which calendars sync in <strong>Settings → Calendar</strong>.
-      </p>
+      {enabled && (
+        <p className="mt-1 text-caption text-text-muted">
+          Manage which calendars sync in <strong>Settings → Calendar</strong>.
+        </p>
+      )}
+      <SyncDisconnectDialog
+        open={dialogOpen}
+        title="Disconnect calendar sync"
+        removeLabel="The Google calendars and their events synced from this account are removed from the vault."
+        onClose={() => setDialogOpen(false)}
+        onConfirm={handleDisconnect}
+      />
     </div>
   );
 }
 
 function ContactsSyncSection({ accountId }: { accountId: string }) {
+  useAppPreferencesVersion();
   const prefs = getAppPreferences();
   const enabled = prefs.contactsSyncEnabled[accountId] ?? true;
   const [syncing, setSyncing] = React.useState(false);
   const [lastCount, setLastCount] = React.useState<number | null>(null);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
 
   const handleSyncNow = async () => {
     if (!isTauri()) return;
@@ -1097,16 +1250,36 @@ function ContactsSyncSection({ accountId }: { accountId: string }) {
       const n = await syncGoogleContacts(accountId);
       setLastCount(n);
     } catch (e) {
-      console.warn("sync_google_contacts error:", e);
+      toast.error(`Contacts sync failed: ${errMsg(e)}`);
     } finally {
       setSyncing(false);
     }
   };
 
-  const toggleEnabled = () => {
+  const handleToggle = () => {
+    if (enabled) {
+      setDialogOpen(true);
+    } else {
+      saveAppPreferences({
+        contactsSyncEnabled: { ...prefs.contactsSyncEnabled, [accountId]: true },
+      });
+    }
+  };
+
+  const handleDisconnect = async (removeData: boolean) => {
+    setDialogOpen(false);
     saveAppPreferences({
-      contactsSyncEnabled: { ...prefs.contactsSyncEnabled, [accountId]: !enabled },
+      contactsSyncEnabled: { ...prefs.contactsSyncEnabled, [accountId]: false },
     });
+    setLastCount(null);
+    if (removeData && isTauri()) {
+      try {
+        await removeSyncedContacts(accountId);
+        toast.success("Removed synced contacts");
+      } catch (e) {
+        toast.error(`Couldn't remove contacts: ${errMsg(e)}`);
+      }
+    }
   };
 
   return (
@@ -1117,30 +1290,23 @@ function ContactsSyncSection({ accountId }: { accountId: string }) {
       </div>
       <div className="flex items-center justify-between">
         <label className="flex cursor-pointer items-center gap-2 text-small text-text-secondary">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={toggleEnabled}
-            className="accent-accent"
-          />
+          <input type="checkbox" checked={enabled} onChange={handleToggle} className="accent-accent" />
           Sync Google Contacts
         </label>
         {enabled && isTauri() && (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={handleSyncNow}
-            disabled={syncing}
-          >
-            {syncing ? (
-              <Loader2 size={11} className="animate-spin" />
-            ) : (
-              <RefreshCw size={11} />
-            )}
+          <Button variant="ghost" size="xs" onClick={handleSyncNow} disabled={syncing}>
+            {syncing ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
             {lastCount !== null ? `Synced ${lastCount}` : "Sync now"}
           </Button>
         )}
       </div>
+      <SyncDisconnectDialog
+        open={dialogOpen}
+        title="Disconnect contacts sync"
+        removeLabel="The contacts synced from this account are removed from the vault. Manually-added contacts are kept."
+        onClose={() => setDialogOpen(false)}
+        onConfirm={handleDisconnect}
+      />
     </div>
   );
 }

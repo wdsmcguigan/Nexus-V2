@@ -98,8 +98,10 @@ pub fn run() {
             commands::delete_vacation_responder,
             // EP9 contacts sync
             commands::sync_google_contacts,
+            commands::remove_synced_contacts,
             // EP10 calendar sync
             commands::sync_google_calendar,
+            commands::remove_synced_calendars,
             // EP11 calendar write + multi-calendar + FTS
             commands::create_calendar_event,
             commands::update_calendar_event,
