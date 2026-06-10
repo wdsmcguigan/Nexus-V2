@@ -49,6 +49,13 @@ impl RelayDb {
 
 type SharedDb = Arc<Mutex<RelayDb>>;
 
+/// Acquire the relay DB lock, returning a 500 response on poisoning rather than
+/// panicking. Mirrors `lock_db` in the standalone relay-server crate so the
+/// embedded server degrades gracefully if a handler ever poisons the mutex.
+fn lock_db(db: &SharedDb) -> std::result::Result<std::sync::MutexGuard<'_, RelayDb>, (StatusCode, &'static str)> {
+    db.lock().map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "database unavailable"))
+}
+
 // ─── Request/response types ───────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -110,7 +117,10 @@ async fn push_mutation(
         Err(_) => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error":"bad base64"}))).into_response(),
     };
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
     match db.conn.execute(
         "INSERT INTO relay_mutations (vault_id, device_id, lamport, ciphertext, received_at) \
          VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -135,7 +145,10 @@ async fn pull_mutations(
     let after = q.after.unwrap_or(0);
     let exclude = q.exclude_device.as_deref().unwrap_or("");
 
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
     let mut stmt = match db.conn.prepare(
         "SELECT seq, device_id, lamport, ciphertext FROM relay_mutations \
          WHERE vault_id = ?1 AND seq > ?2 AND device_id != ?3 \
@@ -185,7 +198,10 @@ async fn create_enroll_session(
     };
     // Clean expired sessions first
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
     let _ = db.conn.execute("DELETE FROM enroll_sessions WHERE expires_at < ?1", params![now]);
     match db.conn.execute(
         "INSERT OR REPLACE INTO enroll_sessions \
@@ -207,7 +223,10 @@ async fn fetch_enroll_session(
 ) -> impl IntoResponse {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
     let now = chrono::Utc::now().timestamp_millis();
-    let db = db.lock().unwrap();
+    let db = match lock_db(&db) {
+        Ok(g) => g,
+        Err(e) => return e.into_response(),
+    };
 
     use rusqlite::OptionalExtension;
     let row: Option<(String, Vec<u8>, i64, i64)> = match db.conn.query_row(
