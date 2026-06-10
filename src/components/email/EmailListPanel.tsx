@@ -52,6 +52,7 @@ import {
 } from "@/lib/shortcuts";
 import type { Density } from "@/design-system/tokens";
 import type { Message, MetadataFilter, Status, Label } from "@/data/types";
+import { buildGroupedItems } from "@/lib/messageGrouping";
 
 const HEIGHT_BY_DENSITY: Record<Density, number> = {
   compact: 28,
@@ -70,11 +71,6 @@ const SORT_LABELS: Record<SortBy, string> = {
   status: "Status",
   sender: "Sender",
 };
-
-// Virtual list items — either a message row or a group header
-type VItem =
-  | { kind: "row"; msg: Message }
-  | { kind: "header"; label: string };
 
 export function EmailListPanel({ panelId }: { panelId: string }) {
   const density = useWorkspace((s) => s.density);
@@ -201,58 +197,11 @@ export function EmailListPanel({ panelId }: { panelId: string }) {
     return m;
   }, [messages]);
 
-  const PRI_GROUP_LABELS: Record<number, string> = { 1: "Urgent", 2: "High", 3: "Normal", 4: "Low" };
-
-  // Build virtual item list
-  const vItems = React.useMemo((): VItem[] => {
-    if (groupBy === "none") {
-      return messages.map((msg) => ({ kind: "row" as const, msg }));
-    }
-
-    if (groupBy === "priority") {
-      const groups = new Map<number | null, Message[]>();
-      for (const msg of messages) {
-        const key = msg.priority ?? null;
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(msg);
-      }
-      const items: VItem[] = [];
-      for (const level of [1, 2, 3, 4] as const) {
-        const msgs = groups.get(level);
-        if (msgs?.length) {
-          items.push({ kind: "header", label: PRI_GROUP_LABELS[level]! });
-          for (const msg of msgs) items.push({ kind: "row", msg });
-        }
-      }
-      const noPri = groups.get(null);
-      if (noPri?.length) {
-        items.push({ kind: "header", label: "No Priority" });
-        for (const msg of noPri) items.push({ kind: "row", msg });
-      }
-      return items;
-    }
-
-    // groupBy === "status"
-    const groups = new Map<string | null, Message[]>();
-    for (const msg of messages) {
-      const key = msg.statusId ?? null;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(msg);
-    }
-    const items: VItem[] = [];
-    const noStatus = groups.get(null);
-    if (noStatus?.length) {
-      items.push({ kind: "header", label: "No Status" });
-      for (const msg of noStatus) items.push({ kind: "row", msg });
-    }
-    for (const [statusId, msgs] of groups) {
-      if (statusId === null) continue;
-      const status = localStore.statuses.get(statusId);
-      items.push({ kind: "header", label: status?.name ?? statusId });
-      for (const msg of msgs) items.push({ kind: "row", msg });
-    }
-    return items;
-  }, [messages, groupBy]);
+  // Build virtual item list (grouping/ordering rules live in lib/messageGrouping)
+  const vItems = React.useMemo(
+    () => buildGroupedItems(messages, groupBy, (id) => localStore.statuses.get(id)?.name),
+    [messages, groupBy],
+  );
 
   const msgList = vItems.filter((v): v is { kind: "row"; msg: Message } => v.kind === "row").map((v) => v.msg);
 

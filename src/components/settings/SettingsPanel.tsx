@@ -71,7 +71,7 @@ import { CalendarSettings } from "@/components/settings/CalendarSettings";
 import { PanelColorsSettings } from "@/components/settings/PanelColorsSettings";
 import { cn } from "@/lib/utils";
 import type { Density } from "@/design-system/tokens";
-import { loadSignature, saveSignature } from "@/lib/signature";
+import { loadSignature, saveSignature, escapeHtmlWithBreaks } from "@/lib/signature";
 import { getAppPreferences, saveAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
 import type { AppPreferences } from "@/lib/appPreferences";
 import { STAR_ENTRIES } from "@/components/inspector/StarPalette";
@@ -676,11 +676,7 @@ function SignatureEditor({ accountId, email }: { accountId: string; email: strin
           // Migration: check localStorage fallback
           const legacy = loadSignature(accountId);
           if (legacy) {
-            const escaped = legacy
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/\n/g, "<br/>");
+            const escaped = escapeHtmlWithBreaks(legacy);
             editor.commands.setContent(`<p>${escaped}</p>`);
             // Migrate to DB
             saveSignatureHtml(accountId, `<p>${escaped}</p>`).catch(console.warn);
@@ -690,11 +686,7 @@ function SignatureEditor({ accountId, email }: { accountId: string; email: strin
     } else {
       const legacy = loadSignature(accountId);
       if (legacy) {
-        const escaped = legacy
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/\n/g, "<br/>");
+        const escaped = escapeHtmlWithBreaks(legacy);
         editor.commands.setContent(`<p>${escaped}</p>`);
       }
     }
