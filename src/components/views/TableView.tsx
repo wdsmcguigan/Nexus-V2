@@ -22,6 +22,7 @@ import { useWorkspace } from "@/state/workspace";
 import { useVisibleMessages, useStatuses, useLabels } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { cn, formatRelativeTime } from "@/lib/utils";
+import { resolveColumnOrder, reorderColumn } from "@/lib/tableColumns";
 import { Tag } from "@/components/ui/Tag";
 import { TagBar } from "@/components/inspector/TagBar";
 import { LabelCombobox } from "@/components/inspector/LabelCombobox";
@@ -578,9 +579,7 @@ export function TableView() {
     ];
     const defMap = new Map(allDefs.map((d) => [d.key, d]));
 
-    const savedOrder = tableColumnOrder.filter((k) => defMap.has(k));
-    const unsaved = allDefs.filter((d) => !savedOrder.includes(d.key)).map((d) => d.key);
-    const order = savedOrder.length > 0 ? [...savedOrder, ...unsaved] : allDefs.map((d) => d.key);
+    const order = resolveColumnOrder(tableColumnOrder, allDefs.map((d) => d.key));
 
     return order.map((key) => {
       const def = defMap.get(key)!;
@@ -632,14 +631,7 @@ export function TableView() {
     setDragOver(null);
     if (!src || src === key) return;
 
-    const order = columns.map((c) => c.key);
-    const fromIdx = order.indexOf(src);
-    const toIdx = order.indexOf(key);
-    if (fromIdx === -1 || toIdx === -1) return;
-
-    order.splice(fromIdx, 1);
-    order.splice(toIdx, 0, src);
-    setTableColumnOrder(order);
+    setTableColumnOrder(reorderColumn(columns.map((c) => c.key), src, key));
   }
 
   function handleDragEnd() {
