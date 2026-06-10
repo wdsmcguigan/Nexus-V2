@@ -46,6 +46,14 @@ import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
 import { loadSignature } from "@/lib/signature";
+import {
+  htmlToSnippet,
+  classifyAttachment,
+  deriveReplySubject,
+  deriveReplyTo,
+  deriveReplyCc,
+  evaluateSendGate,
+} from "@/lib/compose";
 import { getAppPreferences } from "@/lib/appPreferences";
 
 const PANEL_ID = "composer";
@@ -253,40 +261,6 @@ function readFileAsBase64(file: File): Promise<AttachmentPayload> {
 /** Rough plain-text snippet from a HTML body. Used to populate the
  * optimistic Sent row's preview text until the next Gmail sync replaces it
  * with Gmail's authoritative snippet. */
-function htmlToSnippet(html: string, max: number = 200): string {
-  const text = html
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function classifyAttachment(file: File): "pdf" | "image" | "doc" | "archive" | "calendar" | "other" {
-  const t = file.type.toLowerCase();
-  const ext = file.name.toLowerCase().split(".").pop() ?? "";
-  if (t.startsWith("image/")) return "image";
-  if (t === "application/pdf" || ext === "pdf") return "pdf";
-  if (t === "text/calendar" || ext === "ics") return "calendar";
-  if (
-    t.startsWith("application/vnd.openxmlformats-officedocument") ||
-    t === "application/msword" ||
-    t === "application/vnd.ms-excel" ||
-    t === "application/vnd.ms-powerpoint" ||
-    ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "txt", "md", "rtf"].includes(ext)
-  ) return "doc";
-  if (
-    t === "application/zip" ||
-    t === "application/x-zip-compressed" ||
-    t === "application/x-tar" ||
-    t === "application/x-rar-compressed" ||
-    ["zip", "tar", "gz", "rar", "7z"].includes(ext)
-  ) return "archive";
-  return "other";
-}
-
 // ─── Quoted block ─────────────────────────────────────────────────────────────
 
 function buildQuotedHtml(msg: {
@@ -408,15 +382,14 @@ export function EmailComposerPanel() {
   const [recipients, setRecipients] = React.useState<string[]>(() => {
     if (_draft) return _draft.recipients;
     if (prefilledTo) return prefilledTo;
-    if (!replyMsg || mode === "forward") return [];
-    if (mode === "reply") return [replyMsg.fromAddr.email];
+    if (!replyMsg) return [];
     const self = Array.from(localStore.accounts.values()).find((a) => a.provider === "gmail")?.email ?? "";
-    return [replyMsg.fromAddr.email, ...replyMsg.toAddrs.map((t) => t.email).filter((e) => e !== self)];
+    return deriveReplyTo(mode, replyMsg, self);
   });
   const [ccRecipients, setCcRecipients] = React.useState<string[]>(() => {
     if (_draft) return _draft.ccRecipients;
-    if (mode === "reply-all" && replyMsg) return replyMsg.ccAddrs.map((t) => t.email);
-    return [];
+    if (!replyMsg) return [];
+    return deriveReplyCc(mode, replyMsg);
   });
   const [bccRecipients, setBccRecipients] = React.useState<string[]>(() => _draft?.bccRecipients ?? []);
   const [fromAccountId, setFromAccountId] = React.useState<string>(() => {
@@ -433,9 +406,7 @@ export function EmailComposerPanel() {
   const [subject, setSubject] = React.useState(() => {
     if (_draft) return _draft.subject;
     if (!replyMsg) return "";
-    if (mode === "forward") return `Fwd: ${replyMsg.subject}`;
-    const s = replyMsg.subject;
-    return s.startsWith("Re:") ? s : `Re: ${s}`;
+    return deriveReplySubject(mode, replyMsg.subject);
   });
 
   // ── Tiptap editor ─────────────────────────────────────────────────────────
@@ -520,18 +491,13 @@ export function EmailComposerPanel() {
   //   2. Any committed chip OR any non-empty pending draft fails the WHATWG
   //      email check. Pending drafts count because `doActualSend` implicitly
   //      commits them at send time (just like Gmail / Outlook do).
-  const sendGate = React.useMemo(() => {
-    const allCommitted = [...recipients, ...ccRecipients, ...bccRecipients];
-    const allDrafts = [draftInput.trim(), ccDraftInput.trim(), bccDraftInput.trim()].filter(Boolean);
-    const allEffective = [...allCommitted, ...allDrafts];
-    if (allEffective.length === 0) {
-      return { ok: false as const, reason: "Add at least one recipient" };
-    }
-    if (allEffective.some((addr) => !isValidEmail(addr))) {
-      return { ok: false as const, reason: "Fix invalid recipient(s) first" };
-    }
-    return { ok: true as const, reason: "" };
-  }, [recipients, ccRecipients, bccRecipients, draftInput, ccDraftInput, bccDraftInput]);
+  const sendGate = React.useMemo(
+    () => evaluateSendGate(
+      [...recipients, ...ccRecipients, ...bccRecipients],
+      [draftInput, ccDraftInput, bccDraftInput],
+    ),
+    [recipients, ccRecipients, bccRecipients, draftInput, ccDraftInput, bccDraftInput],
+  );
   const hasInvalidRecipients = !sendGate.ok;
 
   const doActualSend = React.useCallback(async () => {
@@ -636,7 +602,7 @@ export function EmailComposerPanel() {
             attachmentRefs: attachments.map((f) => ({
               name: f.name,
               size: f.size,
-              type: classifyAttachment(f),
+              type: classifyAttachment(f.name, f.type),
             })),
           };
           Mut.recordMutation("SEND_MESSAGE", optimisticMsg);
