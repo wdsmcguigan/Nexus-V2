@@ -1,0 +1,6 @@
+# Mirror the frontend checks CI enforces, so failures surface before push.
+# lint-staged runs ESLint (zero-warnings) on staged TS/TSX; typecheck is
+# project-wide (tsc -b is incremental, so fast after the first run).
+# Rust is intentionally excluded — cargo check is too slow for a commit hook
+# and CI covers it.
+pnpm lint-staged && pnpm typecheck

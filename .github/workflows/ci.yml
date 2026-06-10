@@ -27,9 +27,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      # NOTE: src/storage/__tests__/ep3.test.ts "FTS prefix search" is a known
-      # pre-existing failure unrelated to any calendar work. Until it is fixed
-      # separately, this step (and only this step) will be red.
       - run: pnpm test
 
   rust:

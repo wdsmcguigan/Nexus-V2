@@ -6,7 +6,7 @@ Read this before claiming a feature is "done". When you ship a fix, **delete the
 
 This document supersedes the ad-hoc "Confirmed Planned Gaps" section that used to live in `roadmap.md`; `roadmap.md` now links here instead of duplicating.
 
-Last verified against source: 2026-05-28.
+Last verified against source: 2026-06-10.
 
 ---
 
@@ -25,9 +25,7 @@ Effort tag: **S** (≤ 1 day) / **M** (1-5 days) / **L** (≥ 1 week).
 
 ## 🔴 Broken or incorrect
 
-| # | Item | Where | Symptom | Definition of done | Effort |
-|---|---|---|---|---|---|
-| 28 | `FTSIndex > prefix search works` test fails | `src/storage/__tests__/ep3.test.ts:119-122` | `pnpm test` reports 1 failed / 117 passed. The MiniSearch prefix search for `"plan"` no longer returns the seeded message `m2` whose body contains "Planning". Failure is reproducible on a clean checkout (predates the known-gaps closure work). | Either fix the prefix-match behavior in `src/storage/fts.ts` so the assertion passes, or update the test to reflect the intended search semantics. Whichever way it goes, the test suite needs to be green. | S |
+_None currently._
 
 ---
 

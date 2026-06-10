@@ -57,6 +57,7 @@ import { pickPanelLink } from "@/design-system/tokens";
 import { getAppPreferences } from "@/lib/appPreferences";
 import { getAccountPreferences, type AccountPreferences } from "@/storage/tauri";
 import { formatAbsoluteTime } from "@/lib/utils";
+import { stripRemoteImages, hasRemoteImages } from "@/lib/emailSanitize";
 import type { Message } from "@/data/types";
 import { ContactHoverCard } from "@/components/contacts/ContactHoverCard";
 import { parseIcsInvite, buildIcalReply } from "@/lib/icalUtils";
@@ -78,15 +79,7 @@ const IFRAME_CSS =
 // Applied AFTER DOMPurify so attribute structure is already clean.
 // Blanks out remote image URLs rather than removing the element, which
 // preserves layout while preventing tracking pixels and resource loads.
-function stripRemoteImages(html: string): string {
-  return html
-    .replace(/(<[^>]+\s)src=(["'])https?:\/\/[^"']*\2/gi, '$1src=""')
-    .replace(/(<[^>]+\s)srcset=(["'])[^"']*\2/gi, '$1srcset=""')
-    .replace(
-      /background-image\s*:\s*url\s*\(\s*["']?https?:\/\/[^)"']*["']?\s*\)/gi,
-      "background-image:none"
-    );
-}
+// Implementation lives in src/lib/emailSanitize.ts (pure, unit-tested).
 
 function EmailBody({ html, title, imagesShown }: { html: string; title: string; imagesShown: boolean }) {
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
@@ -479,7 +472,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
   }
 
   const colorSeed = pickPanelLink(msg.fromAddr.email);
-  const hasRemoteImages = /src=["']https?:\/\//i.test(bodyHtml ?? "");
+  const remoteImagesPresent = hasRemoteImages(bodyHtml ?? "");
   const renderedBody = translatedBody ?? bodyHtml;
 
   async function handleTranslate() {
@@ -841,7 +834,7 @@ export function EmailViewerPanel({ panelId }: { panelId: string }) {
         </div>
 
         {/* Remote-image banner */}
-        {hasRemoteImages && !imagesShown && (
+        {remoteImagesPresent && !imagesShown && (
           <div className="flex h-8 shrink-0 items-center gap-2 border-b border-warning bg-warning-soft px-4">
             <ImageIcon size={14} className="text-warning" />
             <span className="text-small text-text-primary">Remote images blocked</span>
