@@ -45,7 +45,7 @@ import * as Mut from "@/state/mutations";
 import { localStore } from "@/storage/local";
 import { bodyStore } from "@/storage/bodyStore";
 import { formatAbsoluteTime } from "@/lib/utils";
-import { loadSignature } from "@/lib/signature";
+import { loadSignature, escapeHtmlWithBreaks } from "@/lib/signature";
 import {
   htmlToSnippet,
   classifyAttachment,
@@ -420,7 +420,7 @@ export function EmailComposerPanel() {
   const _sigHtml = React.useMemo(() => {
     if (!_fromAccount) return "";
     const sig = loadSignature(_fromAccount.id);
-    const sigHtml = sig.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>");
+    const sigHtml = escapeHtmlWithBreaks(sig);
     return sigHtml ? `<div class="nexus-signature"><br/>-- <br/>${sigHtml}</div>` : "";
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
