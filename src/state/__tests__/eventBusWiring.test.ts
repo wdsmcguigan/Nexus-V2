@@ -48,4 +48,32 @@ describe("event bus wiring", () => {
     replayMutations([m], store);
     expect(count).toBe(0);
   });
+
+  it("delivers a reaction mutation a handler emits, bounded against loops", () => {
+    const reacted: string[] = [];
+
+    // Module A reacts to its trigger by recording a Module B mutation.
+    subscribe("com.a/*", () => {
+      recordMutation("com.b/REACT", {}, store);
+    });
+    // Module B observes.
+    subscribe("com.b/*", (m) => reacted.push(m.kind));
+
+    recordMutation("com.a/GO", {}, store);
+
+    expect(reacted).toEqual(["com.b/REACT"]);
+  });
+
+  it("bounds an infinite reaction loop without throwing", () => {
+    // A handler that re-records its own trigger would loop forever.
+    subscribe("com.loop/*", () => {
+      recordMutation("com.loop/AGAIN", {}, store);
+    });
+
+    expect(() => recordMutation("com.loop/AGAIN", {}, store)).not.toThrow();
+
+    const loops = store.mutations.filter((m) => m.kind === "com.loop/AGAIN").length;
+    expect(loops).toBeGreaterThan(1); // it did cascade
+    expect(loops).toBeLessThan(50); // but the depth cap stopped it
+  });
 });
