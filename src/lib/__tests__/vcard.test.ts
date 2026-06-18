@@ -59,3 +59,29 @@ describe("vcard structured fields", () => {
     expect(parsed.tags).toEqual(["A,B", "Other"]);
   });
 });
+
+describe("vcard folding and robustness", () => {
+  it("round-trips a value longer than 75 chars via line folding", () => {
+    const longName = "X".repeat(120);
+    const out = serializeVcf([base({ name: longName })]);
+    expect(out).toContain("\r\n "); // folded continuation
+    expect(parseVcf(out)[0]!.name).toBe(longName);
+  });
+
+  it("parses a vCard missing END:VCARD without throwing", () => {
+    const parsed = parseVcf("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Jane\r\n");
+    expect(parsed[0]?.name).toBe("Jane");
+  });
+
+  it("returns an empty array when there is no vCard", () => {
+    expect(parseVcf("not a vcard")).toEqual([]);
+  });
+
+  it("parses multiple vCards in one file", () => {
+    const out = serializeVcf([
+      base({ id: "c1", name: "Ada", emails: ["ada@x.com"] }),
+      base({ id: "c2", name: "Bob" }),
+    ]);
+    expect(parseVcf(out).map((p) => p.name)).toEqual(["Ada", "Bob"]);
+  });
+});
