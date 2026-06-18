@@ -54,6 +54,7 @@ export interface HydratePayload {
   calendarEvents: unknown[];
   calendars: unknown[];
   savedViews: unknown[];
+  links: unknown[];
   rules: unknown[];
   templates: unknown[];
   eventTemplates: unknown[];
