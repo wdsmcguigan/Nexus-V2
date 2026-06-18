@@ -23,6 +23,7 @@ import {
   type FlagState,
   type Folder,
   type Label,
+  type Link,
   type Message,
   type Mutation,
   type MutationKind,
@@ -252,6 +253,26 @@ function _buildReverseEntryInner(
       const msg = store.messages.get(messageId);
       if (!msg?.priority) return null;
       return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
+    }
+
+    case "CREATE_LINK": {
+      const link = payload as Link;
+      return {
+        forwardSteps: forward,
+        reverseSteps: [{ kind: "DELETE_LINK", payload: { linkId: link.id } }],
+        description: "Link",
+      };
+    }
+
+    case "DELETE_LINK": {
+      const { linkId } = payload as { linkId: string };
+      const existing = store.links.get(linkId);
+      if (!existing) return null;
+      return {
+        forwardSteps: forward,
+        reverseSteps: [{ kind: "CREATE_LINK", payload: existing }],
+        description: "Unlink",
+      };
     }
 
     default:
@@ -763,6 +784,17 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       break;
     }
 
+    // ── Link / relations graph ops (substrate Pillar 3) ─────────
+    case "CREATE_LINK": {
+      store.putLink(m.payload as Link);
+      break;
+    }
+    case "DELETE_LINK": {
+      const { linkId } = m.payload as { linkId: string };
+      store.deleteLink(linkId);
+      break;
+    }
+
     // ── Saved view ops ───────────────────────────────────────────
     case "SAVE_VIEW": {
       const view = m.payload as SavedView;
@@ -1124,6 +1156,44 @@ export function deleteView(store: LocalStore, viewId: string): void {
 
 export function renameView(store: LocalStore, viewId: string, name: string): void {
   recordMutation("RENAME_VIEW", { viewId, name }, store);
+}
+
+// ── Link ops (substrate Pillar 3) ────────────────────────────────────────────
+
+/**
+ * Create a typed edge between two entities. Returns the full Link (with a
+ * generated id). Flows through recordMutation so it syncs, undoes, and
+ * broadcasts. (substrate Pillar 3)
+ */
+export function createLink(
+  store: LocalStore,
+  spec: {
+    srcType: string;
+    srcId: string;
+    linkType: string;
+    dstType: string;
+    dstId: string;
+    meta?: unknown;
+  },
+): Link {
+  const link: Link = {
+    id: `lnk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    vaultId: store.vault?.id ?? "local",
+    srcType: spec.srcType,
+    srcId: spec.srcId,
+    linkType: spec.linkType,
+    dstType: spec.dstType,
+    dstId: spec.dstId,
+    meta: spec.meta,
+    createdAt: Date.now(),
+  };
+  recordMutation("CREATE_LINK", link, store);
+  return link;
+}
+
+/** Remove a link by id. */
+export function deleteLink(store: LocalStore, linkId: string): void {
+  recordMutation("DELETE_LINK", { linkId }, store);
 }
 
 // ── Contact ops ─────────────────────────────────────────────────────────────
