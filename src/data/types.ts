@@ -446,7 +446,7 @@ export interface SavedView {
 // Structured user intent. Unit of replication.
 // Is NOT a direct DB write.
 
-export type MutationKind =
+export type CoreMutationKind =
   // Folder ops
   | "MOVE_TO_FOLDER"
   | "CREATE_FOLDER"
@@ -538,6 +538,15 @@ export type MutationKind =
   | "DELETE_CALENDAR"
   | "EDIT_EVENT_OCCURRENCE"
   | "EDIT_EVENT_SERIES";
+
+/**
+ * A module-contributed mutation kind: a namespace, a "/" separator, and a kind,
+ * e.g. "com.acme.timer/START". See docs/substrate-design.md §4.
+ */
+export type ModuleMutationKind = `${string}/${string}`;
+
+/** Any mutation kind — a core kind or a module-namespaced one. */
+export type MutationKind = CoreMutationKind | ModuleMutationKind;
 
 export interface Mutation {
   id: string;
