@@ -2124,6 +2124,21 @@ impl VaultDb {
         Ok(())
     }
 
+    /// Age in milliseconds of an outbound mutation (`now - ts`), or `None` if the
+    /// mutation row is gone. Used by the drainer to bound retries of mutations
+    /// whose target message has not yet been assigned a provider id.
+    pub fn mutation_age_ms(&self, mutation_id: &str) -> Result<Option<i64>> {
+        let ts: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT ts FROM mutations WHERE id = ?1",
+                params![mutation_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(ts.map(|t| chrono::Utc::now().timestamp_millis() - t))
+    }
+
     /// Add a Nexus label to a message identified by its Gmail provider_id.
     pub fn add_label_by_provider_id(&self, provider_id: &str, label_id: &str) -> Result<()> {
         self.conn.execute(
@@ -3411,6 +3426,20 @@ mod tests {
             .expect("apply create_link");
         let hp = db.build_hydrate_payload(&vault_id).expect("hydrate");
         assert_eq!(hp.links.len(), 1);
+    }
+
+    #[test]
+    fn mutation_age_ms_reflects_recent_timestamp_and_none_for_missing() {
+        let (_dir, db, vault_id) = temp_vault();
+        db.apply_mutation(&vault_id, "READ", "{\"messageId\":\"m1\"}", "dev", 1)
+            .expect("apply");
+        let mut_id: String = db
+            .conn
+            .query_row("SELECT id FROM mutations WHERE kind = 'READ'", [], |r| r.get(0))
+            .expect("select id");
+        let age = db.mutation_age_ms(&mut_id).expect("age").expect("some age");
+        assert!((0..60_000).contains(&age), "recent mutation age should be small, got {age}");
+        assert!(db.mutation_age_ms("does-not-exist").expect("age").is_none());
     }
 
     #[test]
