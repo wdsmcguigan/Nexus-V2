@@ -442,6 +442,27 @@ export interface SavedView {
   createdAt: number;
 }
 
+// ─── LNK — Link (substrate Pillar 3) ─────────────────────────────────────────
+// A typed edge between two entities. Either endpoint may be a core entity
+// (e.g. "nexus/email.message") or a module entity (e.g. "org.nexus.tasks/task").
+
+export interface Link {
+  id: string;
+  vaultId: string;
+  /** ENT type of the source, e.g. "nexus/email.message". */
+  srcType: string;
+  srcId: string;
+  /** Edge label, e.g. "derived-from", "tracks", "mentions". */
+  linkType: string;
+  /** ENT type of the destination. */
+  dstType: string;
+  dstId: string;
+  /** Optional edge metadata. */
+  meta?: unknown;
+  /** Unix ms. */
+  createdAt: number;
+}
+
 // ─── MUTN — Mutation ─────────────────────────────────────────────────────────
 // Structured user intent. Unit of replication.
 // Is NOT a direct DB write.
@@ -506,6 +527,9 @@ export type CoreMutationKind =
   | "SAVE_VIEW"
   | "DELETE_VIEW"
   | "RENAME_VIEW"
+  // Link / relations graph ops (substrate Pillar 3)
+  | "CREATE_LINK"
+  | "DELETE_LINK"
   // Contact ops
   | "UPSERT_CONTACT"
   | "UPDATE_CONTACT"
