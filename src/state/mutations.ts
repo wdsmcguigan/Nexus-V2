@@ -35,6 +35,8 @@ import {
 } from "@/data/types";
 import { LocalStore, localStore as _defaultStore } from "@/storage/local";
 import { isTauri, applyMutationIpc } from "@/storage/tauri";
+import { kindNamespace } from "@/state/mutationKind";
+import { getModuleReducer } from "@/state/moduleReducers";
 
 // ─── Lamport clock + device id ───────────────────────────────────────────────
 
@@ -341,6 +343,15 @@ export function applyRemoteMutation(
 // Dispatches a single mutation to the appropriate handler.
 
 export function applyMutation(m: Mutation, store: LocalStore): void {
+  const ns = kindNamespace(m.kind);
+  if (ns !== null) {
+    // Module-namespaced mutation: dispatch to the registered module reducer.
+    // If the module isn't registered in this window, the mutation is still
+    // recorded in the log (appendMutation / SQLite) and will be replayed when
+    // the module registers — see replayModuleMutations. (substrate §4.2)
+    getModuleReducer(ns)?.apply(m.kind, m.payload, store);
+    return;
+  }
   switch (m.kind) {
     // ── Folder ops ──────────────────────────────────────────────
     case "MOVE_TO_FOLDER": {
