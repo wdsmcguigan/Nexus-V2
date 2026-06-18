@@ -37,6 +37,7 @@ import { LocalStore, localStore as _defaultStore } from "@/storage/local";
 import { isTauri, applyMutationIpc } from "@/storage/tauri";
 import { kindNamespace } from "@/state/mutationKind";
 import { getModuleReducer } from "@/state/moduleReducers";
+import { emit as emitBusEvent } from "@/state/eventBus";
 
 // ─── Lamport clock + device id ───────────────────────────────────────────────
 
@@ -298,6 +299,9 @@ export function recordMutation(
     );
   }
 
+  // Notify the in-process event bus (live mutation only — replay does not emit).
+  emitBusEvent(mutation);
+
   return mutation;
 }
 
@@ -349,6 +353,7 @@ export function applyRemoteMutation(
     payload,
   };
   applyMutation(mutation, store);
+  emitBusEvent(mutation);
 }
 
 // ─── Apply ───────────────────────────────────────────────────────────────────
