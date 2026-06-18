@@ -115,11 +115,18 @@ function extractParam(propWithParams: string, paramName: string): string | undef
 }
 
 function unescapeVcard(value: string): string {
-  return value
-    .replace(/\\n/gi, "\n")
-    .replace(/\\,/g, ",")
-    .replace(/\\;/g, ";")
-    .replace(/\\\\/g, "\\");
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      const next = value[i + 1];
+      i++;
+      out += next === "n" || next === "N" ? "\n" : next;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 // ─── Emitter ──────────────────────────────────────────────────────────────────
@@ -190,9 +197,9 @@ function serializeContact(c: Contact): string {
 function escapeVcard(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;")
-    .replace(/\n/g, "\\n");
+    .replace(/;/g, "\\;");
 }
 
 // RFC 2426 §2.6: fold lines longer than 75 characters
