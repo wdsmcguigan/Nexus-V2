@@ -3270,3 +3270,37 @@ impl<T> OptionalExt<T> for std::result::Result<T, rusqlite::Error> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Open a fresh encrypted vault in a temp dir with one vault row.
+    /// Keep the returned `TempDir` alive for the test's duration.
+    fn temp_vault() -> (TempDir, VaultDb, String) {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().to_str().expect("utf8 path").to_string();
+        let db = VaultDb::open(&path, "testkey").expect("open vault");
+        let vault_id = "test-vault".to_string();
+        db.ensure_vault(&vault_id, &path).expect("ensure vault");
+        (dir, db, vault_id)
+    }
+
+    #[test]
+    fn unknown_namespaced_kind_is_recorded_not_errored() {
+        let (_dir, db, vault_id) = temp_vault();
+        // A module kind with no table handler must record in the log and not error.
+        let res = db.apply_mutation(&vault_id, "com.acme.timer/START", "{\"id\":\"t1\"}", "dev", 1);
+        assert!(res.is_ok(), "unknown kind should not error: {res:?}");
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM mutations WHERE kind = ?1",
+                params!["com.acme.timer/START"],
+                |r| r.get(0),
+            )
+            .expect("count mutations");
+        assert_eq!(count, 1, "the unknown-kind mutation must be in the log");
+    }
+}
