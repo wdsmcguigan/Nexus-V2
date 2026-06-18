@@ -314,6 +314,18 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
 }
 
 /**
+ * Replay all logged mutations for a module namespace onto the store. A module
+ * calls this when it registers (often after hydration) to rebuild its
+ * projection from the mutation log — including mutations that arrived from other
+ * devices while the module was not installed. (substrate §4.2, P5)
+ */
+export function replayModuleMutations(namespace: string, store: LocalStore): void {
+  for (const m of store.mutations) {
+    if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
+  }
+}
+
+/**
  * Apply a mutation that originated in another window (received via the
  * `vault:mutation-applied` Tauri broadcast). Patches the local in-memory store
  * only — it must NOT re-persist to SQLite (the originating window already did)

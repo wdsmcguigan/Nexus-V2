@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { LocalStore } from "@/storage/local";
 import { makeSeedStore } from "@/storage/__tests__/seed";
-import { recordMutation } from "@/state/mutations";
+import { recordMutation, replayModuleMutations } from "@/state/mutations";
 import { registerModuleReducer, _resetModuleReducers } from "@/state/moduleReducers";
 
 let store: LocalStore;
@@ -34,5 +34,19 @@ describe("module mutation dispatch", () => {
     registerModuleReducer("com.acme.timer", { apply: () => {} });
     recordMutation("com.acme.timer/START", { id: "t1" }, store);
     expect(store.mutations.map((m) => m.kind)).toContain("com.acme.timer/START");
+  });
+
+  it("replays logged namespaced mutations when a module registers late", () => {
+    // Mutations arrive before the module is registered (e.g. synced from another
+    // device). With no reducer, recordMutation logs them and no-ops on apply.
+    recordMutation("com.acme.timer/START", { id: "t1" }, store);
+    recordMutation("com.acme.timer/STOP", { id: "t1" }, store);
+
+    const seen: string[] = [];
+    registerModuleReducer("com.acme.timer", { apply: (kind) => seen.push(kind) });
+
+    replayModuleMutations("com.acme.timer", store);
+
+    expect(seen).toEqual(["com.acme.timer/START", "com.acme.timer/STOP"]);
   });
 });
