@@ -20,6 +20,7 @@ import type {
   EventTemplate,
   Folder,
   Label,
+  Link,
   Message,
   Mutation,
   Rule,
@@ -41,6 +42,7 @@ interface StorageSnapshot {
   customFieldDefs: CustomFieldDef[];
   messages: Message[];
   savedViews?: SavedView[];
+  links?: Link[];
   tagUsage: TagUsage[];
   mutations: Mutation[];
   contacts?: Contact[];
@@ -78,6 +80,7 @@ export class LocalStore {
   messages = new Map<string, Message>();
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
+  links = new Map<string, Link>();
   contacts = new Map<string, Contact>();
   contactGroups = new Map<string, ContactGroup>();
   /** contactId → Set<groupId> */
@@ -139,6 +142,7 @@ export class LocalStore {
     this.messages.clear();
     this.tagUsage.clear();
     this.savedViews.clear();
+    this.links.clear();
     this.rules.clear();
     this.templates.clear();
     this.eventTemplates.clear();
@@ -170,6 +174,7 @@ export class LocalStore {
     for (const m of snap.mutations) this.mutations.push(m);
     for (const msg of snap.messages) this._insertMessageIndexes(msg);
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
+    for (const lk of (snap.links ?? [])) this.links.set(lk.id, lk);
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
     for (const et of (snap.eventTemplates ?? [])) this.eventTemplates.set(et.id, et);
@@ -228,6 +233,7 @@ export class LocalStore {
       messages: Array.from(this.messages.values()),
       tagUsage: Array.from(this.tagUsage.values()),
       savedViews: Array.from(this.savedViews.values()),
+      links: Array.from(this.links.values()),
       mutations: this.mutations,
       contacts: Array.from(this.contacts.values()),
       contactGroups: Array.from(this.contactGroups.values()),
@@ -691,6 +697,18 @@ export class LocalStore {
   /** Sorted list of all saved views by position. */
   getSavedViewsSorted(): SavedView[] {
     return Array.from(this.savedViews.values()).sort((a, b) => a.position - b.position);
+  }
+
+  // ── Link CRUD (substrate Pillar 3) ──────────────────────────────
+
+  putLink(link: Link): void {
+    this.links.set(link.id, link);
+    this._notify();
+  }
+
+  deleteLink(id: string): void {
+    this.links.delete(id);
+    this._notify();
   }
 
   // ── Rule CRUD (EP-7) ─────────────────────────────────────────────
