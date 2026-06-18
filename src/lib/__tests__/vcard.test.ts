@@ -38,3 +38,24 @@ describe("vcard escaping round-trip", () => {
     expect(parseVcf(vcf)[0]!.name).toBe("a\\nb");
   });
 });
+
+describe("vcard structured fields", () => {
+  it("round-trips an address whose component contains a semicolon", () => {
+    const c = base({
+      addresses: [
+        { label: "home", street: "1;2 Main St", city: "Town", state: "CA", zip: "90000", country: "US" },
+      ],
+    });
+    const parsed = parseVcf(serializeVcf([c]))[0]!;
+    const a = parsed.addresses?.[0];
+    expect(a?.street).toBe("1;2 Main St");
+    expect(a?.city).toBe("Town");
+    expect(a?.country).toBe("US");
+  });
+
+  it("round-trips categories containing an embedded comma", () => {
+    const c = base({ tags: ["A,B", "Other"] });
+    const parsed = parseVcf(serializeVcf([c]))[0]!;
+    expect(parsed.tags).toEqual(["A,B", "Other"]);
+  });
+});
