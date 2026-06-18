@@ -25,6 +25,7 @@ pub struct HydratePayload {
     pub contacts: Vec<JsonValue>,
     pub contact_groups: Vec<JsonValue>,
     pub saved_views: Vec<JsonValue>,
+    pub links: Vec<JsonValue>,
     pub rules: Vec<JsonValue>,
     pub templates: Vec<JsonValue>,
     pub calendar_events: Vec<JsonValue>,
@@ -48,6 +49,7 @@ impl VaultDb {
             contacts: self.load_contacts(vault_id)?,
             contact_groups: self.load_contact_groups(vault_id)?,
             saved_views: self.load_saved_views(vault_id)?,
+            links: self.load_links(vault_id)?,
             rules: self.get_rules(vault_id)?,
             templates: self.get_templates(vault_id)?,
             event_templates: self.get_event_templates(vault_id)?,
@@ -826,6 +828,28 @@ impl VaultDb {
             }))
         })?;
         rows.map(|r| r.context("loading saved view row")).collect()
+    }
+
+    fn load_links(&self, vault_id: &str) -> Result<Vec<JsonValue>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, src_type, src_id, link_type, dst_type, dst_id, meta_json, created_at
+             FROM links WHERE vault_id = ?1 ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            let meta_json: Option<String> = r.get(6)?;
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "vaultId": vault_id,
+                "srcType": r.get::<_, String>(1)?,
+                "srcId": r.get::<_, String>(2)?,
+                "linkType": r.get::<_, String>(3)?,
+                "dstType": r.get::<_, String>(4)?,
+                "dstId": r.get::<_, String>(5)?,
+                "meta": meta_json.and_then(|s| serde_json::from_str::<JsonValue>(&s).ok()),
+                "createdAt": r.get::<_, i64>(7)?
+            }))
+        })?;
+        rows.map(|r| r.context("loading link row")).collect()
     }
 
     // ── Write helpers ─────────────────────────────────────────────────────────
@@ -1834,6 +1858,33 @@ impl VaultDb {
             "EDIT_EVENT_SERIES" => {
                 let master_id = p["masterId"].as_str().unwrap_or_default();
                 self.edit_event_series(vault_id, master_id, &p["changes"])?;
+            }
+            "CREATE_LINK" => {
+                let id = p["id"].as_str().unwrap_or_default();
+                let vault_id = p["vaultId"].as_str().unwrap_or("local");
+                let src_type = p["srcType"].as_str().unwrap_or_default();
+                let src_id = p["srcId"].as_str().unwrap_or_default();
+                let link_type = p["linkType"].as_str().unwrap_or_default();
+                let dst_type = p["dstType"].as_str().unwrap_or_default();
+                let dst_id = p["dstId"].as_str().unwrap_or_default();
+                let meta_json = if p["meta"].is_null() {
+                    None
+                } else {
+                    Some(p["meta"].to_string())
+                };
+                let created_at = p["createdAt"]
+                    .as_i64()
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO links (id, vault_id, src_type, src_id, link_type, dst_type, dst_id, meta_json, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![id, vault_id, src_type, src_id, link_type, dst_type, dst_id, meta_json, created_at],
+                )?;
+            }
+            "DELETE_LINK" => {
+                let link_id = p["linkId"].as_str().unwrap_or_default();
+                self.conn
+                    .execute("DELETE FROM links WHERE id = ?1", params![link_id])?;
             }
             // Unrecognised mutations are logged but not applied to the DB tables
             other => {
@@ -3302,5 +3353,51 @@ mod tests {
             )
             .expect("count mutations");
         assert_eq!(count, 1, "the unknown-kind mutation must be in the log");
+    }
+
+    fn link_payload(id: &str, vault_id: &str) -> String {
+        serde_json::json!({
+            "id": id,
+            "vaultId": vault_id,
+            "srcType": "nexus/email.message",
+            "srcId": "m-1",
+            "linkType": "derived-from",
+            "dstType": "org.nexus.tasks/task",
+            "dstId": "t-1",
+            "createdAt": 0
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn create_link_persists_and_loads() {
+        let (_dir, db, vault_id) = temp_vault();
+        db.apply_mutation(&vault_id, "CREATE_LINK", &link_payload("lnk-1", &vault_id), "dev", 1)
+            .expect("apply create_link");
+        let links = db.load_links(&vault_id).expect("load links");
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0]["dstId"], "t-1");
+        assert_eq!(links[0]["linkType"], "derived-from");
+        assert_eq!(links[0]["srcType"], "nexus/email.message");
+    }
+
+    #[test]
+    fn delete_link_removes_it() {
+        let (_dir, db, vault_id) = temp_vault();
+        db.apply_mutation(&vault_id, "CREATE_LINK", &link_payload("lnk-1", &vault_id), "dev", 1)
+            .expect("apply create_link");
+        db.apply_mutation(&vault_id, "DELETE_LINK", "{\"linkId\":\"lnk-1\"}", "dev", 2)
+            .expect("apply delete_link");
+        let links = db.load_links(&vault_id).expect("load links");
+        assert_eq!(links.len(), 0);
+    }
+
+    #[test]
+    fn hydrate_payload_includes_links() {
+        let (_dir, db, vault_id) = temp_vault();
+        db.apply_mutation(&vault_id, "CREATE_LINK", &link_payload("lnk-1", &vault_id), "dev", 1)
+            .expect("apply create_link");
+        let hp = db.build_hydrate_payload(&vault_id).expect("hydrate");
+        assert_eq!(hp.links.len(), 1);
     }
 }
