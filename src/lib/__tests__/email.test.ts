@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isValidEmail } from "@/lib/email";
+import { isValidEmail, normalizeEmail } from "@/lib/email";
 
 describe("isValidEmail (WHATWG HTML5 form-validation regex)", () => {
   it("accepts ordinary email shapes", () => {
@@ -45,5 +45,21 @@ describe("isValidEmail (WHATWG HTML5 form-validation regex)", () => {
 
   it("rejects multiple @", () => {
     expect(isValidEmail("a@b@c.com")).toBe(false);
+  });
+});
+
+describe("normalizeEmail", () => {
+  it("lowercases and trims", () => {
+    expect(normalizeEmail("  Alice@Example.COM ")).toBe("alice@example.com");
+  });
+
+  it("keeps plus-addressing distinct (does not fold tags)", () => {
+    expect(normalizeEmail("user+tag@x.com")).toBe("user+tag@x.com");
+    expect(normalizeEmail("user+tag@x.com")).not.toBe(normalizeEmail("user@x.com"));
+  });
+
+  it("is idempotent", () => {
+    const once = normalizeEmail("Bob@Y.org");
+    expect(normalizeEmail(once)).toBe(once);
   });
 });
