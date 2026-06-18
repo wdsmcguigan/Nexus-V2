@@ -704,6 +704,18 @@ impl VaultDb {
         Ok(())
     }
 
+    /// Upsert a batch of contacts atomically: either all are written or, on any
+    /// error, none are (the transaction rolls back). Used by provider sync so a
+    /// mid-batch failure never leaves a partial write.
+    pub fn upsert_contacts(&self, vault_id: &str, contacts: &[serde_json::Value]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        for contact in contacts {
+            self.upsert_contact(vault_id, contact)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Bulk-update contact photo URLs from a People API response (email → photo_url map).
     /// Only updates contacts that already exist in this vault; does not create new ones.
     pub fn update_contact_photos(
@@ -3399,5 +3411,25 @@ mod tests {
             .expect("apply create_link");
         let hp = db.build_hydrate_payload(&vault_id).expect("hydrate");
         assert_eq!(hp.links.len(), 1);
+    }
+
+    #[test]
+    fn upsert_contacts_writes_a_batch_atomically() {
+        let (_dir, db, vault_id) = temp_vault();
+        let contacts = vec![
+            serde_json::json!({
+                "id": "k1", "name": "Ada", "emails": ["ada@x.com"], "phones": [],
+                "tags": [], "socialProfiles": [], "addresses": [],
+                "source": "google", "importance": "normal", "createdAt": 0, "updatedAt": 0
+            }),
+            serde_json::json!({
+                "id": "k2", "name": "Bob", "emails": [], "phones": [],
+                "tags": [], "socialProfiles": [], "addresses": [],
+                "source": "google", "importance": "normal", "createdAt": 0, "updatedAt": 0
+            }),
+        ];
+        db.upsert_contacts(&vault_id, &contacts).expect("upsert batch");
+        let loaded = db.load_contacts(&vault_id).expect("load");
+        assert_eq!(loaded.len(), 2);
     }
 }
