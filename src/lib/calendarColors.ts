@@ -13,5 +13,5 @@ export const GOOGLE_COLOR_MAP: Record<string, string> = {
 };
 
 export function eventColor(colorId?: string): string {
-  return (colorId && GOOGLE_COLOR_MAP[colorId]) ?? "var(--color-accent)";
+  return (colorId && GOOGLE_COLOR_MAP[colorId]) || "var(--color-accent)";
 }
