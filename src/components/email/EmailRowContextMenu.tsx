@@ -35,12 +35,15 @@ import {
   Check,
   X,
   ListChecks,
+  NotebookPen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
 import { createTaskFromEntity } from "@/modules/tasks/mutations";
 import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
+import { createNoteFromEntity } from "@/modules/notes/mutations";
+import { NOTES_MAIN_PANEL_KEY } from "@/modules/notes";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 import type { Message, StarStyle, CustomFieldType } from "@/data/types";
@@ -216,6 +219,17 @@ export function EmailRowContextMenu({
               >
                 <ListChecks size={12} className="absolute left-2 text-text-tertiary" />
                 Create task from this email
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className={itemCls}
+                onSelect={() => {
+                  createNoteFromEntity("nexus/email.message", msg.id, msg.subject || "(no subject)", localStore);
+                  useWorkspace.getState().openModulePanel(NOTES_MAIN_PANEL_KEY, "Notes");
+                  toast.success("Note created");
+                }}
+              >
+                <NotebookPen size={12} className="absolute left-2 text-text-tertiary" />
+                Create note from this email
               </ContextMenu.Item>
               <ContextMenu.Separator className={separatorCls} />
             </>
