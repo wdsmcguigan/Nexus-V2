@@ -125,6 +125,7 @@ export const EmailRow = React.memo(function EmailRow({
   return (
     <div
       role="row"
+      data-testid="email-row"
       aria-selected={inSelectionSet}
       data-list-row
       data-selected={selected ? "true" : undefined}
@@ -240,6 +241,7 @@ export const EmailRow = React.memo(function EmailRow({
             <Pin size={10} className="shrink-0 text-text-tertiary" />
           )}
           <span
+            data-testid="email-subject"
             className={cn(
               "min-w-0 flex-1 truncate text-body",
               isRead ? "font-normal text-text-secondary" : "font-semibold text-text-primary",

@@ -173,7 +173,7 @@ export function EmailRowContextMenu({
 
   return (
     <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
+      <ContextMenu.Trigger style={{ display: "contents" }}>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
           className={cn(
