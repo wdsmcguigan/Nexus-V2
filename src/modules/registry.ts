@@ -1,6 +1,6 @@
-import { registerModuleReducer, type ModuleReducer } from "@/state/moduleReducers";
 import { kindNamespace } from "@/state/mutationKind";
-import type { TrustTier } from "@/modules/surfaces";
+import { canContributeSurface, type SurfaceSpec, type TrustTier } from "@/modules/surfaces";
+import { createModuleHost, type ModuleHost } from "@/modules/host";
 
 /** A module's declared manifest (substrate §7.1). */
 export interface ModuleManifest {
@@ -16,6 +16,12 @@ export interface ModuleManifest {
   /** Capability requests (vocabulary now, enforced later — substrate §7.3). */
   capabilities: Record<string, unknown>;
   trust: TrustTier;
+  /**
+   * UI surfaces this module declares (substrate §7.2). The manifest is the
+   * gateable, serializable declaration; components are bound at registration
+   * via the host (gate-before-run security posture).
+   */
+  contributes?: { surfaces?: SurfaceSpec[] };
 }
 
 interface RegisteredModule {
@@ -35,24 +41,49 @@ function assertNamespaced(items: string[], namespace: string, label: string): vo
 }
 
 /**
- * Register a module from its manifest, optionally wiring its reducer under the
- * module namespace. Validates that all declared kinds and entities live in the
- * module's namespace. Returns a disposer that unregisters the module and its
- * reducer. (substrate Pillar 4, §7)
+ * Register a module from its manifest. The optional `setup` callback receives a
+ * capability-scoped host (substrate Appendix B) to register its reducer and
+ * bind components to the surfaces the manifest declared. Validates namespacing
+ * and trust×surface gating BEFORE running setup (gate-before-run). Returns a
+ * disposer that unregisters the module, its reducer, and its surfaces.
+ * (substrate Pillar 4, §7)
  */
-export function registerModule(manifest: ModuleManifest, reducer?: ModuleReducer): () => void {
+export function registerModule(
+  manifest: ModuleManifest,
+  setup?: (host: ModuleHost) => void,
+): () => void {
   if (_modules.has(manifest.id)) {
     throw new Error(`A module is already registered with id "${manifest.id}"`);
   }
   assertNamespaced(manifest.mutationKinds, manifest.namespace, "mutationKind");
   assertNamespaced(manifest.entities, manifest.namespace, "entity");
 
-  const disposeReducer = reducer
-    ? registerModuleReducer(manifest.namespace, reducer)
-    : () => {};
+  const declared = new Map<string, SurfaceSpec>();
+  for (const spec of manifest.contributes?.surfaces ?? []) {
+    if (!canContributeSurface(manifest.trust, spec.type)) {
+      throw new Error(
+        `Module "${manifest.id}" (${manifest.trust}) may not contribute a "${spec.type}" surface`,
+      );
+    }
+    declared.set(spec.id, spec);
+  }
+
+  const { host, dispose: disposeHost } = createModuleHost(
+    manifest.id,
+    manifest.namespace,
+    declared,
+  );
+  if (setup) {
+    try {
+      setup(host);
+    } catch (err) {
+      disposeHost();
+      throw err;
+    }
+  }
 
   const dispose = () => {
-    disposeReducer();
+    disposeHost();
     _modules.delete(manifest.id);
   };
   _modules.set(manifest.id, { manifest, dispose });
@@ -69,7 +100,7 @@ export function listModules(): ModuleManifest[] {
   return [..._modules.values()].map((m) => m.manifest);
 }
 
-/** Test-only: unregister all modules, disposing each module's reducer too. */
+/** Test-only: unregister all modules, disposing each module's reducer + surfaces. */
 export function _resetModules(): void {
   for (const m of [..._modules.values()]) m.dispose();
   _modules.clear();

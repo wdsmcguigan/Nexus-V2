@@ -28,6 +28,7 @@ import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortc
 import type { ModuleKey } from "@/data/types";
 import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
 import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
+import { dockSurfaceComponents, isModulePanelId } from "@/modules/surfaceRegistry";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -63,7 +64,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // the currently-shown message so the pop-out opens on the right content.
 async function detachPanelToWindow(id: string) {
   const moduleKey = id.split("-")[0];
-  if (!moduleKey || moduleKey === "nav") return;
+  if (!moduleKey || moduleKey === "nav" || isModulePanelId(id)) return;
   const kind = moduleKey as PopoutKind;
   let targetId: string | null = null;
   if (moduleKey === "viewer" || moduleKey === "inspector") {
@@ -76,8 +77,9 @@ async function detachPanelToWindow(id: string) {
 }
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
-  // Detaching requires real OS windows (Tauri); Navigation is never detachable.
-  const detachable = isTauri() && props.api.id.split("-")[0] !== "nav";
+  // Module panels are non-detachable for now (their namespaced ids aren't valid
+  // PopoutKinds); Navigation is never detachable.
+  const detachable = isTauri() && !isModulePanelId(props.api.id) && props.api.id.split("-")[0] !== "nav";
   return (
     <div className="group/tab flex h-full items-center pl-1">
       <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
@@ -164,6 +166,13 @@ function applyModuleColor(group: { activePanel?: { id: string } | null; element?
     el.style.removeProperty("--module-color");
     return;
   }
+  // Module dock-surface panels (namespaced ids like "org.nexus.tasks:tasks.main")
+  // are not core ModuleKeys; skip core color resolution and clear the var so a
+  // stale color isn't left on the group.
+  if (isModulePanelId(activeId)) {
+    el.style.removeProperty("--module-color");
+    return;
+  }
   // Active panel ids in our layout match DV_COMPONENTS keys, with optional
   // "viewer-2" / "inspector-abc123" disambiguation suffixes. Strip the suffix
   // to get the module key.
@@ -241,6 +250,17 @@ function initLayout(event: DockviewReadyEvent) {
 export function Workspace() {
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+
+  // INVARIANT: _dockSurfaces is populated synchronously by bootstrapModules()
+  // (main.tsx) BEFORE this component first renders, and is not mutated after.
+  // That is what makes the empty dep array correct — the merged map is computed
+  // once. If a future phase introduces dynamic (post-mount) module loading, this
+  // useMemo must be removed or keyed off a version counter from surfaceRegistry,
+  // otherwise newly-registered panels will be missing from dockview's map.
+  const dvComponents = React.useMemo(
+    () => ({ ...DV_COMPONENTS, ...dockSurfaceComponents() }),
+    [],
+  );
 
   const eventCreateModalOpen = useWorkspace((s) => s.eventCreateModalOpen);
   const eventCreateModalPrefill = useWorkspace((s) => s.eventCreateModalPrefill);
@@ -411,7 +431,7 @@ export function Workspace() {
         <div className="relative min-h-0 flex-1" data-body-tint-level={bodyTintLevel}>
           <DockviewReact
             className="h-full w-full"
-            components={DV_COMPONENTS}
+            components={dvComponents}
             defaultTabComponent={DockviewTab}
             onReady={initLayout}
             singleTabMode="fullwidth"

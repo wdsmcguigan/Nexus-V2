@@ -40,3 +40,18 @@ export function canContributeSurface(tier: TrustTier, type: SurfaceType): boolea
   if (tier === "core" || tier === "first-party") return true;
   return THIRD_PARTY_ALLOWED.has(type);
 }
+
+/**
+ * A UI surface a module declares in its manifest (substrate §7.2). v1 renders
+ * `dock`; other types are declarable + trust-gated but not yet wired.
+ */
+export interface SurfaceSpec {
+  type: SurfaceType;
+  /** Module-local surface id, unique within the module (e.g. "tasks.main"). */
+  id: string;
+  title: string;
+  /** Optional icon hint (lucide name); host decides how to render it. */
+  icon?: string;
+  /** Dock only: may the panel detach into its own OS window? Default false. */
+  detachable?: boolean;
+}
