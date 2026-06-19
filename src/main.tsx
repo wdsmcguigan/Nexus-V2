@@ -24,8 +24,13 @@ import {
 import { applyRemoteMutation } from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
 import { startGoogleAutoSync } from "@/lib/googleSync";
+import { bootstrapModules } from "@/modules/bootstrap";
 import type { MutationKind } from "@/data/types";
 import type { Theme, Density } from "@/design-system/tokens";
+
+// Register core modules before first render so dockview can resolve module
+// panel components during initial layout restore.
+bootstrapModules();
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root missing in index.html");

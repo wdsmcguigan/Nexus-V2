@@ -28,6 +28,7 @@ import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortc
 import type { ModuleKey } from "@/data/types";
 import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
 import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
+import { dockSurfaceComponents } from "@/modules/surfaceRegistry";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -242,6 +243,17 @@ export function Workspace() {
   const [helpOpen, setHelpOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
 
+  // INVARIANT: _dockSurfaces is populated synchronously by bootstrapModules()
+  // (main.tsx) BEFORE this component first renders, and is not mutated after.
+  // That is what makes the empty dep array correct — the merged map is computed
+  // once. If a future phase introduces dynamic (post-mount) module loading, this
+  // useMemo must be removed or keyed off a version counter from surfaceRegistry,
+  // otherwise newly-registered panels will be missing from dockview's map.
+  const dvComponents = React.useMemo(
+    () => ({ ...DV_COMPONENTS, ...dockSurfaceComponents() }),
+    [],
+  );
+
   const eventCreateModalOpen = useWorkspace((s) => s.eventCreateModalOpen);
   const eventCreateModalPrefill = useWorkspace((s) => s.eventCreateModalPrefill);
   const closeEventCreateModal = useWorkspace((s) => s.closeEventCreateModal);
@@ -411,7 +423,7 @@ export function Workspace() {
         <div className="relative min-h-0 flex-1" data-body-tint-level={bodyTintLevel}>
           <DockviewReact
             className="h-full w-full"
-            components={DV_COMPONENTS}
+            components={dvComponents}
             defaultTabComponent={DockviewTab}
             onReady={initLayout}
             singleTabMode="fullwidth"

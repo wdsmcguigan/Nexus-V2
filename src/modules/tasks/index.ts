@@ -1,0 +1,35 @@
+import { registerModule, type ModuleManifest } from "@/modules/registry";
+import { dockComponentKey } from "@/modules/surfaceRegistry";
+import { TasksPanel } from "@/modules/tasks/TasksPanel";
+
+export const TASKS_MODULE_ID = "org.nexus.tasks";
+export const TASKS_MAIN_SURFACE_ID = "tasks.main";
+
+/** The dockview component key / panel id for the Tasks main dock surface. */
+export const TASKS_MAIN_PANEL_KEY = dockComponentKey(TASKS_MODULE_ID, TASKS_MAIN_SURFACE_ID);
+
+const manifest: ModuleManifest = {
+  id: TASKS_MODULE_ID,
+  name: "Tasks",
+  version: "0.1.0",
+  namespace: TASKS_MODULE_ID,
+  entities: [],
+  mutationKinds: [],
+  capabilities: { "ui.contribute": ["dock"] },
+  trust: "core",
+  contributes: {
+    surfaces: [
+      { type: "dock", id: TASKS_MAIN_SURFACE_ID, title: "Tasks", icon: "check", detachable: false },
+    ],
+  },
+};
+
+/**
+ * Register the Tasks module (skeleton). Step 2 adds entities, mutation kinds, a
+ * reducer, and the real panel body. Returns the registry disposer.
+ */
+export function registerTasksModule(): () => void {
+  return registerModule(manifest, (host) => {
+    host.contribute.surface(TASKS_MAIN_SURFACE_ID, TasksPanel);
+  });
+}
