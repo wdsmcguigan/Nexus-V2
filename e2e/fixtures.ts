@@ -19,8 +19,8 @@ export const test = base.extend({
       try {
         const root = await navigator.storage.getDirectory();
         const names: string[] = [];
-        // FileSystemDirectoryHandle is async-iterable in supporting engines.
-        for await (const name of (root as unknown as AsyncIterable<string>)) {
+        // Collect entry names first via keys() to avoid mutating the directory mid-iteration.
+        for await (const name of (root as unknown as { keys(): AsyncIterableIterator<string> }).keys()) {
           names.push(name);
         }
         await Promise.all(
