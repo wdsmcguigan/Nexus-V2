@@ -4,6 +4,7 @@
  * during initial layout restore. Idempotent (guards against HMR / double eval).
  */
 import { registerTasksModule } from "@/modules/tasks";
+import { registerNotesModule } from "@/modules/notes";
 
 let _bootstrapped = false;
 
@@ -11,6 +12,7 @@ export function bootstrapModules(): void {
   if (_bootstrapped) return;
   _bootstrapped = true;
   registerTasksModule();
+  registerNotesModule();
 }
 
 /** Test-only: allow re-bootstrapping after a registry reset. */
