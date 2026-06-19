@@ -134,4 +134,4 @@ e2e/notes.spec.ts            (critical-flow e2e)
 
 ## 13. Out of scope (→ later steps)
 
-Pinning/tags/folders/archive; `[[wikilinks]]` + reverse backlinks; inspector-section backlinks; contact/event create-from; FTS over note bodies; sharing/export; a shared rich-text-editor extraction from EmailComposer.
+Pinning/tags/folders/archive; `[[wikilinks]]` + reverse backlinks; inspector-section backlinks; contact/event create-from; FTS over note bodies; sharing/export. **Editor direction (intentional, much later):** rather than extracting a shared editor from EmailComposer now, the long-term plan is a dedicated, full-featured rich-text editor as its *own module* that Notes (and others) consume. For v1, TipTap is wired directly in `NoteEditor` and the composer is left untouched.
