@@ -41,6 +41,7 @@ import {
   Users,
   Calendar as CalendarIcon,
   Plus,
+  ListChecks,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
@@ -51,6 +52,8 @@ import { Kbd } from "@/components/ui/Kbd";
 import type { Density } from "@/design-system/tokens";
 import type { StarStyle } from "@/data/types";
 import { listModuleCommands } from "@/modules/commands";
+import { createTaskFromEntity } from "@/modules/tasks/mutations";
+import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
 
 interface CmdItemDef {
   id: string;
@@ -92,6 +95,7 @@ export function CommandPalette() {
   const setDensity = useWorkspace((s) => s.setDensity);
   const setActivePanel = useWorkspace((s) => s.setActivePanel);
   const openSettingsPanel = useWorkspace((s) => s.openSettingsPanel);
+  const openModulePanel = useWorkspace((s) => s.openModulePanel);
 
   const [query, setQuery] = React.useState("");
   const previousPanelId = useWorkspace((s) => s.previousPanelId);
@@ -254,6 +258,21 @@ export function CommandPalette() {
         perform: () => {
           if (msg?.flag) clearFlag(mid);
           else setFlag(mid, { setAt: Date.now() });
+        },
+      });
+
+      // CREATE TASK
+      all.push({
+        id: "create-task-from-email",
+        label: "Create task from this email",
+        group: "Message",
+        icon: ListChecks,
+        perform: () => {
+          const m = localStore.messages.get(mid);
+          if (m) {
+            createTaskFromEntity("nexus/email.message", m.id, m.subject || "(no subject)", localStore);
+            openModulePanel(TASKS_MAIN_PANEL_KEY, "Tasks");
+          }
         },
       });
     }
@@ -511,6 +530,7 @@ export function CommandPalette() {
     archive, trash, snooze, setPinnedAction, setMuted, setFlag, clearFlag,
     setPriority, clearPriority, setStar, clearStar,
     addLabel, removeLabel, addTag, removeTag, setStatus, clearStatus, moveToFolder, setRead,
+    openModulePanel,
   ]);
 
   const grouped = React.useMemo(() => {
