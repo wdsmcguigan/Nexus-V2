@@ -33,4 +33,19 @@ describe("LocalStore tasks projection", () => {
     expect(s.tasks.has("t1")).toBe(false);
     expect(s.tasksByStatus.get("needs-action")?.has("t1") ?? false).toBe(false);
   });
+
+  it("putTask bumps the store version (notifies subscribers)", () => {
+    const s = new LocalStore();
+    const v0 = s.version;
+    s.putTask(task({ id: "t1" }));
+    expect(s.version).toBeGreaterThan(v0);
+  });
+
+  it("deleteTask bumps the store version (notifies subscribers)", () => {
+    const s = new LocalStore();
+    s.putTask(task({ id: "t1" }));
+    const v1 = s.version;
+    s.deleteTask("t1");
+    expect(s.version).toBeGreaterThan(v1);
+  });
 });

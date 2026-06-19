@@ -414,12 +414,14 @@ export class LocalStore {
     if (prev && prev.status !== t.status) this._setRemove(this.tasksByStatus, prev.status, t.id);
     this.tasks.set(t.id, t);
     this._setAdd(this.tasksByStatus, t.status, t.id);
+    this._notify();
   }
 
   deleteTask(id: string): void {
     const prev = this.tasks.get(id);
     if (prev) this._setRemove(this.tasksByStatus, prev.status, id);
     this.tasks.delete(id);
+    this._notify();
   }
 
   // ── Status CRUD with cascade ─────────────────────────────────────
