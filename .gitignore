@@ -24,3 +24,9 @@ src-tauri/~/
 
 # Brainstorming visual companion sessions (per-session, not source)
 .superpowers/
+
+# Playwright e2e
+test-results/
+playwright-report/
+/blob-report/
+playwright/.cache/
