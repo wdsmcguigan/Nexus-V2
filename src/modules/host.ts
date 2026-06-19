@@ -10,6 +10,7 @@ import { registerModuleReducer, type ModuleReducer } from "@/state/moduleReducer
 import { registerModuleInverse, type ModuleInverseBuilder } from "@/state/mutations";
 import { registerDockSurface, type DockSurfaceComponent } from "@/modules/surfaceRegistry";
 import type { SurfaceSpec } from "@/modules/surfaces";
+import { registerModuleCommand, type ModuleCommandSpec } from "@/modules/commands";
 
 export interface ModuleHost {
   /** Register this module's reducer under its namespace (substrate Pillar 1). */
@@ -22,6 +23,8 @@ export interface ModuleHost {
      * Throws if `surfaceId` was not declared, or its type is not yet wired.
      */
     surface(surfaceId: string, component: DockSurfaceComponent): void;
+    /** Bind a run handler to a command the manifest declared. Throws if undeclared. */
+    command(commandId: string, run: () => void): void;
   };
 }
 
@@ -34,6 +37,7 @@ export function createModuleHost(
   moduleId: string,
   namespace: string,
   declaredSurfaces: Map<string, SurfaceSpec>,
+  declaredCommands: Map<string, ModuleCommandSpec> = new Map(),
 ): { host: ModuleHost; dispose: () => void } {
   const disposers: Array<() => void> = [];
 
@@ -54,6 +58,13 @@ export function createModuleHost(
           throw new Error(`Surface type "${spec.type}" is not wired yet (only "dock" in v1)`);
         }
         disposers.push(registerDockSurface(moduleId, spec, component));
+      },
+      command(commandId, run) {
+        const spec = declaredCommands.get(commandId);
+        if (!spec) {
+          throw new Error(`Command "${commandId}" is not declared in module "${moduleId}" manifest`);
+        }
+        disposers.push(registerModuleCommand(moduleId, spec, run));
       },
     },
   };

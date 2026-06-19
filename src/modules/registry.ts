@@ -1,6 +1,7 @@
 import { kindNamespace } from "@/state/mutationKind";
 import { canContributeSurface, type SurfaceSpec, type TrustTier } from "@/modules/surfaces";
 import { createModuleHost, type ModuleHost } from "@/modules/host";
+import type { ModuleCommandSpec } from "@/modules/commands";
 
 /** A module's declared manifest (substrate §7.1). */
 export interface ModuleManifest {
@@ -17,11 +18,11 @@ export interface ModuleManifest {
   capabilities: Record<string, unknown>;
   trust: TrustTier;
   /**
-   * UI surfaces this module declares (substrate §7.2). The manifest is the
-   * gateable, serializable declaration; components are bound at registration
+   * UI surfaces and commands this module declares (substrate §7.2). The manifest is the
+   * gateable, serializable declaration; components/handlers are bound at registration
    * via the host (gate-before-run security posture).
    */
-  contributes?: { surfaces?: SurfaceSpec[] };
+  contributes?: { surfaces?: SurfaceSpec[]; commands?: ModuleCommandSpec[] };
 }
 
 interface RegisteredModule {
@@ -68,10 +69,14 @@ export function registerModule(
     declared.set(spec.id, spec);
   }
 
+  const declaredCommands = new Map<string, ModuleCommandSpec>();
+  for (const c of manifest.contributes?.commands ?? []) declaredCommands.set(c.id, c);
+
   const { host, dispose: disposeHost } = createModuleHost(
     manifest.id,
     manifest.namespace,
     declared,
+    declaredCommands,
   );
   if (setup) {
     try {
