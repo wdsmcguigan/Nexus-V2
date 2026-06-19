@@ -19,7 +19,7 @@ function subscribe(cb: () => void): () => void {
 }
 
 /** Returns the current store version (increments on every mutation). */
-function useStoreVersion(): number {
+export function useStoreVersion(): number {
   return useSyncExternalStore(subscribe, () => localStore.version);
 }
 
