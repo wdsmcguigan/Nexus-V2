@@ -28,6 +28,8 @@ import type {
   SavedView,
   Status,
   TagUsage,
+  Task,
+  TaskStatus,
   Template,
   Vault,
 } from "@/data/types";
@@ -91,6 +93,8 @@ export class LocalStore {
   eventTemplates = new Map<string, EventTemplate>();
   calendarEvents = new Map<string, CalendarEvent>();
   calendars = new Map<string, Calendar>();
+  tasks = new Map<string, Task>();
+  tasksByStatus = new Map<TaskStatus, Set<string>>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -165,6 +169,8 @@ export class LocalStore {
     this.messagesByContact.clear();
     this.calendarEvents.clear();
     this.calendars.clear();
+    this.tasks.clear();
+    this.tasksByStatus.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -399,6 +405,21 @@ export class LocalStore {
     }
     this._notify();
     this._schedulePersist();
+  }
+
+  // ── Task CRUD ────────────────────────────────────────────────────
+
+  putTask(t: Task): void {
+    const prev = this.tasks.get(t.id);
+    if (prev && prev.status !== t.status) this._setRemove(this.tasksByStatus, prev.status, t.id);
+    this.tasks.set(t.id, t);
+    this._setAdd(this.tasksByStatus, t.status, t.id);
+  }
+
+  deleteTask(id: string): void {
+    const prev = this.tasks.get(id);
+    if (prev) this._setRemove(this.tasksByStatus, prev.status, id);
+    this.tasks.delete(id);
   }
 
   // ── Status CRUD with cascade ─────────────────────────────────────
