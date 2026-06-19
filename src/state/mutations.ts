@@ -334,10 +334,16 @@ function _buildReverseEntryInner(
 
 // ─── Core record function ────────────────────────────────────────────────────
 
-export function recordMutation(
+/**
+ * Apply + persist + broadcast a single mutation — EVERYTHING recordMutation does
+ * EXCEPT the undo-stack push/clear. Shared by recordMutation and recordMutations.
+ * The undo-entry build + stack push stays in the callers because the inverse must
+ * be captured BEFORE the mutation is applied (pre-state).
+ */
+function _applyAndPersist(
   kind: MutationKind,
   payload: unknown,
-  store: LocalStore = _defaultStore,
+  store: LocalStore,
 ): Mutation {
   _lamport += 1;
   const mutation: Mutation = {
@@ -349,21 +355,9 @@ export function recordMutation(
     kind,
     payload,
   };
-  // Capture reverse entry before applyMutation modifies the store.
-  const undoEntry = _skipStack
-    ? null
-    : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
 
   store.appendMutation(mutation);
   applyMutation(mutation, store);
-
-  if (!_skipStack) {
-    if (undoEntry) {
-      _undoStack.push(undoEntry);
-      if (_undoStack.length > UNDO_MAX) _undoStack.shift();
-    }
-    _redoStack.length = 0;
-  }
 
   // Fire-and-forget persistence to SQLite in Tauri mode
   if (isTauri()) {
@@ -376,6 +370,60 @@ export function recordMutation(
   emitBusEvent(mutation);
 
   return mutation;
+}
+
+export function recordMutation(
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore = _defaultStore,
+): Mutation {
+  // Capture reverse entry before applyMutation modifies the store.
+  const undoEntry = _skipStack
+    ? null
+    : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
+
+  const mutation = _applyAndPersist(kind, payload, store);
+
+  if (!_skipStack) {
+    if (undoEntry) {
+      _undoStack.push(undoEntry);
+      if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    }
+    _redoStack.length = 0;
+  }
+
+  return mutation;
+}
+
+/**
+ * Apply N mutations as one atomic compound action (substrate §4.4). Each step is
+ * persisted/broadcast exactly like recordMutation, but the whole batch pushes ONE
+ * combined undo entry whose reverseSteps are every step's inverse concatenated in
+ * REVERSE order (undo unwinds last-applied-first). If any step is non-undoable, the
+ * compound is recorded without an undo entry.
+ */
+export function recordMutations(
+  steps: Array<{ kind: MutationKind; payload: unknown }>,
+  store: LocalStore = _defaultStore,
+  description = "Multiple changes",
+): void {
+  if (steps.length === 0) return;
+  const reverse: Array<{ kind: MutationKind; payload: unknown }> = [];
+  let undoable = true;
+  for (const step of steps) {
+    // Inverse must be captured BEFORE this step is applied (pre-state).
+    const entry = _skipStack ? null : _buildReverseEntry(step.kind, step.payload, store);
+    if (entry && entry.canUndo) reverse.unshift(...entry.reverseSteps);
+    else undoable = false;
+    _applyAndPersist(step.kind, step.payload, store);
+  }
+  if (!_skipStack) {
+    if (undoable && reverse.length) {
+      _undoStack.push({ forwardSteps: [...steps], reverseSteps: reverse, description, canUndo: true });
+      if (_undoStack.length > UNDO_MAX) _undoStack.shift();
+    }
+    _redoStack.length = 0;
+  }
 }
 
 // ─── Mutation replay ─────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-import type { Task, TaskStatus } from "@/data/types";
+import type { Task, TaskStatus, Link } from "@/data/types";
 import type { LocalStore } from "@/storage/local";
-import { recordMutation, type ModuleInverseBuilder } from "@/state/mutations";
+import { recordMutation, recordMutations, type ModuleInverseBuilder } from "@/state/mutations";
 import { makeTask, type TaskFields } from "@/modules/tasks/model";
 
 export const TASKS_NS = "org.nexus.tasks";
@@ -29,6 +29,41 @@ export function reorderTaskMutation(taskId: string, order: number, status: TaskS
 }
 export function deleteTaskMutation(taskId: string, store: LocalStore): void {
   recordMutation(KIND.DELETE, { taskId }, store);
+}
+
+/** The entity type identifier for a task (used as srcType in links). */
+export const TASK_ENTITY = "org.nexus.tasks/task";
+
+/**
+ * Create a task linked to a source entity (e.g. an email) as ONE atomic undo
+ * unit. The link is task --tracks--> entity.
+ */
+export function createTaskFromEntity(
+  entityType: string,
+  entityId: string,
+  title: string,
+  store: LocalStore,
+): Task {
+  const task = makeTask({ title }, store.vault?.id ?? "local", Date.now());
+  const link: Link = {
+    id: `lnk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    vaultId: store.vault?.id ?? "local",
+    srcType: TASK_ENTITY,
+    srcId: task.id,
+    linkType: "tracks",
+    dstType: entityType,
+    dstId: entityId,
+    createdAt: Date.now(),
+  };
+  recordMutations(
+    [
+      { kind: KIND.CREATE, payload: task },
+      { kind: "CREATE_LINK", payload: link },
+    ],
+    store,
+    "Create task from item",
+  );
+  return task;
 }
 
 /** Inverse builder — captures prior state BEFORE the mutation applies (substrate §4.3). */

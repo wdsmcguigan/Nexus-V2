@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import { localStore } from "@/storage/local";
+import { useWorkspace } from "@/state/workspace";
 import { Button } from "@/components/ui/Button";
 import { useTask } from "@/modules/tasks/hooks";
 import { TASK_STATUSES, TASK_STATUS_LABEL } from "@/modules/tasks/model";
@@ -9,7 +10,15 @@ import {
   setTaskStatusMutation,
   deleteTaskMutation,
 } from "@/modules/tasks/mutations";
+import { taskLinkedItems, type LinkedItem } from "@/modules/tasks/links";
 import type { TaskStatus } from "@/data/types";
+
+function openLinkedItem(item: LinkedItem): void {
+  const ws = useWorkspace.getState();
+  if (item.entityType === "nexus/email.message") ws.setSelectedEmail(item.entityId);
+  else if (item.entityType === "nexus/contact") ws.openContactsPanel(item.entityId);
+  else if (item.entityType === "nexus/calendar.event") ws.openCalendarPanel();
+}
 
 interface TaskDetailProps {
   taskId: string;
@@ -46,6 +55,9 @@ export function TaskDetail({ taskId, onClose }: TaskDetailProps) {
   }, [task, title, notes]);
 
   if (!task) return null;
+
+  // Recomputes on every useTask version-bump re-render — no extra hook needed.
+  const linked = taskLinkedItems(localStore, taskId);
 
   function commitTitle() {
     const trimmed = title.trim();
@@ -148,6 +160,22 @@ export function TaskDetail({ taskId, onClose }: TaskDetailProps) {
           className="nx-scroll min-h-24 flex-1 resize-none rounded-sm border border-border-default bg-surface-2 px-2 py-1.5 text-body text-text-primary focus:border-accent focus:outline-none"
         />
       </label>
+
+      {linked.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="text-small text-text-secondary">Linked</span>
+          {linked.map((item) => (
+            <button
+              key={item.linkId}
+              type="button"
+              onClick={() => openLinkedItem(item)}
+              className="truncate rounded-sm border border-border-default bg-surface-2 px-2 py-1 text-left text-body text-text-primary hover:border-accent focus:border-accent focus:outline-none"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <Button variant="destructive" size="sm" onClick={handleDelete}>
         <Trash2 />

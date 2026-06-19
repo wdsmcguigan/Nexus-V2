@@ -34,10 +34,13 @@ import {
   FileDown,
   Check,
   X,
+  ListChecks,
 } from "lucide-react";
 import { toast } from "sonner";
 import { localStore } from "@/storage/local";
 import * as Mut from "@/state/mutations";
+import { createTaskFromEntity } from "@/modules/tasks/mutations";
+import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 import type { Message, StarStyle, CustomFieldType } from "@/data/types";
@@ -202,6 +205,17 @@ export function EmailRowContextMenu({
                 <Forward size={12} className="absolute left-2 text-text-tertiary" />
                 Forward
                 <span className={shortcutCls}>F</span>
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className={itemCls}
+                onSelect={() => {
+                  createTaskFromEntity("nexus/email.message", msg.id, msg.subject || "(no subject)", localStore);
+                  useWorkspace.getState().openModulePanel(TASKS_MAIN_PANEL_KEY, "Tasks");
+                  toast.success("Task created");
+                }}
+              >
+                <ListChecks size={12} className="absolute left-2 text-text-tertiary" />
+                Create task from this email
               </ContextMenu.Item>
               <ContextMenu.Separator className={separatorCls} />
             </>
