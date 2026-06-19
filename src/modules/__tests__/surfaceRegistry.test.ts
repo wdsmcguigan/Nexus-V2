@@ -4,6 +4,7 @@ import {
   registerDockSurface,
   listDockSurfaces,
   dockSurfaceComponents,
+  isModulePanelId,
   _resetDockSurfaces,
 } from "@/modules/surfaceRegistry";
 import type { SurfaceSpec } from "@/modules/surfaces";
@@ -40,5 +41,16 @@ describe("dock surface registry", () => {
     const dispose = registerDockSurface("org.nexus.tasks", spec, Comp);
     dispose();
     expect(listDockSurfaces()).toHaveLength(0);
+  });
+
+  it("recognizes a module panel id by its namespace separator", () => {
+    expect(isModulePanelId("org.nexus.tasks:tasks.main")).toBe(true);
+    expect(isModulePanelId(dockComponentKey("org.nexus.notes", "notes.main"))).toBe(true);
+  });
+
+  it("treats core panel ids as non-module", () => {
+    for (const id of ["nav", "list", "viewer", "viewer-2", "inspector-abc123", "calendar", "settings"]) {
+      expect(isModulePanelId(id)).toBe(false);
+    }
   });
 });

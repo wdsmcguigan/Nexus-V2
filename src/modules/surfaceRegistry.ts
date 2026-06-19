@@ -28,6 +28,15 @@ export function dockComponentKey(moduleId: string, surfaceId: string): string {
 }
 
 /**
+ * True if `panelId` is a module dock-surface panel id (namespaced as
+ * `${moduleId}:${surfaceId}` by `dockComponentKey`), as opposed to a core panel
+ * id like "nav" / "list" / "viewer-2". Core panel ids never contain ":".
+ */
+export function isModulePanelId(panelId: string): boolean {
+  return panelId.includes(":");
+}
+
+/**
  * Register a dock surface paired with its component. Returns a disposer.
  * Throws if a surface is already registered under the same key.
  */

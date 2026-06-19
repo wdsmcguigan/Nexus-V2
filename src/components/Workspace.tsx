@@ -28,7 +28,7 @@ import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortc
 import type { ModuleKey } from "@/data/types";
 import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
 import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
-import { dockSurfaceComponents } from "@/modules/surfaceRegistry";
+import { dockSurfaceComponents, isModulePanelId } from "@/modules/surfaceRegistry";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -64,7 +64,7 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // the currently-shown message so the pop-out opens on the right content.
 async function detachPanelToWindow(id: string) {
   const moduleKey = id.split("-")[0];
-  if (!moduleKey || moduleKey === "nav") return;
+  if (!moduleKey || moduleKey === "nav" || isModulePanelId(id)) return;
   const kind = moduleKey as PopoutKind;
   let targetId: string | null = null;
   if (moduleKey === "viewer" || moduleKey === "inspector") {
@@ -77,8 +77,9 @@ async function detachPanelToWindow(id: string) {
 }
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
-  // Detaching requires real OS windows (Tauri); Navigation is never detachable.
-  const detachable = isTauri() && props.api.id.split("-")[0] !== "nav";
+  // Module panels are non-detachable for now (their namespaced ids aren't valid
+  // PopoutKinds); Navigation is never detachable.
+  const detachable = isTauri() && !isModulePanelId(props.api.id) && props.api.id.split("-")[0] !== "nav";
   return (
     <div className="group/tab flex h-full items-center pl-1">
       <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
@@ -162,6 +163,13 @@ function applyModuleColor(group: { activePanel?: { id: string } | null; element?
   if (!el) return;
   const activeId = group.activePanel?.id;
   if (!activeId) {
+    el.style.removeProperty("--module-color");
+    return;
+  }
+  // Module dock-surface panels (namespaced ids like "org.nexus.tasks:tasks.main")
+  // are not core ModuleKeys; skip core color resolution and clear the var so a
+  // stale color isn't left on the group.
+  if (isModulePanelId(activeId)) {
     el.style.removeProperty("--module-color");
     return;
   }
