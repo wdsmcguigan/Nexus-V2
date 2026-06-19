@@ -172,7 +172,7 @@ Highlights:
 | Developer guide | Engineers — day-to-day how-to recipes | `docs/developer-guide.md` |
 | Contributing | Contributors — PR checklist + style | `docs/CONTRIBUTING.md` |
 | IPC API reference | Engineers — all 57 IPC commands | `docs/ipc-api-reference.md` |
-| Database reference | Engineers — 30 tables + ERD + migration model | `docs/database-reference.md` |
+| Database reference | Engineers — 31 tables + ERD + migration model | `docs/database-reference.md` |
 | Security model | Engineers + security reviewers — threat model + crypto | `docs/security-model.md` |
 | User guide | End users | `docs/user-guide.md` |
 | Relay setup | End users setting up sync | `docs/relay.md` |

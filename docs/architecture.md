@@ -37,7 +37,7 @@ graph TB
         Desktop["Nexus Desktop<br/>(Tauri 2 + React)"]
         IOS["Nexus iOS<br/>(SwiftUI)"]
         FS["Local filesystem<br/>(.eml files in local-first mode)"]
-        Vault[("SQLCipher Vault<br/>(30 tables + 2 FTS5)")]
+        Vault[("SQLCipher Vault<br/>(31 tables + 2 FTS5)")]
         Desktop --> Vault
         Desktop --> FS
         IOS --> Vault
