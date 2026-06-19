@@ -6,7 +6,7 @@ Read this before claiming a feature is "done". When you ship a fix, **delete the
 
 This document supersedes the ad-hoc "Confirmed Planned Gaps" section that used to live in `roadmap.md`; `roadmap.md` now links here instead of duplicating.
 
-Last verified against source: 2026-06-10.
+Last verified against source: 2026-06-19.
 
 ---
 
@@ -48,6 +48,8 @@ _None currently._
 | 14 | Sender reputation / spam panel | Future | Mentioned in `docs/notes/panels-brainstorm.md` only. |
 | 29 | JMAP OAuth2 + PKCE flow | EP-6 follow-up | JMAP auth today is bearer-token only (user pastes an API token in `JmapFlow`). Add an OAuth2 + PKCE flow mirroring `start_outlook_oauth` so Fastmail / Stalwart users don't have to generate tokens manually. Provider impl in `src-tauri/src/providers/jmap.rs` is unchanged — only the onboarding + token refresh layer needs work. |
 | 30 | Drag-out-to-detach gesture | Multi-window follow-up | De-dockable panels (`src/windows/`, `src-tauri/src/popout.rs`) detach via the per-tab **external-link button** and ⌘⇧N (composer). The spec's "drag a panel outside the workspace bounds to spawn a window" gesture (`docs/UI-DESIGN-SYSTEM-SPEC.md` §6.3.2) is **not** wired — the button covers the same intent more reliably. Re-docking a pop-out back into the main grid is also not yet supported (close it and re-open from the source). |
+| 31 | Substrate runtime (enforcement layer) | Substrate follow-up / EP-modules | The module substrate ships the *contract* — `ModuleManifest`/`registerModule`, capability vocabulary, surface taxonomy + trust gating, namespaced storage (`src/modules/`). Deliberately deferred per design principle P6: capability **enforcement**, the third-party **sandbox runtime**, signing/marketplace, external module loading, and **live UI wiring** of contributed surfaces into dockview. See `docs/substrate-design.md` §7, §10. Build these only once a real second module proves the API. |
+| 32 | Calendar grid vs. event-grouping timezone inconsistency | Calendar follow-up | `generateWeekDays`/`generateMonthCells` (`src/lib/calendarUtils.ts`) derive grid cells from `new Date(iso + "T00:00:00")` (**local** midnight → UTC), while event grouping in `WeekView`/`MonthView` uses `new Date(startTs).toISOString()` (**pure UTC**). These can disagree by a day for non-UTC viewers. Fixing it is a systemic local-day-vs-UTC-day model decision with high regression risk — surfaced during the 2026-06-19 hardening pass, intentionally not auto-fixed. |
 
 ---
 

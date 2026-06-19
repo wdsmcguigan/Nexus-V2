@@ -56,7 +56,7 @@ Nexus-V2/
 │   ├── crypto.rs               # XChaCha20-Poly1305 + BLAKE3 + enrollment code gen
 │   ├── smtp.rs                 # SMTP send (used by IMAP/Outlook outbound)
 │   ├── db/
-│   │   ├── schema.rs           # SQLite DDL — 30 tables + 2 FTS5 virtual + 20+ indexes
+│   │   ├── schema.rs           # SQLite DDL — 31 tables + 2 FTS5 virtual + 20+ indexes
 │   │   ├── queries.rs          # ~89 query helpers (SELECT/INSERT/UPDATE) — see OptionalExt note below
 │   │   └── mod.rs              # VaultDb struct + ALTER_SQL-style migration runner
 │   ├── gmail/                  # 9 files: OAuth, History API sync, mutations, calendar, contacts
@@ -255,9 +255,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | What | Where |
 |------|-------|
 | All data types (Vault, Message, Label, Mutation, …) | `src/data/types.ts` |
-| MutationKind enum (72 kinds) | `src/data/types.ts` → `MutationKind` |
-| IPC command reference (all 56) | `docs/ipc-api-reference.md` |
-| Database schema reference (30 tables + ERD) | `docs/database-reference.md` |
+| MutationKind enum (74 kinds) | `src/data/types.ts` → `MutationKind` |
+| IPC command reference (all 57) | `docs/ipc-api-reference.md` |
+| Database schema reference (31 tables + ERD) | `docs/database-reference.md` |
+| **Module/extensibility substrate** (design contract) | `docs/substrate-design.md` |
+| Namespaced mutation write path + module reducer registry | `src/state/mutationKind.ts`, `src/state/moduleReducers.ts` |
+| In-process event bus (pub/sub over applied mutations) | `src/state/eventBus.ts` |
+| Links / relations graph (typed cross-entity edges) | `src/state/linksGraph.ts`, `links` table in `db/schema.rs` |
+| Module model (manifest, capabilities, surfaces, storage) | `src/modules/` |
 | Security model (vault + relay + enrollment) | `docs/security-model.md` |
 | What's broken/unfinished | `docs/known-gaps.md` |
 | DB table definitions | `src-tauri/src/db/schema.rs` |

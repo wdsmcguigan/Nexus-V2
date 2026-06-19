@@ -59,7 +59,7 @@ The desktop app has:
 - 15 UI feature areas (`src/components/`)
 
 The iOS app has 15 UI screens but **no audit exists** mapping each desktop feature to its iOS counterpart (or its absence). For example:
-- Does `MutationEngine.swift` handle all 72 mutation kinds? Unknown.
+- Does `MutationEngine.swift` handle all 74 mutation kinds? Unknown.
 - Are custom fields editable on iOS? Unknown.
 - Is the Kanban view fully featured or read-only? Unknown.
 - Are calendar templates supported (EP-13)? Unknown.
