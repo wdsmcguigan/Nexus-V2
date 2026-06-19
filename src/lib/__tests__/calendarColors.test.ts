@@ -15,12 +15,8 @@ describe("eventColor", () => {
     expect(eventColor("999")).toBe("var(--color-accent)");
   });
 
-  it("returns '' for an empty-string colorId (latent edge case)", () => {
-    // `"" && map[""]` short-circuits to "", and `?? ` does not catch "",
-    // so an empty colorId yields "" rather than the accent fallback. Google
-    // never sends an empty colorId (it sends "1".."11" or omits the field),
-    // so this is documented, not relied upon. Switch `??` to `||` to fix.
-    expect(eventColor("")).toBe("");
+  it("falls back to the accent token for an empty-string colorId", () => {
+    expect(eventColor("")).toBe("var(--color-accent)");
   });
 
   it("every mapped color is a hex value", () => {

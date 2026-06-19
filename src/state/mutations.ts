@@ -23,6 +23,7 @@ import {
   type FlagState,
   type Folder,
   type Label,
+  type Link,
   type Message,
   type Mutation,
   type MutationKind,
@@ -35,6 +36,9 @@ import {
 } from "@/data/types";
 import { LocalStore, localStore as _defaultStore } from "@/storage/local";
 import { isTauri, applyMutationIpc } from "@/storage/tauri";
+import { kindNamespace } from "@/state/mutationKind";
+import { getModuleReducer } from "@/state/moduleReducers";
+import { emit as emitBusEvent } from "@/state/eventBus";
 
 // ─── Lamport clock + device id ───────────────────────────────────────────────
 
@@ -251,6 +255,26 @@ function _buildReverseEntryInner(
       return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
     }
 
+    case "CREATE_LINK": {
+      const link = payload as Link;
+      return {
+        forwardSteps: forward,
+        reverseSteps: [{ kind: "DELETE_LINK", payload: { linkId: link.id } }],
+        description: "Link",
+      };
+    }
+
+    case "DELETE_LINK": {
+      const { linkId } = payload as { linkId: string };
+      const existing = store.links.get(linkId);
+      if (!existing) return null;
+      return {
+        forwardSteps: forward,
+        reverseSteps: [{ kind: "CREATE_LINK", payload: existing }],
+        description: "Unlink",
+      };
+    }
+
     default:
       return null;
   }
@@ -296,6 +320,9 @@ export function recordMutation(
     );
   }
 
+  // Notify the in-process event bus (live mutation only — replay does not emit).
+  emitBusEvent(mutation);
+
   return mutation;
 }
 
@@ -308,6 +335,18 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
   for (const m of mutations) {
     if (m.lamport > _lamport) _lamport = m.lamport;
     applyMutation(m, store);
+  }
+}
+
+/**
+ * Replay all logged mutations for a module namespace onto the store. A module
+ * calls this when it registers (often after hydration) to rebuild its
+ * projection from the mutation log — including mutations that arrived from other
+ * devices while the module was not installed. (substrate §4.2, P5)
+ */
+export function replayModuleMutations(namespace: string, store: LocalStore): void {
+  for (const m of store.mutations) {
+    if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
   }
 }
 
@@ -335,12 +374,22 @@ export function applyRemoteMutation(
     payload,
   };
   applyMutation(mutation, store);
+  emitBusEvent(mutation);
 }
 
 // ─── Apply ───────────────────────────────────────────────────────────────────
 // Dispatches a single mutation to the appropriate handler.
 
 export function applyMutation(m: Mutation, store: LocalStore): void {
+  const ns = kindNamespace(m.kind);
+  if (ns !== null) {
+    // Module-namespaced mutation: dispatch to the registered module reducer.
+    // If the module isn't registered in this window, the mutation is still
+    // recorded in the log (appendMutation / SQLite) and will be replayed when
+    // the module registers — see replayModuleMutations. (substrate §4.2)
+    getModuleReducer(ns)?.apply(m.kind, m.payload, store);
+    return;
+  }
   switch (m.kind) {
     // ── Folder ops ──────────────────────────────────────────────
     case "MOVE_TO_FOLDER": {
@@ -735,6 +784,17 @@ export function applyMutation(m: Mutation, store: LocalStore): void {
       break;
     }
 
+    // ── Link / relations graph ops (substrate Pillar 3) ─────────
+    case "CREATE_LINK": {
+      store.putLink(m.payload as Link);
+      break;
+    }
+    case "DELETE_LINK": {
+      const { linkId } = m.payload as { linkId: string };
+      store.deleteLink(linkId);
+      break;
+    }
+
     // ── Saved view ops ───────────────────────────────────────────
     case "SAVE_VIEW": {
       const view = m.payload as SavedView;
@@ -1096,6 +1156,44 @@ export function deleteView(store: LocalStore, viewId: string): void {
 
 export function renameView(store: LocalStore, viewId: string, name: string): void {
   recordMutation("RENAME_VIEW", { viewId, name }, store);
+}
+
+// ── Link ops (substrate Pillar 3) ────────────────────────────────────────────
+
+/**
+ * Create a typed edge between two entities. Returns the full Link (with a
+ * generated id). Flows through recordMutation so it syncs, undoes, and
+ * broadcasts. (substrate Pillar 3)
+ */
+export function createLink(
+  store: LocalStore,
+  spec: {
+    srcType: string;
+    srcId: string;
+    linkType: string;
+    dstType: string;
+    dstId: string;
+    meta?: unknown;
+  },
+): Link {
+  const link: Link = {
+    id: `lnk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    vaultId: store.vault?.id ?? "local",
+    srcType: spec.srcType,
+    srcId: spec.srcId,
+    linkType: spec.linkType,
+    dstType: spec.dstType,
+    dstId: spec.dstId,
+    meta: spec.meta,
+    createdAt: Date.now(),
+  };
+  recordMutation("CREATE_LINK", link, store);
+  return link;
+}
+
+/** Remove a link by id. */
+export function deleteLink(store: LocalStore, linkId: string): void {
+  recordMutation("DELETE_LINK", { linkId }, store);
 }
 
 // ── Contact ops ─────────────────────────────────────────────────────────────

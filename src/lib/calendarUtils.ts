@@ -97,3 +97,25 @@ export function formatAllDayDate(
 ): string {
   return new Date(ts).toLocaleDateString("default", { ...opts, timeZone: "UTC" });
 }
+
+// ─── RRULE UNTIL date input helpers ──────────────────────────────────────────
+// Both helpers are UTC-symmetric so a date round-trips identically in any
+// runtime timezone.  Previously `tsToDateInput` used local date components
+// while `dateInputToTs` wrote UTC via `Date.UTC()`, shifting the UNTIL date
+// by a day for users west of UTC.
+
+/**
+ * YYYY-MM-DD (UTC) for a date `<input>`. UTC-symmetric with `dateInputToTs` so a
+ * date round-trips identically in any runtime timezone.
+ */
+export function tsToDateInput(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+/** Parse a YYYY-MM-DD date `<input>` to a UTC-anchored timestamp, or undefined. */
+export function dateInputToTs(s: string): number | undefined {
+  if (!s) return undefined;
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return undefined;
+  return Date.UTC(y, m - 1, d);
+}

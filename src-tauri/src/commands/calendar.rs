@@ -60,13 +60,15 @@ pub async fn sync_google_contacts(
     {
         let db = crate::db::VaultDb::open(&vault_path, "nexus")
             .map_err(|e| e.to_string())?;
-        for contact in &contacts {
-            // Tag with the originating account so calendar/contacts sync can be
-            // disconnected with the option to remove only this account's data.
-            let mut contact = contact.clone();
-            contact["sourceAccountId"] = serde_json::json!(account_id);
-            db.upsert_contact(&vault_id, &contact).map_err(|e| e.to_string())?;
-        }
+        let tagged: Vec<serde_json::Value> = contacts
+            .iter()
+            .map(|c| {
+                let mut c = c.clone();
+                c["sourceAccountId"] = serde_json::json!(account_id);
+                c
+            })
+            .collect();
+        db.upsert_contacts(&vault_id, &tagged).map_err(|e| e.to_string())?;
         db.upsert_contacts_sync(&account_id, next_sync_token.as_deref(), now)
             .map_err(|e| e.to_string())?;
     }

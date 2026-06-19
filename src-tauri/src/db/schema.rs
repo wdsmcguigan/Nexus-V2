@@ -235,6 +235,20 @@ CREATE TABLE IF NOT EXISTS saved_views (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_saved_views_vault ON saved_views(vault_id);
+
+CREATE TABLE IF NOT EXISTS links (
+    id         TEXT PRIMARY KEY,
+    vault_id   TEXT NOT NULL,
+    src_type   TEXT NOT NULL,
+    src_id     TEXT NOT NULL,
+    link_type  TEXT NOT NULL,
+    dst_type   TEXT NOT NULL,
+    dst_id     TEXT NOT NULL,
+    meta_json  TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_links_src ON links(vault_id, src_type, src_id);
+CREATE INDEX IF NOT EXISTS idx_links_dst ON links(vault_id, dst_type, dst_id);
 "#;
 
 /// EP6 ALTER TABLE statements run individually so "duplicate column name" errors can be ignored.

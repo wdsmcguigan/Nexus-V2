@@ -8,6 +8,17 @@ use crate::gmail::GmailOAuth;
 
 const GMAIL_API: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+/// Outbound mutations whose target message still has no provider id are deferred
+/// and retried until this age cap, then dropped (with a warning) so a message
+/// that never syncs cannot pin a mutation in the queue forever. 7 days.
+const MAX_UNSYNCED_MUTATION_AGE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
+/// Whether an unsynced outbound mutation (its target message has no provider id
+/// yet) should be dropped rather than deferred for retry, given its age in ms.
+fn drop_unsynced_mutation(age_ms: i64) -> bool {
+    age_ms >= MAX_UNSYNCED_MUTATION_AGE_MS
+}
+
 // ─── Outbound mutation application ───────────────────────────────────────────
 
 /// Apply a single Nexus mutation to the Gmail API.
@@ -200,8 +211,19 @@ async fn drain_once(db_path: &str, client_id: &str, client_secret: &str) -> Resu
             match db.get_provider_id(nexus_msg_id)? {
                 Some(p) => p,
                 None => {
-                    log::debug!("No provider_id for {nexus_msg_id}, skipping {mut_id}");
-                    let _ = db.mark_mutation_synced(mut_id);
+                    let age = db.mutation_age_ms(mut_id)?.unwrap_or(i64::MAX);
+                    if drop_unsynced_mutation(age) {
+                        log::warn!(
+                            "Dropping outbound mutation {mut_id}: message {nexus_msg_id} still has no provider_id after {age}ms"
+                        );
+                        let _ = db.mark_mutation_synced(mut_id);
+                    } else {
+                        // Message is pending initial sync — leave the mutation in
+                        // the queue and retry next cycle once it gets a provider id.
+                        log::debug!(
+                            "No provider_id yet for {nexus_msg_id}; deferring {mut_id} for retry (age {age}ms)"
+                        );
+                    }
                     continue;
                 }
             }
@@ -413,6 +435,19 @@ fn extract_uid(ics: &str) -> Option<String> {
     ics.lines()
         .find_map(|l| l.strip_prefix("UID:"))
         .map(|s| s.trim().to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drops_unsynced_mutation_only_after_the_age_cap() {
+        assert!(!drop_unsynced_mutation(0));
+        assert!(!drop_unsynced_mutation(MAX_UNSYNCED_MUTATION_AGE_MS - 1));
+        assert!(drop_unsynced_mutation(MAX_UNSYNCED_MUTATION_AGE_MS));
+        assert!(drop_unsynced_mutation(MAX_UNSYNCED_MUTATION_AGE_MS + 1));
+    }
 }
 
 /// Returns a valid (non-expired) access token, refreshing if needed.

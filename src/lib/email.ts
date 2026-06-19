@@ -17,3 +17,12 @@ export function isValidEmail(s: string): boolean {
   if (!s) return false;
   return WHATWG_EMAIL_RE.test(s.trim());
 }
+
+/**
+ * Canonical form of an email address for index keys and equality: trimmed and
+ * lowercased. Does NOT fold plus-addressing (`user+tag@x` and `user@x` are
+ * distinct addresses) or strip dots — those are provider-specific and over-match.
+ */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}

@@ -9,6 +9,7 @@
  * The store is always synchronous for query callers; OPFS I/O is fire-and-forget.
  */
 
+import { normalizeEmail } from "@/lib/email";
 import type {
   Account,
   CalendarEvent,
@@ -20,6 +21,7 @@ import type {
   EventTemplate,
   Folder,
   Label,
+  Link,
   Message,
   Mutation,
   Rule,
@@ -41,6 +43,7 @@ interface StorageSnapshot {
   customFieldDefs: CustomFieldDef[];
   messages: Message[];
   savedViews?: SavedView[];
+  links?: Link[];
   tagUsage: TagUsage[];
   mutations: Mutation[];
   contacts?: Contact[];
@@ -78,6 +81,7 @@ export class LocalStore {
   messages = new Map<string, Message>();
   tagUsage = new Map<string, TagUsage>(); // key: tag string
   savedViews = new Map<string, SavedView>();
+  links = new Map<string, Link>();
   contacts = new Map<string, Contact>();
   contactGroups = new Map<string, ContactGroup>();
   /** contactId → Set<groupId> */
@@ -139,6 +143,7 @@ export class LocalStore {
     this.messages.clear();
     this.tagUsage.clear();
     this.savedViews.clear();
+    this.links.clear();
     this.rules.clear();
     this.templates.clear();
     this.eventTemplates.clear();
@@ -170,6 +175,7 @@ export class LocalStore {
     for (const m of snap.mutations) this.mutations.push(m);
     for (const msg of snap.messages) this._insertMessageIndexes(msg);
     for (const v of (snap.savedViews ?? [])) this.savedViews.set(v.id, v);
+    for (const lk of (snap.links ?? [])) this.links.set(lk.id, lk);
     for (const r of (snap.rules ?? [])) this.rules.set(r.id, r);
     for (const t of (snap.templates ?? [])) this.templates.set(t.id, t);
     for (const et of (snap.eventTemplates ?? [])) this.eventTemplates.set(et.id, et);
@@ -185,7 +191,7 @@ export class LocalStore {
     // Auto-seed contacts from message senders not yet in emailIndex
     for (const msg of snap.messages) {
       const { name, email } = msg.fromAddr;
-      if (email && !this.emailIndex.has(email)) {
+      if (email && !this.emailIndex.has(normalizeEmail(email))) {
         const contactId = `contact-${email.replace(/[^a-z0-9]/gi, "-")}`;
         const contact: Contact = {
           id: contactId,
@@ -209,7 +215,7 @@ export class LocalStore {
     for (const msg of snap.messages) {
       const addrs = [msg.fromAddr, ...msg.toAddrs, ...msg.ccAddrs];
       for (const addr of addrs) {
-        const cid = this.emailIndex.get(addr.email);
+        const cid = this.emailIndex.get(normalizeEmail(addr.email));
         if (cid) this._setAdd(this.messagesByContact, cid, msg.id);
       }
     }
@@ -228,6 +234,7 @@ export class LocalStore {
       messages: Array.from(this.messages.values()),
       tagUsage: Array.from(this.tagUsage.values()),
       savedViews: Array.from(this.savedViews.values()),
+      links: Array.from(this.links.values()),
       mutations: this.mutations,
       contacts: Array.from(this.contacts.values()),
       contactGroups: Array.from(this.contactGroups.values()),
@@ -551,8 +558,9 @@ export class LocalStore {
     const existing = this.contacts.get(contact.id);
     if (existing) {
       // Remove old email index entries
+      const next = new Set(contact.emails.map(normalizeEmail));
       for (const e of existing.emails) {
-        if (!contact.emails.includes(e)) this.emailIndex.delete(e);
+        if (!next.has(normalizeEmail(e))) this.emailIndex.delete(normalizeEmail(e));
       }
     }
     this._insertContactIndexes(contact);
@@ -563,7 +571,7 @@ export class LocalStore {
   deleteContact(id: string): void {
     const c = this.contacts.get(id);
     if (!c) return;
-    for (const e of c.emails) this.emailIndex.delete(e);
+    for (const e of c.emails) this.emailIndex.delete(normalizeEmail(e));
     this.contacts.delete(id);
     this.messagesByContact.delete(id);
     this._notify();
@@ -571,7 +579,7 @@ export class LocalStore {
   }
 
   lookupByEmail(email: string): Contact | null {
-    const id = this.emailIndex.get(email);
+    const id = this.emailIndex.get(normalizeEmail(email));
     return id ? (this.contacts.get(id) ?? null) : null;
   }
 
@@ -590,7 +598,7 @@ export class LocalStore {
   private _insertContactIndexes(contact: Contact): void {
     this.contacts.set(contact.id, contact);
     for (const e of contact.emails) {
-      this.emailIndex.set(e, contact.id);
+      this.emailIndex.set(normalizeEmail(e), contact.id);
     }
   }
 
@@ -691,6 +699,18 @@ export class LocalStore {
   /** Sorted list of all saved views by position. */
   getSavedViewsSorted(): SavedView[] {
     return Array.from(this.savedViews.values()).sort((a, b) => a.position - b.position);
+  }
+
+  // ── Link CRUD (substrate Pillar 3) ──────────────────────────────
+
+  putLink(link: Link): void {
+    this.links.set(link.id, link);
+    this._notify();
+  }
+
+  deleteLink(id: string): void {
+    this.links.delete(id);
+    this._notify();
   }
 
   // ── Rule CRUD (EP-7) ─────────────────────────────────────────────

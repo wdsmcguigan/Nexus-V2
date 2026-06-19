@@ -39,7 +39,8 @@ function parseCard(body: string): Partial<Contact> {
     const colon = line.indexOf(":");
     if (colon < 0) continue;
     const rawProp = line.slice(0, colon).toUpperCase();
-    const value = unescapeVcard(line.slice(colon + 1));
+    const rawValue = line.slice(colon + 1);
+    const value = unescapeVcard(rawValue);
 
     // Extract base property name (ignore ;PARAM=VALUE suffixes)
     const prop = rawProp.split(";")[0];
@@ -56,7 +57,8 @@ function parseCard(body: string): Partial<Contact> {
         break;
       case "ORG": {
         // ORG value may be "Company;Department" — take first component
-        contact.company = value.split(";")[0]?.trim() || undefined;
+        const comps = splitUnescaped(rawValue, ";").map(unescapeVcard);
+        contact.company = comps[0]?.trim() || undefined;
         break;
       }
       case "TITLE":
@@ -80,7 +82,7 @@ function parseCard(body: string): Partial<Contact> {
       }
       case "ADR": {
         // ADR: PO Box; Extended; Street; City; State; ZIP; Country
-        const parts = value.split(";");
+        const parts = splitUnescaped(rawValue, ";").map(unescapeVcard);
         contact.addresses.push({
           label: extractParam(rawProp, "TYPE") ?? "home",
           street: parts[2]?.trim() ?? "",
@@ -95,7 +97,7 @@ function parseCard(body: string): Partial<Contact> {
         contact.notes = value;
         break;
       case "CATEGORIES":
-        contact.tags = value.split(",").map((t) => t.trim()).filter(Boolean);
+        contact.tags = splitUnescaped(rawValue, ",").map(unescapeVcard).map((t) => t.trim()).filter(Boolean);
         break;
       case "X-VIP":
       case "X-IMPORTANCE":
@@ -114,12 +116,39 @@ function extractParam(propWithParams: string, paramName: string): string | undef
   return propWithParams.match(regex)?.[1]?.toLowerCase();
 }
 
+/** Split on unescaped `sep`, leaving escape sequences intact in each part. */
+function splitUnescaped(value: string, sep: string): string[] {
+  const parts: string[] = [];
+  let cur = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      cur += ch + value[i + 1];
+      i++;
+    } else if (ch === sep) {
+      parts.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  parts.push(cur);
+  return parts;
+}
+
 function unescapeVcard(value: string): string {
-  return value
-    .replace(/\\n/gi, "\n")
-    .replace(/\\,/g, ",")
-    .replace(/\\;/g, ";")
-    .replace(/\\\\/g, "\\");
+  let out = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      const next = value[i + 1];
+      i++;
+      out += next === "n" || next === "N" ? "\n" : next;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
 }
 
 // ─── Emitter ──────────────────────────────────────────────────────────────────
@@ -190,9 +219,9 @@ function serializeContact(c: Contact): string {
 function escapeVcard(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/,/g, "\\,")
-    .replace(/;/g, "\\;")
-    .replace(/\n/g, "\\n");
+    .replace(/;/g, "\\;");
 }
 
 // RFC 2426 §2.6: fold lines longer than 75 characters

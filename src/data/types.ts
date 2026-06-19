@@ -442,11 +442,32 @@ export interface SavedView {
   createdAt: number;
 }
 
+// ─── LNK — Link (substrate Pillar 3) ─────────────────────────────────────────
+// A typed edge between two entities. Either endpoint may be a core entity
+// (e.g. "nexus/email.message") or a module entity (e.g. "org.nexus.tasks/task").
+
+export interface Link {
+  id: string;
+  vaultId: string;
+  /** ENT type of the source, e.g. "nexus/email.message". */
+  srcType: string;
+  srcId: string;
+  /** Edge label, e.g. "derived-from", "tracks", "mentions". */
+  linkType: string;
+  /** ENT type of the destination. */
+  dstType: string;
+  dstId: string;
+  /** Optional edge metadata. */
+  meta?: unknown;
+  /** Unix ms. */
+  createdAt: number;
+}
+
 // ─── MUTN — Mutation ─────────────────────────────────────────────────────────
 // Structured user intent. Unit of replication.
 // Is NOT a direct DB write.
 
-export type MutationKind =
+export type CoreMutationKind =
   // Folder ops
   | "MOVE_TO_FOLDER"
   | "CREATE_FOLDER"
@@ -506,6 +527,9 @@ export type MutationKind =
   | "SAVE_VIEW"
   | "DELETE_VIEW"
   | "RENAME_VIEW"
+  // Link / relations graph ops (substrate Pillar 3)
+  | "CREATE_LINK"
+  | "DELETE_LINK"
   // Contact ops
   | "UPSERT_CONTACT"
   | "UPDATE_CONTACT"
@@ -538,6 +562,15 @@ export type MutationKind =
   | "DELETE_CALENDAR"
   | "EDIT_EVENT_OCCURRENCE"
   | "EDIT_EVENT_SERIES";
+
+/**
+ * A module-contributed mutation kind: a namespace, a "/" separator, and a kind,
+ * e.g. "com.acme.timer/START". See docs/substrate-design.md §4.
+ */
+export type ModuleMutationKind = `${string}/${string}`;
+
+/** Any mutation kind — a core kind or a module-namespaced one. */
+export type MutationKind = CoreMutationKind | ModuleMutationKind;
 
 export interface Mutation {
   id: string;

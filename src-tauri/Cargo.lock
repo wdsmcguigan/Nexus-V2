@@ -2776,6 +2776,7 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-notification",
  "tauri-plugin-shell",
+ "tempfile",
  "tokio",
  "tokio-rustls",
  "tower 0.4.13",

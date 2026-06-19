@@ -1,6 +1,7 @@
 import { Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildRrule, parseRrule, type Weekday, type RruleParts } from "@/lib/rrule";
+import { tsToDateInput, dateInputToTs } from "@/lib/calendarUtils";
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
   { value: "MO", label: "M" },
@@ -28,17 +29,6 @@ function rruleOrUndef(parts: RruleParts | undefined): string | undefined {
   return s.length ? s : undefined;
 }
 
-function tsToDateInput(ts: number): string {
-  const d = new Date(ts);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function dateInputToTs(s: string): number | undefined {
-  if (!s) return undefined;
-  const [y, m, d] = s.split("-").map(Number);
-  if (!y || !m || !d) return undefined;
-  return Date.UTC(y, m - 1, d);
-}
 
 export function RecurrenceEditor({ value, onChange, dtstart, allDay }: Props) {
   const parts = parseRrule(value);
