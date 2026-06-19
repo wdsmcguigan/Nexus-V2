@@ -171,6 +171,25 @@ export interface Status {
   isTerminal?: boolean;
 }
 
+// ─── TASK — org.nexus.tasks/task entity ──────────────────────────────────────
+/** VTODO-aligned task workflow state (RFC 5545). UI labels the first three
+ *  "To do" / "Doing" / "Done"; "cancelled" is reserved for a later step. */
+export type TaskStatus = "needs-action" | "in-process" | "completed" | "cancelled";
+
+export interface Task {
+  id: string;
+  vaultId: string;
+  title: string;
+  status: TaskStatus;
+  dueAt: number | null;
+  notes: string | null;
+  priority: 1 | 2 | 3 | 4 | null;
+  assignee: string | null;
+  order: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 // ─── CFD — Custom field definition ───────────────────────────────────────────
 // Airtable-style user-defined typed field. Unlimited count.
 // Is NOT LBL (system+user typed metadata) or TAG (untyped strings).

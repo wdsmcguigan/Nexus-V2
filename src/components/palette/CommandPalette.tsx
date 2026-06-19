@@ -50,7 +50,7 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { Kbd } from "@/components/ui/Kbd";
 import type { Density } from "@/design-system/tokens";
 import type { StarStyle } from "@/data/types";
-import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
+import { listModuleCommands } from "@/modules/commands";
 
 interface CmdItemDef {
   id: string;
@@ -85,7 +85,6 @@ export function CommandPalette() {
   const setSelectedEmail = useWorkspace((s) => s.setSelectedEmail);
   const openContactsPanel = useWorkspace((s) => s.openContactsPanel);
   const openCalendarPanel = useWorkspace((s) => s.openCalendarPanel);
-  const openModulePanel = useWorkspace((s) => s.openModulePanel);
   const openEventCreateModal = useWorkspace((s) => s.openEventCreateModal);
   const togglePin = useWorkspace((s) => s.togglePin);
   const toggleTheme = useWorkspace((s) => s.toggleTheme);
@@ -420,7 +419,6 @@ export function CommandPalette() {
     all.push({ id: "settings", label: "Open Settings", group: "Workspace", icon: SettingsIcon, shortcut: "⌘,", perform: () => openSettingsPanel() });
     all.push({ id: "contacts", label: "Open Contacts", group: "Workspace", icon: Users, perform: () => openContactsPanel() });
     all.push({ id: "calendar", label: "Open Calendar", group: "Workspace", icon: CalendarIcon, perform: () => openCalendarPanel() });
-    all.push({ id: "open-tasks", label: "Open Tasks", group: "Workspace", icon: CheckCircle2, perform: () => openModulePanel(TASKS_MAIN_PANEL_KEY, "Tasks") });
     all.push({ id: "new-event", label: "New Calendar Event", group: "Workspace", icon: Plus, perform: () => openEventCreateModal() });
 
     // ── Workspaces ──────────────────────────────────────────────────
@@ -491,6 +489,19 @@ export function CommandPalette() {
         api.addPanel({ id: "inspector", component: "inspector", title: "Inspector", initialWidth: 320 });
       },
     });
+
+    // Module-contributed commands (substrate §7.2). Modules register at bootstrap,
+    // so reading once here is correct (consistent with the dock-surface merge).
+    for (const c of listModuleCommands()) {
+      all.push({
+        id: c.key,
+        label: c.spec.title,
+        group: c.spec.group ?? "Workspace",
+        icon: LayoutPanelTop,
+        shortcut: c.spec.shortcut,
+        perform: c.run,
+      });
+    }
 
     return all;
   }, [

@@ -96,8 +96,11 @@ const _activeWs: WorkspaceSnapshot =
   _initialWorkspaces[0] ??
   _defaultWs;
 
-// Apply saved theme to DOM before first paint.
-document.documentElement.classList.toggle("dark", _activeWs.theme === "dark");
+// Apply saved theme to DOM before first paint. Guarded for non-DOM environments
+// (Node test runner) where this module is pulled in transitively without a document.
+if (typeof document !== "undefined") {
+  document.documentElement.classList.toggle("dark", _activeWs.theme === "dark");
+}
 
 // ─── Per-panel state types ────────────────────────────────────────────────────
 

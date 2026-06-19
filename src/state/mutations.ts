@@ -11,6 +11,7 @@
  * outside this module.
  */
 
+import { listModules } from "@/modules/registry";
 import {
   type CalendarEvent,
   type Calendar,
@@ -71,6 +72,46 @@ const UNDO_MAX = 20;
 
 // When true, recordMutation skips stack push/clear (used during undo/redo replay).
 let _skipStack = false;
+
+// ─── Module inverse registry (substrate §4.3) ────────────────────────────────
+// Lets a module declare how to reverse its own namespaced mutations, so they
+// participate in the undo stack like core mutations.
+export interface ModuleInverseResult {
+  reverseSteps: Array<{ kind: MutationKind; payload: unknown }>;
+  description: string;
+}
+export type ModuleInverseBuilder = (
+  kind: MutationKind,
+  payload: unknown,
+  store: LocalStore,
+) => ModuleInverseResult | null;
+
+const _moduleInverses = new Map<string, ModuleInverseBuilder>();
+
+/** Register an inverse-builder for a module namespace. Returns a disposer. */
+export function registerModuleInverse(namespace: string, builder: ModuleInverseBuilder): () => void {
+  if (namespace === "nexus") {
+    throw new Error(`Cannot register a module inverse for reserved namespace "${namespace}"`);
+  }
+  if (_moduleInverses.has(namespace)) {
+    throw new Error(`A module inverse is already registered for namespace "${namespace}"`);
+  }
+  _moduleInverses.set(namespace, builder);
+  return () => {
+    if (_moduleInverses.get(namespace) === builder) _moduleInverses.delete(namespace);
+  };
+}
+
+/** Test-only: clear all module inverse builders. */
+export function _resetModuleInverses(): void {
+  _moduleInverses.clear();
+}
+
+/** Test-only: clear the undo/redo stacks (module-global mutation pipeline state). */
+export function _resetUndoStacks(): void {
+  _undoStack.length = 0;
+  _redoStack.length = 0;
+}
 
 /** Undo the last undoable mutation. Returns a human-readable description, or null if nothing can be undone. */
 export function undoLastMutation(store: LocalStore = _defaultStore): string | null {
@@ -139,6 +180,17 @@ function _buildReverseEntry(
   payload: unknown,
   store: LocalStore,
 ): UndoEntry | null {
+  const ns = kindNamespace(kind);
+  if (ns !== null) {
+    const result = _moduleInverses.get(ns)?.(kind, payload, store);
+    if (!result) return null;
+    return {
+      forwardSteps: [{ kind, payload }],
+      reverseSteps: result.reverseSteps,
+      description: result.description,
+      canUndo: true,
+    };
+  }
   const inner = _buildReverseEntryInner(kind, payload, store);
   return inner ? { ...inner, canUndo: true } : null;
 }
@@ -348,6 +400,15 @@ export function replayModuleMutations(namespace: string, store: LocalStore): voi
   for (const m of store.mutations) {
     if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
   }
+}
+
+/**
+ * Replay the logged mutations for every registered module, rebuilding their
+ * projections after the vault's mutation log has been hydrated. Modules register
+ * at bootstrap (before hydration), so this runs post-hydrate.
+ */
+export function replayRegisteredModules(store: LocalStore = _defaultStore): void {
+  for (const m of listModules()) replayModuleMutations(m.namespace, store);
 }
 
 /**
