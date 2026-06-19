@@ -4,8 +4,9 @@ import { getModule, _resetModules } from "@/modules/registry";
 import { getModuleReducer, _resetModuleReducers } from "@/state/moduleReducers";
 import { _resetDockSurfaces } from "@/modules/surfaceRegistry";
 import { _resetModuleInverses } from "@/state/mutations";
+import { listModuleCommands, _resetModuleCommands } from "@/modules/commands";
 
-beforeEach(() => { _resetModules(); _resetModuleReducers(); _resetDockSurfaces(); _resetModuleInverses(); });
+beforeEach(() => { _resetModules(); _resetModuleReducers(); _resetDockSurfaces(); _resetModuleInverses(); _resetModuleCommands(); });
 
 describe("Tasks module registration", () => {
   it("declares its entity + mutation kinds and wires reducer", () => {
@@ -20,5 +21,12 @@ describe("Tasks module registration", () => {
       "org.nexus.tasks/DELETE_TASK",
     ]);
     expect(getModuleReducer(TASKS_MODULE_ID)).toBeDefined();
+  });
+
+  it("contributes an 'Open Tasks' command", () => {
+    registerTasksModule();
+    const cmd = listModuleCommands().find((c) => c.key === "org.nexus.tasks:open");
+    expect(cmd?.spec.title).toBe("Open Tasks");
+    expect(typeof cmd?.run).toBe("function");
   });
 });

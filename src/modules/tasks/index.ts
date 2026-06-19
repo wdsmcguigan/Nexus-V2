@@ -3,6 +3,7 @@ import { dockComponentKey } from "@/modules/surfaceRegistry";
 import { TasksPanel } from "@/modules/tasks/TasksPanel";
 import { tasksReducer } from "@/modules/tasks/reducer";
 import { tasksInverse, KIND } from "@/modules/tasks/mutations";
+import { useWorkspace } from "@/state/workspace";
 
 export const TASKS_MODULE_ID = "org.nexus.tasks";
 export const TASKS_MAIN_SURFACE_ID = "tasks.main";
@@ -23,6 +24,7 @@ const manifest: ModuleManifest = {
     surfaces: [
       { type: "dock", id: TASKS_MAIN_SURFACE_ID, title: "Tasks", icon: "check", detachable: false },
     ],
+    commands: [{ id: "open", title: "Open Tasks", icon: "check" }],
   },
 };
 
@@ -35,5 +37,8 @@ export function registerTasksModule(): () => void {
     host.registerReducer(tasksReducer);
     host.registerInverse(tasksInverse);
     host.contribute.surface(TASKS_MAIN_SURFACE_ID, TasksPanel);
+    host.contribute.command("open", () => {
+      useWorkspace.getState().openModulePanel(TASKS_MAIN_PANEL_KEY, "Tasks");
+    });
   });
 }
