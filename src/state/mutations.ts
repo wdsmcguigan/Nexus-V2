@@ -11,6 +11,7 @@
  * outside this module.
  */
 
+import { listModules } from "@/modules/registry";
 import {
   type CalendarEvent,
   type Calendar,
@@ -399,6 +400,15 @@ export function replayModuleMutations(namespace: string, store: LocalStore): voi
   for (const m of store.mutations) {
     if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
   }
+}
+
+/**
+ * Replay the logged mutations for every registered module, rebuilding their
+ * projections after the vault's mutation log has been hydrated. Modules register
+ * at bootstrap (before hydration), so this runs post-hydrate.
+ */
+export function replayRegisteredModules(store: LocalStore = _defaultStore): void {
+  for (const m of listModules()) replayModuleMutations(m.namespace, store);
 }
 
 /**

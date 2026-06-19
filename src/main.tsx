@@ -21,7 +21,7 @@ import {
   syncGmailNow,
   refreshAccountPhotos,
 } from "@/storage/tauri";
-import { applyRemoteMutation } from "@/state/mutations";
+import { applyRemoteMutation, replayRegisteredModules } from "@/state/mutations";
 import { useWorkspace } from "@/state/workspace";
 import { startGoogleAutoSync } from "@/lib/googleSync";
 import { bootstrapModules } from "@/modules/bootstrap";
@@ -44,6 +44,7 @@ createRoot(rootEl).render(
 async function hydrateFromVault(path: string) {
   const payload = await loadVaultData(path);
   localStore.hydrate(payload as Parameters<typeof localStore.hydrate>[0]);
+  replayRegisteredModules(localStore);
   ftsIndex.reindex(Array.from(localStore.messages.values()), bodyStore);
 
   // After hydrating real data the inbox label ID is vault-scoped (e.g. "{vaultId}-inbox"),
@@ -181,6 +182,11 @@ async function initWeb() {
     const messages = Array.from(localStore.messages.values());
     ftsIndex.indexMessages(messages, bodyStore);
   }
+  // Rebuild module projections from any logged mutations. On a fresh visit
+  // (OPFS empty) fixtures seed core entities directly and carry no module
+  // mutations, so this is a no-op; when OPFS rehydrated the log, it populates
+  // module projections (e.g. tasks).
+  replayRegisteredModules(localStore);
 }
 
 if (isTauri()) {
