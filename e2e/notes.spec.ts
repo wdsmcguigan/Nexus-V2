@@ -20,6 +20,7 @@ test("create a note and see it in the list", async ({ page }) => {
 
   // Type into the TipTap body.
   const body = page.locator(".ProseMirror");
+  await expect(body).toBeVisible();
   await body.click();
   await body.pressSequentially("Some body text");
 
