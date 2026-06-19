@@ -34,6 +34,8 @@ cargo check -p nexus-relay     # Standalone relay binary
 cargo test -p nexus            # Rust unit tests
 ```
 
+> **Testing policy (`docs/testing-policy.md`):** pure logic → Vitest **`node`** unit tests; critical UI flows → **Playwright e2e** (not yet installed — verify UI live via the running app until then). **No React Testing Library / jsdom.** One uniform standard for every module and panel.
+
 ---
 
 ## Repository Layout
@@ -263,6 +265,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 | In-process event bus (pub/sub over applied mutations) | `src/state/eventBus.ts` |
 | Links / relations graph (typed cross-entity edges) | `src/state/linksGraph.ts`, `links` table in `db/schema.rs` |
 | Module model (manifest, capabilities, surfaces, storage) | `src/modules/` |
+| **How to build a module** (worked example: Tasks) | `docs/module-authoring.md` |
+| **Testing policy** (Node unit + Playwright e2e; no RTL) | `docs/testing-policy.md` |
+| Reference module implementation | `src/modules/tasks/` |
 | Security model (vault + relay + enrollment) | `docs/security-model.md` |
 | What's broken/unfinished | `docs/known-gaps.md` |
 | DB table definitions | `src-tauri/src/db/schema.rs` |
