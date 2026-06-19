@@ -6,7 +6,9 @@
 
 **Architecture:** Hooks read `LocalStore` reactively via `useStoreVersion()` + `useMemo` (the established `useStore.ts` idiom). All writes go through the Stage-1 mutation helpers (`createTaskMutation`, `setTaskStatusMutation`, `setTaskFieldsMutation`, `deleteTaskMutation`) — never direct store writes. The kanban adapts `src/components/views/KanbanView.tsx` (dnd-kit). The panel owns local view-mode + selected-task state (`useState`), independent of the email panel's `viewMode`.
 
-**Tech Stack:** React 18, TypeScript, dnd-kit (`@dnd-kit/core`), Vitest + React Testing Library (`@testing-library/react`). `@/`=`src/`. Builds on Stage 1 (`src/modules/tasks/{model,mutations,reducer,index}.ts`, `LocalStore.tasks`).
+**Tech Stack:** React 18, TypeScript, dnd-kit (`@dnd-kit/core`), Vitest (`node` env). `@/`=`src/`. Builds on Stage 1 (`src/modules/tasks/{model,mutations,reducer,index}.ts`, `LocalStore.tasks`).
+
+> **TESTING APPROACH (revised):** This project does NOT use React Testing Library (an early attempt to add it was reverted — the codebase tests pure logic in the `node` env and verifies UI by running the app). So the RTL/`renderHook` test snippets in Tasks 2–5 below are SUPERSEDED. Instead: extract pure logic into testable functions and unit-test those in `node` (Task 1's `sort.ts`, Task 4's `resolveStatusDrag`), and verify component behavior LIVE via the preview MCP (Task 6). Build the components per the structure specs; skip the RTL test steps.
 
 ## Verified facts
 - Hook idiom (`useStore.ts`): `const v = useStoreVersion(); return useMemo(() => Array.from(localStore.X.values())…, [v]);`. `useStoreVersion()` is exported from `@/storage/useStore`. `localStore.version` bumps on every task mutation (putTask/deleteTask call `_notify()`).
