@@ -80,7 +80,7 @@ export interface ModuleInverseResult {
   description: string;
 }
 export type ModuleInverseBuilder = (
-  kind: string,
+  kind: MutationKind,
   payload: unknown,
   store: LocalStore,
 ) => ModuleInverseResult | null;
