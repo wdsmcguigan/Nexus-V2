@@ -202,6 +202,9 @@ interface WorkspaceState {
   // Settings panel
   openSettingsPanel: () => void;
 
+  // Module dock surfaces (substrate Pillar 4)
+  openModulePanel: (componentKey: string, title: string) => void;
+
   // Panel focus + Focus Memory Stack
   activePanelId: string | null;
   previousPanelId: string | null;
@@ -835,6 +838,23 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         component: "settings",
         title: "Settings",
         minimumWidth: 420,
+        position: { direction: "right" },
+      });
+    }
+  },
+
+  openModulePanel: (componentKey, title) => {
+    const api = getDockviewApi();
+    if (!api) return;
+    const existing = api.panels.find((p) => p.id === componentKey);
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      api.addPanel({
+        id: componentKey,
+        component: componentKey,
+        title,
+        minimumWidth: 360, // generic default floor for module surfaces
         position: { direction: "right" },
       });
     }
