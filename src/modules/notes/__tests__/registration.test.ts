@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { registerNotesModule, NOTES_MODULE_ID } from "@/modules/notes";
+import { registerNotesModule, NOTES_MODULE_ID, NOTES_MAIN_PANEL_KEY } from "@/modules/notes";
 import { getModule, _resetModules } from "@/modules/registry";
 import { getModuleReducer, _resetModuleReducers } from "@/state/moduleReducers";
-import { _resetDockSurfaces } from "@/modules/surfaceRegistry";
+import { _resetDockSurfaces, dockSurfaceComponents } from "@/modules/surfaceRegistry";
 import { _resetModuleInverses } from "@/state/mutations";
 import { listModuleCommands, _resetModuleCommands } from "@/modules/commands";
 
@@ -27,5 +27,11 @@ describe("Notes module registration", () => {
     const cmd = listModuleCommands().find((c) => c.key === "org.nexus.notes:open");
     expect(cmd?.spec.title).toBe("Open Notes");
     expect(typeof cmd?.run).toBe("function");
+  });
+
+  it("registers the Notes dock surface under NOTES_MAIN_PANEL_KEY", () => {
+    registerNotesModule();
+    const components = dockSurfaceComponents();
+    expect(components[NOTES_MAIN_PANEL_KEY]).toBeDefined();
   });
 });
