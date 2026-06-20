@@ -24,6 +24,7 @@ import type {
   Link,
   Message,
   Mutation,
+  Note,
   Rule,
   SavedView,
   Status,
@@ -95,6 +96,7 @@ export class LocalStore {
   calendars = new Map<string, Calendar>();
   tasks = new Map<string, Task>();
   tasksByStatus = new Map<TaskStatus, Set<string>>();
+  notes = new Map<string, Note>();
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -171,6 +173,7 @@ export class LocalStore {
     this.calendars.clear();
     this.tasks.clear();
     this.tasksByStatus.clear();
+    this.notes.clear();
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -421,6 +424,18 @@ export class LocalStore {
     const prev = this.tasks.get(id);
     if (prev) this._setRemove(this.tasksByStatus, prev.status, id);
     this.tasks.delete(id);
+    this._notify();
+  }
+
+  // ── Note CRUD ────────────────────────────────────────────────────
+
+  putNote(n: Note): void {
+    this.notes.set(n.id, n);
+    this._notify();
+  }
+
+  deleteNote(id: string): void {
+    this.notes.delete(id);
     this._notify();
   }
 

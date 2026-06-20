@@ -42,6 +42,7 @@ import {
   Calendar as CalendarIcon,
   Plus,
   ListChecks,
+  NotebookPen,
 } from "lucide-react";
 import { useWorkspace, getDockviewApi, newPanelId } from "@/state/workspace";
 import type { WorkspaceSnapshot } from "@/storage/workspaceManager";
@@ -54,6 +55,8 @@ import type { StarStyle } from "@/data/types";
 import { listModuleCommands } from "@/modules/commands";
 import { createTaskFromEntity } from "@/modules/tasks/mutations";
 import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
+import { createNoteFromEntity } from "@/modules/notes/mutations";
+import { NOTES_MAIN_PANEL_KEY } from "@/modules/notes";
 
 interface CmdItemDef {
   id: string;
@@ -272,6 +275,19 @@ export function CommandPalette() {
           if (m) {
             createTaskFromEntity("nexus/email.message", m.id, m.subject || "(no subject)", localStore);
             openModulePanel(TASKS_MAIN_PANEL_KEY, "Tasks");
+          }
+        },
+      });
+      all.push({
+        id: "create-note-from-email",
+        label: "Create note from this email",
+        group: "Message",
+        icon: NotebookPen,
+        perform: () => {
+          const m = localStore.messages.get(mid);
+          if (m) {
+            createNoteFromEntity("nexus/email.message", m.id, m.subject || "(no subject)", localStore);
+            openModulePanel(NOTES_MAIN_PANEL_KEY, "Notes");
           }
         },
       });

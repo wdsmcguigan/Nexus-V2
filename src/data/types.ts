@@ -190,6 +190,17 @@ export interface Task {
   updatedAt: number;
 }
 
+// ─── NOTE — org.nexus.notes/note entity ──────────────────────────────────────
+
+export interface Note {
+  id: string;
+  vaultId: string;
+  title: string;
+  body: string;        // TipTap HTML
+  createdAt: number;
+  updatedAt: number;   // drives list sort; stamped at record-time
+}
+
 // ─── CFD — Custom field definition ───────────────────────────────────────────
 // Airtable-style user-defined typed field. Unlimited count.
 // Is NOT LBL (system+user typed metadata) or TAG (untyped strings).
