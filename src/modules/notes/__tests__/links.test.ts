@@ -29,4 +29,27 @@ describe("noteLinkedItems", () => {
     expect(items[0]!.entityType).toBe("nexus/email.message");
     expect(items[0]!.label).toBe("Quarterly review");
   });
+
+  it("resolves a contact link to the contact name", () => {
+    const s = freshStore();
+    s.contacts.set("c-1", { id: "c-1", name: "Ada Lovelace" } as never);
+    const note = createNoteFromEntity("nexus/contact", "c-1", "n", s);
+    const items = noteLinkedItems(s, note.id);
+    expect(items[0]!.label).toBe("Ada Lovelace");
+  });
+
+  it("resolves a calendar-event link to the event title", () => {
+    const s = freshStore();
+    s.calendarEvents.set("e-1", { id: "e-1", title: "Standup" } as never);
+    const note = createNoteFromEntity("nexus/calendar.event", "e-1", "n", s);
+    const items = noteLinkedItems(s, note.id);
+    expect(items[0]!.label).toBe("Standup");
+  });
+
+  it("falls back to the raw id for an unknown entity type", () => {
+    const s = freshStore();
+    const note = createNoteFromEntity("com.acme/widget", "w-1", "n", s);
+    const items = noteLinkedItems(s, note.id);
+    expect(items[0]!.label).toBe("w-1");
+  });
 });

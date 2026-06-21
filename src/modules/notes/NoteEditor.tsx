@@ -65,7 +65,8 @@ export function NoteEditor({ noteId, onClose }: NoteEditorProps) {
   });
 
   // On note switch: flush the OUTGOING note's pending body, then load the new note's
-  // content. setContent(..., false) does not emit an update, so it won't autosave.
+  // content. setContent(..., { emitUpdate: false }) does not emit an update, so it
+  // won't autosave.
   const prevNoteRef = useRef(note);
   useEffect(() => {
     const prev = prevNoteRef.current;
@@ -74,10 +75,18 @@ export function NoteEditor({ noteId, onClose }: NoteEditorProps) {
     noteIdRef.current = noteId;
     if (!note || !editor) return;
     if (prev?.id !== note.id) {
+      // Switched to a different note (or first resolve) — load its values.
       setTitle(note.title);
       editor.commands.setContent(note.body, { emitUpdate: false });
+      return;
     }
-  }, [note, noteId, editor]);
+    // Same note updated remotely (relay sync / undo while open): adopt the
+    // incoming title only if the local draft hasn't diverged from the previous
+    // server value, so we never clobber an in-progress edit. The body is
+    // intentionally NOT resynced here — calling setContent over a live ProseMirror
+    // editor would disrupt active typing.
+    if (title === (prev?.title ?? "")) setTitle(note.title);
+  }, [note, noteId, editor, title]);
 
   // Flush any pending body on unmount.
   useEffect(() => () => flushBody(), []);
