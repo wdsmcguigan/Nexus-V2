@@ -13,10 +13,12 @@ use crate::AppState;
 
 // Command groups extracted into focused submodules. Re-exported so existing
 // `commands::<name>` paths (and lib.rs's invoke_handler!) stay unchanged.
+mod ai;
 mod calendar;
 mod providers;
 mod relay;
 mod rules;
+pub use ai::*;
 pub use calendar::*;
 pub use providers::*;
 pub use relay::*;

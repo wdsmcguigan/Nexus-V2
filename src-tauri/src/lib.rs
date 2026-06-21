@@ -121,6 +121,8 @@ pub fn run() {
             popout::close_popout_window,
             popout::list_monitors,
             popout::get_window_geometry,
+            // AI
+            commands::ai_summarize,
         ])
         .setup(|app| {
             // On startup, auto-load vault if the path was saved previously.
