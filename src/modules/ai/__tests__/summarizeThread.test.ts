@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { LocalStore } from "@/storage/local";
 import { registerModuleReducer, _resetModuleReducers } from "@/state/moduleReducers";
-import { registerModuleInverse, _resetModuleInverses, _resetUndoStacks, undoLastMutation } from "@/state/mutations";
+import { registerModuleInverse, _resetModuleInverses, _resetUndoStacks, undoLastMutation, getUndoHistory } from "@/state/mutations";
 import { linksFrom } from "@/state/linksGraph";
 import { notesReducer } from "@/modules/notes/reducer";
 import { notesInverse } from "@/modules/notes/mutations";
@@ -35,6 +35,7 @@ describe("summarizeThread (stub summarizer in node)", () => {
     expect(links).toHaveLength(1);
     expect(links[0]!.linkType).toBe("summarizes");
     expect(links[0]!.dstId).toBe("m1");
+    expect(getUndoHistory()[0]?.source).toBe("ai");
 
     undoLastMutation(s);
     expect(s.notes.size).toBe(0);
