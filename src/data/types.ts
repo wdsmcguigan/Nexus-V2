@@ -602,6 +602,8 @@ export type ModuleMutationKind = `${string}/${string}`;
 /** Any mutation kind — a core kind or a module-namespaced one. */
 export type MutationKind = CoreMutationKind | ModuleMutationKind;
 
+export type MutationSource = "user" | "ai" | "rule" | "module";
+
 export interface Mutation {
   id: string;
   vaultId: string;
@@ -613,6 +615,10 @@ export interface Mutation {
   kind: MutationKind;
   /** Typed payload — encrypted blob in E2EE mode (EP-5). Plain object for now. */
   payload: unknown;
+  /** Provenance (substrate §4.4). Absent ⇒ "user". Carried in payload_json, not a column. */
+  source?: MutationSource;
+  /** Optional generator id (e.g. model id "claude-…" or module id). */
+  generatedBy?: string;
 }
 
 // ─── MetadataFilter — WF-SEARCH-QUERY ────────────────────────────────────────
