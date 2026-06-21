@@ -27,6 +27,9 @@ describe("noteSnippet", () => {
   it("decodes common entities", () => {
     expect(noteSnippet("<p>a &amp; b &lt;c&gt;</p>")).toBe("a & b <c>");
   });
+  it("decodes quote entities", () => {
+    expect(noteSnippet("<p>&quot;quoted&quot; it&#39;s</p>")).toBe("\"quoted\" it's");
+  });
   it("truncates with an ellipsis", () => {
     expect(noteSnippet("<p>" + "x".repeat(200) + "</p>", 10)).toBe("xxxxxxxxxx…");
   });
