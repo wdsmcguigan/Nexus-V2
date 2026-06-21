@@ -36,6 +36,7 @@ import {
   X,
   ListChecks,
   NotebookPen,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 import { localStore } from "@/storage/local";
@@ -44,6 +45,7 @@ import { createTaskFromEntity } from "@/modules/tasks/mutations";
 import { TASKS_MAIN_PANEL_KEY } from "@/modules/tasks";
 import { createNoteFromEntity } from "@/modules/notes/mutations";
 import { NOTES_MAIN_PANEL_KEY } from "@/modules/notes";
+import { summarizeThread } from "@/modules/ai/summarizeThread";
 import { useWorkspace } from "@/state/workspace";
 import { cn } from "@/lib/utils";
 import type { Message, StarStyle, CustomFieldType } from "@/data/types";
@@ -230,6 +232,20 @@ export function EmailRowContextMenu({
               >
                 <NotebookPen size={12} className="absolute left-2 text-text-tertiary" />
                 Create note from this email
+              </ContextMenu.Item>
+              <ContextMenu.Item
+                className={itemCls}
+                onSelect={() => {
+                  void summarizeThread(msg.id, localStore)
+                    .then(() => {
+                      useWorkspace.getState().openModulePanel(NOTES_MAIN_PANEL_KEY, "Notes");
+                      toast.success("AI summary created");
+                    })
+                    .catch((e) => toast.error(`Couldn't summarize: ${e instanceof Error ? e.message : String(e)}`));
+                }}
+              >
+                <Sparkles size={12} className="absolute left-2 text-text-tertiary" />
+                Summarize this thread with AI
               </ContextMenu.Item>
               <ContextMenu.Separator className={separatorCls} />
             </>
