@@ -24,7 +24,36 @@ beforeEach(() => _resetUndoStacks());
 describe("mutation provenance", () => {
   it("a source:'ai' mutation carries source on the Mutation and in history", () => {
     const s = freshStore();
-    const m = recordMutation("CREATE_FOLDER", makeFolder("f1", "F"), s, {
+    // Use SET_PINNED (undoable) so the entry lands on the undo stack.
+    s.putMessage({
+      id: "m-src-test",
+      vaultId: "v1",
+      folderId: "f-inbox",
+      threadId: "t1",
+      providerIds: {},
+      labelIds: [],
+      tags: [],
+      statusId: null,
+      priority: null,
+      star: null,
+      flag: null,
+      pinned: false,
+      muted: false,
+      notes: null,
+      customFields: {},
+      flags: { read: false, answered: false, draft: false, flagged: false },
+      receivedAt: 0,
+      sentAt: 0,
+      fromAddr: { name: "A", email: "a@example.com" },
+      toAddrs: [],
+      ccAddrs: [],
+      bccAddrs: [],
+      subject: "Test",
+      snippet: "",
+      bodyRef: "hash-1",
+      attachmentRefs: [],
+    });
+    const m = recordMutation("SET_PINNED", { messageId: "m-src-test", pinned: true }, s, {
       source: "ai",
       generatedBy: "claude-x",
     });
@@ -54,9 +83,38 @@ describe("mutation provenance", () => {
 
   it("undo of an AI mutation reverses it", () => {
     const s = freshStore();
-    recordMutation("CREATE_FOLDER", makeFolder("f4", "I"), s, { source: "ai" });
-    expect(s.folders.has("f4")).toBe(true);
+    // Seed a message so SET_PINNED/_updateMessage can actually toggle the flag.
+    s.putMessage({
+      id: "m-pin-test",
+      vaultId: "v1",
+      folderId: "f-inbox",
+      threadId: "t1",
+      providerIds: {},
+      labelIds: [],
+      tags: [],
+      statusId: null,
+      priority: null,
+      star: null,
+      flag: null,
+      pinned: false,
+      muted: false,
+      notes: null,
+      customFields: {},
+      flags: { read: false, answered: false, draft: false, flagged: false },
+      receivedAt: 0,
+      sentAt: 0,
+      fromAddr: { name: "A", email: "a@example.com" },
+      toAddrs: [],
+      ccAddrs: [],
+      bccAddrs: [],
+      subject: "Test",
+      snippet: "",
+      bodyRef: "hash-1",
+      attachmentRefs: [],
+    });
+    recordMutation("SET_PINNED", { messageId: "m-pin-test", pinned: true }, s, { source: "ai" });
+    expect(s.messages.get("m-pin-test")?.pinned).toBe(true);
     undoLastMutation(s);
-    expect(s.folders.has("f4")).toBe(false);
+    expect(s.messages.get("m-pin-test")?.pinned).toBe(false);
   });
 });

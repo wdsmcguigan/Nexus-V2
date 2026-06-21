@@ -19,7 +19,7 @@ function hasMeta(meta?: MutationMeta): meta is MutationMeta {
  */
 export function wrapEnvelope(payload: unknown, meta?: MutationMeta): unknown {
   if (!hasMeta(meta)) return payload;
-  return { [MUTATION_ENVELOPE_KEY]: { source: meta.source, generatedBy: meta.generatedBy }, value: payload };
+  return { [MUTATION_ENVELOPE_KEY]: { source: meta.source, ...(meta.generatedBy ? { generatedBy: meta.generatedBy } : {}) }, value: payload };
 }
 
 /** Unwrap an envelope. Idempotent + a no-op for bare payloads (meta = null). */

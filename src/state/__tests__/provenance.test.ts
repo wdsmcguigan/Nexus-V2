@@ -18,10 +18,11 @@ describe("provenance envelope", () => {
 
   it("unwraps an enveloped payload to { payload, meta }", () => {
     const p = { a: 1 };
-    const w = wrapEnvelope(p, { source: "ai" });
+    const w = wrapEnvelope(p, { source: "ai", generatedBy: "claude-x" });
     const { payload, meta } = unwrapEnvelope(w);
     expect(payload).toEqual(p);
     expect(meta?.source).toBe("ai");
+    expect(meta?.generatedBy).toBe("claude-x");
   });
 
   it("is a no-op for a bare payload (meta null)", () => {

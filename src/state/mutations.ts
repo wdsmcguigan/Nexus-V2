@@ -312,15 +312,6 @@ function _buildReverseEntryInner(
       return { forwardSteps: forward, reverseSteps: [{ kind: "SET_PRIORITY", payload: { messageId, priority: msg.priority } }], description: "Clear priority" };
     }
 
-    case "CREATE_FOLDER": {
-      const { id: folderId } = payload as { id: string };
-      return {
-        forwardSteps: forward,
-        reverseSteps: [{ kind: "DELETE_FOLDER", payload: { folderId } }],
-        description: "Create folder",
-      };
-    }
-
     case "CREATE_LINK": {
       const link = payload as Link;
       return {
@@ -455,7 +446,7 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
   // Advance lamport clock past any replayed values
   for (const m of mutations) {
     if (m.lamport > _lamport) _lamport = m.lamport;
-    applyMutation(m, store);
+    applyMutation({ ...m }, store);
   }
 }
 
@@ -467,7 +458,7 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
  */
 export function replayModuleMutations(namespace: string, store: LocalStore): void {
   for (const m of store.mutations) {
-    if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
+    if (kindNamespace(m.kind) === namespace) applyMutation({ ...m }, store);
   }
 }
 
