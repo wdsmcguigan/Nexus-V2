@@ -1,8 +1,17 @@
-import type { CountdownTimer } from "@/data/types";
+import type { Alarm, CountdownTimer } from "@/data/types";
 import type { LocalStore } from "@/storage/local";
 import { toast } from "sonner";
 import { timerEndsAt } from "@/modules/timekit/time";
-import { completeTimerMutation } from "@/modules/timekit/mutations";
+import { completeTimerMutation, fireAlarmMutation } from "@/modules/timekit/mutations";
+
+/** Enabled, not-yet-fired alarms whose fire time has passed. Pure. */
+export function dueAlarms(now: number, alarms: Iterable<Alarm>): Alarm[] {
+  const out: Alarm[] = [];
+  for (const a of alarms) {
+    if (a.enabled && a.firedAt == null && a.fireAt <= now) out.push(a);
+  }
+  return out;
+}
 
 /** Running timers whose end time has passed. Pure; never returns non-running timers. */
 export function dueTimers(now: number, timers: Iterable<CountdownTimer>): CountdownTimer[] {
@@ -50,6 +59,11 @@ export function startTimekitTicker(store: LocalStore): () => void {
     for (const t of dueTimers(now, store.countdownTimers.values())) {
       completeTimerMutation(t.id, store, { source: "module" });
       toast(`Timer done: ${t.label}`);
+      chime();
+    }
+    for (const a of dueAlarms(now, store.alarms.values())) {
+      fireAlarmMutation(a.id, store, { source: "module" });
+      toast(`Alarm: ${a.label}`);
       chime();
     }
   }, 1000);

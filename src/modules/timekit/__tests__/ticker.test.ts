@@ -6,8 +6,9 @@ import { timekitReducer } from "@/modules/timekit/reducer";
 import {
   timekitInverse, TIMEKIT_NS,
   createTimerMutation, startTimerMutation, completeTimerMutation,
+  createAlarmMutation, fireAlarmMutation, setAlarmEnabledMutation,
 } from "@/modules/timekit/mutations";
-import { dueTimers } from "@/modules/timekit/ticker";
+import { dueTimers, dueAlarms } from "@/modules/timekit/ticker";
 
 function wire(): LocalStore {
   const s = new LocalStore();
@@ -42,5 +43,26 @@ describe("dueTimers", () => {
     expect(getUndoHistory()[0]?.source).toBe("module");
     // After completion the timer is "done" → no longer returned.
     expect(dueTimers(now, s.countdownTimers.values())).toEqual([]);
+  });
+});
+
+describe("dueAlarms", () => {
+  it("returns enabled, unfired, past-due alarms; excludes disabled/future/fired", () => {
+    const s = wire();
+    const due = createAlarmMutation("Due", 1_000, s);
+    const future = createAlarmMutation("Future", 10_000, s);
+    const disabled = createAlarmMutation("Off", 1_000, s);
+    setAlarmEnabledMutation(disabled.id, false, s);
+
+    expect(dueAlarms(5_000, s.alarms.values()).map((a) => a.id)).toEqual([due.id]);
+    expect(future).toBeDefined();
+  });
+
+  it("provenance + idempotency: firing with source:'module' sets firedAt and drops it from due", () => {
+    const s = wire();
+    const a = createAlarmMutation("Due", 1_000, s);
+    fireAlarmMutation(a.id, s, { source: "module" });
+    expect(getUndoHistory()[0]?.source).toBe("module");
+    expect(dueAlarms(5_000, s.alarms.values())).toEqual([]);
   });
 });
