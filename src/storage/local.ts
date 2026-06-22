@@ -12,10 +12,12 @@
 import { normalizeEmail } from "@/lib/email";
 import type {
   Account,
+  Alarm,
   CalendarEvent,
   Calendar,
   Contact,
   ContactGroup,
+  CountdownTimer,
   CustomFieldDef,
   CustomFieldValue,
   EventTemplate,
@@ -32,6 +34,7 @@ import type {
   Task,
   TaskStatus,
   Template,
+  TimeEntry,
   Vault,
 } from "@/data/types";
 
@@ -97,6 +100,11 @@ export class LocalStore {
   tasks = new Map<string, Task>();
   tasksByStatus = new Map<TaskStatus, Set<string>>();
   notes = new Map<string, Note>();
+  timeEntries = new Map<string, TimeEntry>();
+  countdownTimers = new Map<string, CountdownTimer>();
+  alarms = new Map<string, Alarm>();
+  /** Saved IANA timezone strings for the Clock section (timekit module config). */
+  timekitZones: string[] = [];
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -174,6 +182,10 @@ export class LocalStore {
     this.tasks.clear();
     this.tasksByStatus.clear();
     this.notes.clear();
+    this.timeEntries.clear();
+    this.countdownTimers.clear();
+    this.alarms.clear();
+    this.timekitZones = [];
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -436,6 +448,43 @@ export class LocalStore {
 
   deleteNote(id: string): void {
     this.notes.delete(id);
+    this._notify();
+  }
+
+  // ── Timekit projections (event-sourced; not in toSnapshot) ──────
+
+  setTimekitZones(zones: string[]): void {
+    this.timekitZones = zones;
+    this._notify();
+  }
+
+  putTimeEntry(e: TimeEntry): void {
+    this.timeEntries.set(e.id, e);
+    this._notify();
+  }
+
+  deleteTimeEntry(id: string): void {
+    this.timeEntries.delete(id);
+    this._notify();
+  }
+
+  putCountdownTimer(t: CountdownTimer): void {
+    this.countdownTimers.set(t.id, t);
+    this._notify();
+  }
+
+  deleteCountdownTimer(id: string): void {
+    this.countdownTimers.delete(id);
+    this._notify();
+  }
+
+  putAlarm(a: Alarm): void {
+    this.alarms.set(a.id, a);
+    this._notify();
+  }
+
+  deleteAlarm(id: string): void {
+    this.alarms.delete(id);
     this._notify();
   }
 

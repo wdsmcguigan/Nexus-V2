@@ -201,6 +201,45 @@ export interface Note {
   updatedAt: number;   // drives list sort; stamped at record-time
 }
 
+
+// ─── TKENT — Time Entry (Timekit module) ─────────────────────────────────────
+
+export interface TimeEntry {
+  id: string;
+  vaultId: string;
+  startedAt: number;          // epoch ms
+  stoppedAt: number | null;   // null = running
+  note: string | null;
+  createdAt: number;
+}
+
+// ─── CT — Countdown Timer (Timekit module) ────────────────────────────────────
+
+export type CountdownState = "idle" | "running" | "paused" | "done";
+
+export interface CountdownTimer {
+  id: string;
+  vaultId: string;
+  label: string;
+  durationMs: number;
+  startedAt: number | null;   // when the current run began; null when idle/paused/done
+  elapsedBeforeMs: number;    // accumulated elapsed across prior runs (pause/resume)
+  state: CountdownState;
+  createdAt: number;
+}
+
+// ─── ALM — Alarm ────────────────────────────────────────────────────────────
+
+export interface Alarm {
+  id: string;
+  vaultId: string;
+  label: string;
+  fireAt: number;             // epoch ms
+  enabled: boolean;
+  firedAt: number | null;     // null = not yet fired
+  createdAt: number;
+}
+
 // ─── CFD — Custom field definition ───────────────────────────────────────────
 // Airtable-style user-defined typed field. Unlimited count.
 // Is NOT LBL (system+user typed metadata) or TAG (untyped strings).

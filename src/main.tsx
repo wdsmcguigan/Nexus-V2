@@ -25,6 +25,7 @@ import { applyRemoteMutation, replayRegisteredModules } from "@/state/mutations"
 import { useWorkspace } from "@/state/workspace";
 import { startGoogleAutoSync } from "@/lib/googleSync";
 import { bootstrapModules } from "@/modules/bootstrap";
+import { startTimekitTicker } from "@/modules/timekit/ticker";
 import type { MutationKind } from "@/data/types";
 import type { Theme, Density } from "@/design-system/tokens";
 
@@ -149,6 +150,7 @@ async function initTauri() {
 
     // Keep Google calendars + contacts fresh for accounts with sync enabled.
     startGoogleAutoSync();
+    startTimekitTicker(localStore);
 
     onSyncProgress((payload) => {
       const ws = useWorkspace.getState();
@@ -187,6 +189,9 @@ async function initWeb() {
   // mutations, so this is a no-op; when OPFS rehydrated the log, it populates
   // module projections (e.g. tasks).
   replayRegisteredModules(localStore);
+  // Main-window-only background workers that are also valid in web mode
+  // (web mode is inherently single-window). See plan Concern A.
+  startTimekitTicker(localStore);
 }
 
 if (isTauri()) {

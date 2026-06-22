@@ -27,7 +27,7 @@ describe("bootstrapModules", () => {
     bootstrapModules();
     expect(() => bootstrapModules()).not.toThrow();
     expect(getModule("org.nexus.tasks")).toBeDefined();
-    // Tasks + Notes each contribute one dock surface.
-    expect(Object.keys(dockSurfaceComponents())).toHaveLength(2);
+    // Tasks + Notes + Timekit each contribute one dock surface.
+    expect(Object.keys(dockSurfaceComponents())).toHaveLength(3);
   });
 });
