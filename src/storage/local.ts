@@ -97,6 +97,8 @@ export class LocalStore {
   tasks = new Map<string, Task>();
   tasksByStatus = new Map<TaskStatus, Set<string>>();
   notes = new Map<string, Note>();
+  /** Saved IANA timezone strings for the Clock section (timekit module config). */
+  timekitZones: string[] = [];
   /** email address → contactId (O(1) lookup from inspector) */
   emailIndex = new Map<string, string>();
   /** contactId → Set<messageId> (all messages where person appears in from/to/cc) */
@@ -174,6 +176,7 @@ export class LocalStore {
     this.tasks.clear();
     this.tasksByStatus.clear();
     this.notes.clear();
+    this.timekitZones = [];
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
     for (const f of snap.folders) this.folders.set(f.id, f);
@@ -436,6 +439,13 @@ export class LocalStore {
 
   deleteNote(id: string): void {
     this.notes.delete(id);
+    this._notify();
+  }
+
+  // ── Timekit projections (event-sourced; not in toSnapshot) ──────
+
+  setTimekitZones(zones: string[]): void {
+    this.timekitZones = zones;
     this._notify();
   }
 
