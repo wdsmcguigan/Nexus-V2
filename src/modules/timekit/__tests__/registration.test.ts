@@ -25,4 +25,13 @@ describe("Timekit module registration", () => {
     expect(cmd?.spec.title).toBe("Open Clock");
     expect(typeof cmd?.run).toBe("function");
   });
+
+  it("declares the time-entry entity and a start-tracking command", () => {
+    registerTimekitModule();
+    const m = getModule(TIMEKIT_MODULE_ID);
+    expect(m?.entities).toContain("org.nexus.timekit/time-entry");
+    expect(m?.mutationKinds).toContain("org.nexus.timekit/START_TRACKING");
+    const cmd = listModuleCommands().find((c) => c.key === "org.nexus.timekit:start-tracking");
+    expect(cmd?.spec.title).toBe("Start time tracking");
+  });
 });

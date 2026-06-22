@@ -4,6 +4,7 @@ import { TimekitPanel } from "@/modules/timekit/TimekitPanel";
 import { timekitReducer } from "@/modules/timekit/reducer";
 import { timekitInverse, KIND } from "@/modules/timekit/mutations";
 import { useWorkspace } from "@/state/workspace";
+import { requestSection, type TimekitSection } from "@/modules/timekit/panelState";
 
 export const TIMEKIT_MODULE_ID = "org.nexus.timekit";
 export const TIMEKIT_MAIN_SURFACE_ID = "timekit.main";
@@ -16,17 +17,25 @@ const manifest: ModuleManifest = {
   name: "Clock",
   version: "0.1.0",
   namespace: TIMEKIT_MODULE_ID,
-  entities: [],
-  mutationKinds: [KIND.SET_ZONES],
+  entities: ["org.nexus.timekit/time-entry"],
+  mutationKinds: [KIND.SET_ZONES, KIND.START_TRACKING, KIND.STOP_TRACKING, KIND.SET_ENTRY_NOTE, KIND.DELETE_ENTRY],
   capabilities: { "ui.contribute": ["dock", "command"] },
   trust: "core",
   contributes: {
     surfaces: [
       { type: "dock", id: TIMEKIT_MAIN_SURFACE_ID, title: "Clock", icon: "clock", detachable: false },
     ],
-    commands: [{ id: "open", title: "Open Clock", icon: "clock" }],
+    commands: [
+      { id: "open", title: "Open Clock", icon: "clock" },
+      { id: "start-tracking", title: "Start time tracking", icon: "clock" },
+    ],
   },
 };
+
+function openAt(section: TimekitSection): void {
+  requestSection(section);
+  useWorkspace.getState().openModulePanel(TIMEKIT_MAIN_PANEL_KEY, "Clock");
+}
 
 /** Register the Timekit module. Wires reducer, inverse, dock surface, and commands. */
 export function registerTimekitModule(): () => void {
@@ -34,8 +43,7 @@ export function registerTimekitModule(): () => void {
     host.registerReducer(timekitReducer);
     host.registerInverse(timekitInverse);
     host.contribute.surface(TIMEKIT_MAIN_SURFACE_ID, TimekitPanel);
-    host.contribute.command("open", () => {
-      useWorkspace.getState().openModulePanel(TIMEKIT_MAIN_PANEL_KEY, "Clock");
-    });
+    host.contribute.command("open", () => openAt("clock"));
+    host.contribute.command("start-tracking", () => openAt("tracker"));
   });
 }
