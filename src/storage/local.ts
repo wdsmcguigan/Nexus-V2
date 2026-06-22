@@ -16,6 +16,7 @@ import type {
   Calendar,
   Contact,
   ContactGroup,
+  CountdownTimer,
   CustomFieldDef,
   CustomFieldValue,
   EventTemplate,
@@ -99,6 +100,7 @@ export class LocalStore {
   tasksByStatus = new Map<TaskStatus, Set<string>>();
   notes = new Map<string, Note>();
   timeEntries = new Map<string, TimeEntry>();
+  countdownTimers = new Map<string, CountdownTimer>();
   /** Saved IANA timezone strings for the Clock section (timekit module config). */
   timekitZones: string[] = [];
   /** email address → contactId (O(1) lookup from inspector) */
@@ -179,6 +181,7 @@ export class LocalStore {
     this.tasksByStatus.clear();
     this.notes.clear();
     this.timeEntries.clear();
+    this.countdownTimers.clear();
     this.timekitZones = [];
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
@@ -459,6 +462,16 @@ export class LocalStore {
 
   deleteTimeEntry(id: string): void {
     this.timeEntries.delete(id);
+    this._notify();
+  }
+
+  putCountdownTimer(t: CountdownTimer): void {
+    this.countdownTimers.set(t.id, t);
+    this._notify();
+  }
+
+  deleteCountdownTimer(id: string): void {
+    this.countdownTimers.delete(id);
     this._notify();
   }
 

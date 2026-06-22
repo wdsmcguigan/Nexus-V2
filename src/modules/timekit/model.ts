@@ -1,4 +1,4 @@
-import type { TimeEntry } from "@/data/types";
+import type { CountdownTimer, TimeEntry } from "@/data/types";
 
 // Monotonic within this module instance; combined with Date.now() for unique ids.
 let _seq = 0;
@@ -15,6 +15,24 @@ export function makeTimeEntry(input: Partial<TimeEntry>, vaultId: string, now: n
     startedAt: input.startedAt ?? now,
     stoppedAt: input.stoppedAt ?? null,
     note: input.note ?? null,
+    createdAt: input.createdAt ?? now,
+  };
+}
+
+/** Build a CountdownTimer from partial input (label + durationMs required). */
+export function makeTimer(
+  input: Partial<CountdownTimer> & { label: string; durationMs: number },
+  vaultId: string,
+  now: number,
+): CountdownTimer {
+  return {
+    id: input.id ?? tkId("ct"),
+    vaultId,
+    label: input.label,
+    durationMs: input.durationMs,
+    startedAt: input.startedAt ?? null,
+    elapsedBeforeMs: input.elapsedBeforeMs ?? 0,
+    state: input.state ?? "idle",
     createdAt: input.createdAt ?? now,
   };
 }
