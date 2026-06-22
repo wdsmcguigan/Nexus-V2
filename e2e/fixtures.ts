@@ -45,3 +45,12 @@ export async function openTasksPanel(page: Page): Promise<void> {
   await input.press("Enter");
   await expect(page.getByRole("heading", { name: "Tasks" })).toBeVisible();
 }
+
+/** Open the Timekit dock panel via the command palette. */
+export async function openTimekitPanel(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const input = page.getByPlaceholder("Search mail, contacts, or type a command…");
+  await input.fill("Open Clock");
+  await input.press("Enter");
+  await expect(page.getByRole("heading", { name: "Clock" })).toBeVisible();
+}
