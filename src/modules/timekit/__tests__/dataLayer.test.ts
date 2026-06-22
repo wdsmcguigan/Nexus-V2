@@ -8,7 +8,15 @@ import {
 } from "@/state/mutations";
 import { registerModuleReducer, _resetModuleReducers } from "@/state/moduleReducers";
 import { timekitReducer } from "@/modules/timekit/reducer";
-import { timekitInverse, TIMEKIT_NS, setTimekitZonesMutation } from "@/modules/timekit/mutations";
+import {
+  timekitInverse,
+  TIMEKIT_NS,
+  setTimekitZonesMutation,
+  startTrackingMutation,
+  stopTrackingMutation,
+  setEntryNoteMutation,
+  deleteEntryMutation,
+} from "@/modules/timekit/mutations";
 
 function wire(): LocalStore {
   const s = new LocalStore();
@@ -34,5 +42,44 @@ describe("timekit clock zones", () => {
     setTimekitZonesMutation(["UTC", "Asia/Tokyo"], s);
     undoLastMutation(s);
     expect(s.timekitZones).toEqual(["UTC"]);
+  });
+});
+
+describe("timekit time entries", () => {
+  it("START_TRACKING creates a running entry", () => {
+    const s = wire();
+    const e = startTrackingMutation({}, s);
+    expect(s.timeEntries.get(e.id)?.stoppedAt).toBeNull();
+  });
+
+  it("STOP_TRACKING sets stoppedAt", () => {
+    const s = wire();
+    const e = startTrackingMutation({}, s);
+    stopTrackingMutation(e.id, s);
+    expect(s.timeEntries.get(e.id)?.stoppedAt).not.toBeNull();
+  });
+
+  it("SET_ENTRY_NOTE updates the note", () => {
+    const s = wire();
+    const e = startTrackingMutation({}, s);
+    setEntryNoteMutation(e.id, "design review", s);
+    expect(s.timeEntries.get(e.id)?.note).toBe("design review");
+  });
+
+  it("undo round-trips stop, note, and delete", () => {
+    const s = wire();
+    const e = startTrackingMutation({}, s);
+
+    stopTrackingMutation(e.id, s);
+    undoLastMutation(s);
+    expect(s.timeEntries.get(e.id)?.stoppedAt).toBeNull();
+
+    setEntryNoteMutation(e.id, "x", s);
+    undoLastMutation(s);
+    expect(s.timeEntries.get(e.id)?.note).toBeNull();
+
+    deleteEntryMutation(e.id, s);
+    undoLastMutation(s);
+    expect(s.timeEntries.has(e.id)).toBe(true);
   });
 });
