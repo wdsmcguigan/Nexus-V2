@@ -5,7 +5,9 @@ import { ClockSection } from "@/modules/timekit/ClockSection";
 import { TrackerSection } from "@/modules/timekit/TrackerSection";
 import { TimersSection } from "@/modules/timekit/TimersSection";
 import { AlarmsSection } from "@/modules/timekit/AlarmsSection";
-import { getRequestedSection, subscribeSection, type TimekitSection } from "@/modules/timekit/panelState";
+
+/** Which section the Timekit panel shows. Owned here now that panelState is gone. */
+export type TimekitSection = "clock" | "tracker" | "timers" | "alarms";
 
 const SECTIONS: { id: TimekitSection; label: string }[] = [
   { id: "clock", label: "Clock" },
@@ -14,12 +16,17 @@ const SECTIONS: { id: TimekitSection; label: string }[] = [
   { id: "alarms", label: "Alarms" },
 ];
 
-/** Timekit dock panel: a tabbed Clock · Tracker (… Timers · Alarms in later stages). */
-export function TimekitPanel(_: IDockviewPanelProps) {
-  const [section, setSection] = useState<TimekitSection>(() => getRequestedSection());
+/** Timekit dock panel: a tabbed Clock · Tracker · Timers · Alarms. */
+export function TimekitPanel(props: IDockviewPanelProps) {
+  const params = (props.params ?? {}) as { section?: TimekitSection; nonce?: number };
+  const [section, setSection] = useState<TimekitSection>(params.section ?? "clock");
 
-  // Let commands focus a section on an already-open panel.
-  useEffect(() => subscribeSection(setSection), []);
+  // Re-focus on every command launch (nonce changes each fire) and on a section
+  // change; manual tab clicks set local state and are not overridden. Both deps are
+  // referenced in the body, so exhaustive-deps stays satisfied.
+  useEffect(() => {
+    if (params.section) setSection(params.section);
+  }, [params.nonce, params.section]);
 
   return (
     <div className="flex h-full flex-col">

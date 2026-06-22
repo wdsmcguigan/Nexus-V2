@@ -1,10 +1,9 @@
 import { registerModule, type ModuleManifest } from "@/modules/registry";
 import { dockComponentKey } from "@/modules/surfaceRegistry";
-import { TimekitPanel } from "@/modules/timekit/TimekitPanel";
+import { TimekitPanel, type TimekitSection } from "@/modules/timekit/TimekitPanel";
 import { timekitReducer } from "@/modules/timekit/reducer";
 import { timekitInverse, KIND } from "@/modules/timekit/mutations";
 import { useWorkspace } from "@/state/workspace";
-import { requestSection, type TimekitSection } from "@/modules/timekit/panelState";
 
 export const TIMEKIT_MODULE_ID = "org.nexus.timekit";
 export const TIMEKIT_MAIN_SURFACE_ID = "timekit.main";
@@ -39,9 +38,10 @@ const manifest: ModuleManifest = {
   },
 };
 
+let _launchNonce = 0; // module-local; makes each command launch distinct (event, not state)
 function openAt(section: TimekitSection): void {
-  requestSection(section);
-  useWorkspace.getState().openModulePanel(TIMEKIT_MAIN_PANEL_KEY, "Clock");
+  _launchNonce += 1;
+  useWorkspace.getState().openModulePanel(TIMEKIT_MAIN_PANEL_KEY, "Clock", { section, nonce: _launchNonce });
 }
 
 /** Register the Timekit module. Wires reducer, inverse, dock surface, and commands. */
