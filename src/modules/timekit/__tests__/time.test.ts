@@ -4,8 +4,9 @@ import type { TimeEntry } from "@/data/types";
 
 describe("formatClock", () => {
   it("formats an epoch in a given IANA zone (UTC)", () => {
-    // 1970-01-01T00:00:30Z
-    expect(formatClock(30_000, "UTC")).toBe("12:00:30 AM");
+    // 1970-01-01T00:00:30Z. Normalize the meridiem separator: ICU >=72.1
+    // (Node >=21) emits a narrow no-break space (U+202F) before AM/PM.
+    expect(formatClock(30_000, "UTC").replace(/\s/g, " ")).toBe("12:00:30 AM");
   });
 
   it("returns a non-empty string for local time without a zone", () => {
