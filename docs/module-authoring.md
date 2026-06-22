@@ -63,7 +63,7 @@ Cross-entity edges use the core `createLink(store, { srcType, srcId, linkType, d
 
 ## UI (Pillar 4 — dock + command contribution points)
 
-- A **dock surface** is a React component (`(props: IDockviewPanelProps) => …`) bound via `host.contribute.surface(id, Component)`; `Workspace.tsx` merges it into dockview. Launch it with `openModulePanel(componentKey, title)`.
+- A **dock surface** is a React component (`(props: IDockviewPanelProps) => …`) bound via `host.contribute.surface(id, Component)`; `Workspace.tsx` merges it into dockview. Launch it with `openModulePanel(componentKey, title, params?)`; the panel receives `params` via dockview's `props.params` (a singleton surface is re-pointed via `updateParameters` when already open).
 - A **command** is bound via `host.contribute.command(id, run)`; the command palette renders all module commands automatically.
 - Module panels are currently **non-detachable** and don't get a customizable panel color (those are part of the deferred panel-migration gaps below).
 
@@ -89,8 +89,8 @@ src/modules/tasks/
 
 ## Out of scope until "platformization" (migrating EXISTING panels to modules)
 
-A Contacts-migration spike found existing panels (email/calendar/contacts) need 4 substrate capabilities the dock point doesn't yet cover, before they can become modules without regressions:
-1. **Parameterized launch** — `openModulePanel(key, title)` can't pass runtime params (e.g. "open Contacts on this contact").
+A Contacts-migration spike found existing panels (email/calendar/contacts) need substrate capabilities the dock point didn't originally cover, before they can become modules without regressions. **One of the original four is now closed:**
+1. ✅ **Parameterized launch (DONE)** — `openModulePanel(key, title, params?)` passes runtime params; panels read `props.params` (e.g. "open Contacts on this contact"). The first consumer is the Timekit module's section-focus commands.
 2. **Detachable module panels** — currently blocked (`isModulePanelId` guard); existing panels are pop-out-able.
 3. **Module panel color customization** — `applyModuleColor` skips namespaced ids.
 4. **Command/shortcut contribution** — command half DONE; global keyboard-shortcut binding for modules still deferred.
