@@ -228,6 +228,18 @@ export interface CountdownTimer {
   createdAt: number;
 }
 
+// ─── ALM — Alarm ────────────────────────────────────────────────────────────
+
+export interface Alarm {
+  id: string;
+  vaultId: string;
+  label: string;
+  fireAt: number;             // epoch ms
+  enabled: boolean;
+  firedAt: number | null;     // null = not yet fired
+  createdAt: number;
+}
+
 // ─── CFD — Custom field definition ───────────────────────────────────────────
 // Airtable-style user-defined typed field. Unlimited count.
 // Is NOT LBL (system+user typed metadata) or TAG (untyped strings).

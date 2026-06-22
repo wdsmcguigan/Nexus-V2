@@ -12,6 +12,7 @@
 import { normalizeEmail } from "@/lib/email";
 import type {
   Account,
+  Alarm,
   CalendarEvent,
   Calendar,
   Contact,
@@ -101,6 +102,7 @@ export class LocalStore {
   notes = new Map<string, Note>();
   timeEntries = new Map<string, TimeEntry>();
   countdownTimers = new Map<string, CountdownTimer>();
+  alarms = new Map<string, Alarm>();
   /** Saved IANA timezone strings for the Clock section (timekit module config). */
   timekitZones: string[] = [];
   /** email address → contactId (O(1) lookup from inspector) */
@@ -182,6 +184,7 @@ export class LocalStore {
     this.notes.clear();
     this.timeEntries.clear();
     this.countdownTimers.clear();
+    this.alarms.clear();
     this.timekitZones = [];
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
@@ -472,6 +475,16 @@ export class LocalStore {
 
   deleteCountdownTimer(id: string): void {
     this.countdownTimers.delete(id);
+    this._notify();
+  }
+
+  putAlarm(a: Alarm): void {
+    this.alarms.set(a.id, a);
+    this._notify();
+  }
+
+  deleteAlarm(id: string): void {
+    this.alarms.delete(id);
     this._notify();
   }
 

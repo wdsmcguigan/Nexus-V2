@@ -1,4 +1,4 @@
-import type { CountdownTimer, TimeEntry } from "@/data/types";
+import type { Alarm, CountdownTimer, TimeEntry } from "@/data/types";
 
 // Monotonic within this module instance; combined with Date.now() for unique ids.
 let _seq = 0;
@@ -33,6 +33,23 @@ export function makeTimer(
     startedAt: input.startedAt ?? null,
     elapsedBeforeMs: input.elapsedBeforeMs ?? 0,
     state: input.state ?? "idle",
+    createdAt: input.createdAt ?? now,
+  };
+}
+
+/** Build an Alarm from partial input (label + fireAt required). */
+export function makeAlarm(
+  input: Partial<Alarm> & { label: string; fireAt: number },
+  vaultId: string,
+  now: number,
+): Alarm {
+  return {
+    id: input.id ?? tkId("al"),
+    vaultId,
+    label: input.label,
+    fireAt: input.fireAt,
+    enabled: input.enabled ?? true,
+    firedAt: input.firedAt ?? null,
     createdAt: input.createdAt ?? now,
   };
 }
