@@ -739,3 +739,9 @@ export async function syncCaldavCalendar(
 ): Promise<number> {
   return invoke<number>("sync_caldav_calendar", { accountId, calendarExternalId });
 }
+
+// ─── AI ───────────────────────────────────────────────────────────────────────
+
+export async function aiSummarize(text: string): Promise<string> {
+  return invoke<string>("ai_summarize", { text });
+}

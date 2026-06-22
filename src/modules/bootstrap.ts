@@ -5,6 +5,7 @@
  */
 import { registerTasksModule } from "@/modules/tasks";
 import { registerNotesModule } from "@/modules/notes";
+import { registerAiModule } from "@/modules/ai";
 
 let _bootstrapped = false;
 
@@ -13,6 +14,7 @@ export function bootstrapModules(): void {
   _bootstrapped = true;
   registerTasksModule();
   registerNotesModule();
+  registerAiModule();
 }
 
 /** Test-only: allow re-bootstrapping after a registry reset. */

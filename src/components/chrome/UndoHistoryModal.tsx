@@ -139,6 +139,9 @@ function UndoItem({ item, onClick }: { item: HistoryEntry; onClick: () => void }
     >
       <Undo2 size={11} className="shrink-0 opacity-60" />
       <span>{item.description}</span>
+      {item.source === "ai" && (
+        <span className="ml-auto rounded-xs border border-accent/40 bg-accent/10 px-1 text-caption text-accent">AI</span>
+      )}
     </button>
   );
 }
@@ -156,6 +159,9 @@ function RedoItem({ item, onClick }: { item: HistoryEntry; onClick: () => void }
     >
       <Redo2 size={11} className="shrink-0 opacity-60" />
       <span>{item.description}</span>
+      {item.source === "ai" && (
+        <span className="ml-auto rounded-xs border border-accent/40 bg-accent/10 px-1 text-caption text-accent">AI</span>
+      )}
     </button>
   );
 }

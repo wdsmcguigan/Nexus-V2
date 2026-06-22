@@ -28,6 +28,7 @@ import {
   type Message,
   type Mutation,
   type MutationKind,
+  type MutationSource,
   type MetadataFilter,
   type Rule,
   type SavedView,
@@ -40,6 +41,7 @@ import { isTauri, applyMutationIpc } from "@/storage/tauri";
 import { kindNamespace } from "@/state/mutationKind";
 import { getModuleReducer } from "@/state/moduleReducers";
 import { emit as emitBusEvent } from "@/state/eventBus";
+import { wrapEnvelope, unwrapEnvelope, type MutationMeta } from "@/state/provenance";
 
 // ─── Lamport clock + device id ───────────────────────────────────────────────
 
@@ -64,6 +66,7 @@ interface UndoEntry {
   description: string;
   /** False for actions that are visible in history but cannot be reversed (e.g. sent email). */
   canUndo: boolean;
+  source?: MutationSource;
 }
 
 const _undoStack: UndoEntry[] = [];
@@ -144,6 +147,8 @@ export interface HistoryEntry {
   canUndo: boolean;
   /** True when a non-undoable barrier exists between this item and "Now", making it unreachable. */
   blocked: boolean;
+  /** Provenance of the action (e.g. "ai"). Absent ⇒ user action. */
+  source?: MutationSource;
 }
 
 /** Returns the undo history with the most-recent action first. */
@@ -151,7 +156,7 @@ export function getUndoHistory(): HistoryEntry[] {
   const items = [..._undoStack].reverse();
   let barrier = false;
   return items.map((e) => {
-    const entry: HistoryEntry = { description: e.description, canUndo: e.canUndo, blocked: barrier };
+    const entry: HistoryEntry = { description: e.description, canUndo: e.canUndo, blocked: barrier, source: e.source };
     if (!e.canUndo) barrier = true;
     return entry;
   });
@@ -159,7 +164,7 @@ export function getUndoHistory(): HistoryEntry[] {
 
 /** Returns the redo history with the next-to-redo action first. */
 export function getRedoHistory(): HistoryEntry[] {
-  return [..._redoStack].reverse().map((e) => ({ description: e.description, canUndo: e.canUndo, blocked: false }));
+  return [..._redoStack].reverse().map((e) => ({ description: e.description, canUndo: e.canUndo, blocked: false, source: e.source }));
 }
 
 /** Entries for actions that appear in history but cannot be reversed. */
@@ -344,8 +349,10 @@ function _applyAndPersist(
   kind: MutationKind,
   payload: unknown,
   store: LocalStore,
+  opts?: MutationMeta,
 ): Mutation {
   _lamport += 1;
+  const persistedPayload = wrapEnvelope(payload, opts);
   const mutation: Mutation = {
     id: `mut-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     vaultId: store.vault?.id ?? "local",
@@ -353,7 +360,9 @@ function _applyAndPersist(
     ts: Date.now(),
     lamport: _lamport,
     kind,
-    payload,
+    payload: persistedPayload,
+    source: opts?.source ?? "user",
+    ...(opts?.generatedBy ? { generatedBy: opts.generatedBy } : {}),
   };
 
   store.appendMutation(mutation);
@@ -361,7 +370,7 @@ function _applyAndPersist(
 
   // Fire-and-forget persistence to SQLite in Tauri mode
   if (isTauri()) {
-    applyMutationIpc(kind, payload, mutation.deviceId, mutation.lamport).catch((e) =>
+    applyMutationIpc(kind, persistedPayload, mutation.deviceId, mutation.lamport).catch((e) =>
       console.warn("IPC mutation persist failed:", e),
     );
   }
@@ -376,13 +385,15 @@ export function recordMutation(
   kind: MutationKind,
   payload: unknown,
   store: LocalStore = _defaultStore,
+  opts?: MutationMeta,
 ): Mutation {
   // Capture reverse entry before applyMutation modifies the store.
   const undoEntry = _skipStack
     ? null
     : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
+  if (undoEntry && opts?.source) undoEntry.source = opts.source;
 
-  const mutation = _applyAndPersist(kind, payload, store);
+  const mutation = _applyAndPersist(kind, payload, store, opts);
 
   if (!_skipStack) {
     if (undoEntry) {
@@ -406,6 +417,7 @@ export function recordMutations(
   steps: Array<{ kind: MutationKind; payload: unknown }>,
   store: LocalStore = _defaultStore,
   description = "Multiple changes",
+  opts?: MutationMeta,
 ): void {
   if (steps.length === 0) return;
   const reverse: Array<{ kind: MutationKind; payload: unknown }> = [];
@@ -415,11 +427,11 @@ export function recordMutations(
     const entry = _skipStack ? null : _buildReverseEntry(step.kind, step.payload, store);
     if (entry && entry.canUndo) reverse.unshift(...entry.reverseSteps);
     else undoable = false;
-    _applyAndPersist(step.kind, step.payload, store);
+    _applyAndPersist(step.kind, step.payload, store, opts);
   }
   if (!_skipStack) {
     if (undoable && reverse.length) {
-      _undoStack.push({ forwardSteps: [...steps], reverseSteps: reverse, description, canUndo: true });
+      _undoStack.push({ forwardSteps: [...steps], reverseSteps: reverse, description, canUndo: true, source: opts?.source });
       if (_undoStack.length > UNDO_MAX) _undoStack.shift();
     }
     _redoStack.length = 0;
@@ -434,7 +446,7 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
   // Advance lamport clock past any replayed values
   for (const m of mutations) {
     if (m.lamport > _lamport) _lamport = m.lamport;
-    applyMutation(m, store);
+    applyMutation({ ...m }, store);
   }
 }
 
@@ -446,7 +458,7 @@ export function replayMutations(mutations: Mutation[], store: LocalStore): void 
  */
 export function replayModuleMutations(namespace: string, store: LocalStore): void {
   for (const m of store.mutations) {
-    if (kindNamespace(m.kind) === namespace) applyMutation(m, store);
+    if (kindNamespace(m.kind) === namespace) applyMutation({ ...m }, store);
   }
 }
 
@@ -489,7 +501,13 @@ export function applyRemoteMutation(
 // ─── Apply ───────────────────────────────────────────────────────────────────
 // Dispatches a single mutation to the appropriate handler.
 
-export function applyMutation(m: Mutation, store: LocalStore): void {
+export function applyMutation(mIn: Mutation, store: LocalStore): void {
+  const { payload, meta } = unwrapEnvelope(mIn.payload);
+  if (meta) {
+    if (meta.source) mIn.source = meta.source;
+    if (meta.generatedBy) mIn.generatedBy = meta.generatedBy;
+  }
+  const m = meta ? { ...mIn, payload } : mIn;
   const ns = kindNamespace(m.kind);
   if (ns !== null) {
     // Module-namespaced mutation: dispatch to the registered module reducer.
