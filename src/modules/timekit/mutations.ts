@@ -1,7 +1,10 @@
 import type { LocalStore } from "@/storage/local";
 import { recordMutation, recordMutations, type ModuleInverseBuilder } from "@/state/mutations";
-import { makeTimeEntry } from "@/modules/timekit/model";
-import type { Link, TimeEntry } from "@/data/types";
+import { makeTimeEntry, makeTimer } from "@/modules/timekit/model";
+import type { CountdownTimer, Link, MutationSource, TimeEntry } from "@/data/types";
+
+/** Provenance opts forwarded to recordMutation (e.g. the tick worker's source:"module"). */
+export type TimekitOpts = { source?: MutationSource; generatedBy?: string };
 
 export const TIMEKIT_NS = "org.nexus.timekit";
 
@@ -11,6 +14,13 @@ export const KIND = {
   STOP_TRACKING: `${TIMEKIT_NS}/STOP_TRACKING`,
   SET_ENTRY_NOTE: `${TIMEKIT_NS}/SET_ENTRY_NOTE`,
   DELETE_ENTRY: `${TIMEKIT_NS}/DELETE_ENTRY`,
+  CREATE_TIMER: `${TIMEKIT_NS}/CREATE_TIMER`,
+  START_TIMER: `${TIMEKIT_NS}/START_TIMER`,
+  PAUSE_TIMER: `${TIMEKIT_NS}/PAUSE_TIMER`,
+  RESUME_TIMER: `${TIMEKIT_NS}/RESUME_TIMER`,
+  COMPLETE_TIMER: `${TIMEKIT_NS}/COMPLETE_TIMER`,
+  RESET_TIMER: `${TIMEKIT_NS}/RESET_TIMER`,
+  DELETE_TIMER: `${TIMEKIT_NS}/DELETE_TIMER`,
 } as const;
 
 /** Entity-type id for a time entry (used as srcType in links). */
@@ -67,6 +77,41 @@ export function deleteEntryMutation(id: string, store: LocalStore): void {
   recordMutation(KIND.DELETE_ENTRY, { id }, store);
 }
 
+export function createTimerMutation(label: string, durationMs: number, store: LocalStore): CountdownTimer {
+  const t = makeTimer({ label, durationMs }, store.vault?.id ?? "local", Date.now());
+  recordMutation(KIND.CREATE_TIMER, t, store);
+  return t;
+}
+
+export function startTimerMutation(id: string, store: LocalStore): void {
+  recordMutation(KIND.START_TIMER, { id, startedAt: Date.now() }, store);
+}
+
+/** Pause a running timer: fold the current run into elapsedBeforeMs (computed at record-time). */
+export function pauseTimerMutation(id: string, store: LocalStore): void {
+  const t = store.countdownTimers.get(id);
+  if (!t || t.state !== "running" || t.startedAt == null) return;
+  const elapsedBeforeMs = t.elapsedBeforeMs + (Date.now() - t.startedAt);
+  recordMutation(KIND.PAUSE_TIMER, { id, elapsedBeforeMs }, store);
+}
+
+export function resumeTimerMutation(id: string, store: LocalStore): void {
+  recordMutation(KIND.RESUME_TIMER, { id, startedAt: Date.now() }, store);
+}
+
+/** Mark a timer done. The tick worker passes { source: "module" }; manual calls omit it. */
+export function completeTimerMutation(id: string, store: LocalStore, opts?: TimekitOpts): void {
+  recordMutation(KIND.COMPLETE_TIMER, { id }, store, opts);
+}
+
+export function resetTimerMutation(id: string, store: LocalStore): void {
+  recordMutation(KIND.RESET_TIMER, { id }, store);
+}
+
+export function deleteTimerMutation(id: string, store: LocalStore): void {
+  recordMutation(KIND.DELETE_TIMER, { id }, store);
+}
+
 /**
  * Inverse builder for the whole timekit namespace. Captures prior state BEFORE
  * the mutation applies (substrate §4.3). Grows a case per kind across stages.
@@ -102,6 +147,31 @@ export const timekitInverse: ModuleInverseBuilder = (kind, payload, store) => {
       const prev = s.timeEntries.get(p.id);
       if (!prev) return null;
       return { reverseSteps: [{ kind: KIND.START_TRACKING, payload: prev }], description: "Delete entry" };
+    }
+    case KIND.CREATE_TIMER: {
+      const t = payload as CountdownTimer;
+      return { reverseSteps: [{ kind: KIND.DELETE_TIMER, payload: { id: t.id } }], description: "Create timer" };
+    }
+    case KIND.DELETE_TIMER: {
+      const p = payload as { id: string };
+      const prev = s.countdownTimers.get(p.id);
+      if (!prev) return null;
+      return { reverseSteps: [{ kind: KIND.CREATE_TIMER, payload: prev }], description: "Delete timer" };
+    }
+    case KIND.START_TIMER:
+    case KIND.RESUME_TIMER:
+    case KIND.PAUSE_TIMER:
+    case KIND.COMPLETE_TIMER:
+    case KIND.RESET_TIMER: {
+      const p = payload as { id: string };
+      const prev = s.countdownTimers.get(p.id);
+      if (!prev) return null;
+      const desc =
+        kind === KIND.PAUSE_TIMER ? "Pause timer"
+        : kind === KIND.COMPLETE_TIMER ? "Complete timer"
+        : kind === KIND.RESET_TIMER ? "Reset timer"
+        : "Start timer";
+      return { reverseSteps: [{ kind: KIND.CREATE_TIMER, payload: { ...prev } }], description: desc };
     }
   }
   return null;

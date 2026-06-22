@@ -16,6 +16,13 @@ import {
   stopTrackingMutation,
   setEntryNoteMutation,
   deleteEntryMutation,
+  createTimerMutation,
+  startTimerMutation,
+  pauseTimerMutation,
+  resumeTimerMutation,
+  completeTimerMutation,
+  resetTimerMutation,
+  deleteTimerMutation,
 } from "@/modules/timekit/mutations";
 
 function wire(): LocalStore {
@@ -81,5 +88,52 @@ describe("timekit time entries", () => {
     deleteEntryMutation(e.id, s);
     undoLastMutation(s);
     expect(s.timeEntries.has(e.id)).toBe(true);
+  });
+});
+
+describe("timekit countdown timers", () => {
+  it("create → start → complete moves through states", () => {
+    const s = wire();
+    const t = createTimerMutation("Tea", 5_000, s);
+    expect(s.countdownTimers.get(t.id)?.state).toBe("idle");
+    startTimerMutation(t.id, s);
+    expect(s.countdownTimers.get(t.id)?.state).toBe("running");
+    completeTimerMutation(t.id, s);
+    expect(s.countdownTimers.get(t.id)?.state).toBe("done");
+  });
+
+  it("pause accumulates elapsedBeforeMs and resume re-arms startedAt", () => {
+    const s = wire();
+    const t = createTimerMutation("Work", 60_000, s);
+    startTimerMutation(t.id, s);
+    pauseTimerMutation(t.id, s);
+    const paused = s.countdownTimers.get(t.id)!;
+    expect(paused.state).toBe("paused");
+    expect(paused.startedAt).toBeNull();
+    expect(paused.elapsedBeforeMs).toBeGreaterThanOrEqual(0);
+    resumeTimerMutation(t.id, s);
+    expect(s.countdownTimers.get(t.id)?.state).toBe("running");
+    expect(s.countdownTimers.get(t.id)?.startedAt).not.toBeNull();
+  });
+
+  it("reset returns to idle with zero elapsed; delete removes it", () => {
+    const s = wire();
+    const t = createTimerMutation("X", 1_000, s);
+    startTimerMutation(t.id, s);
+    resetTimerMutation(t.id, s);
+    const r = s.countdownTimers.get(t.id)!;
+    expect(r.state).toBe("idle");
+    expect(r.elapsedBeforeMs).toBe(0);
+    deleteTimerMutation(t.id, s);
+    expect(s.countdownTimers.has(t.id)).toBe(false);
+  });
+
+  it("undo of complete restores the running state", () => {
+    const s = wire();
+    const t = createTimerMutation("Y", 1_000, s);
+    startTimerMutation(t.id, s);
+    completeTimerMutation(t.id, s);
+    undoLastMutation(s);
+    expect(s.countdownTimers.get(t.id)?.state).toBe("running");
   });
 });
