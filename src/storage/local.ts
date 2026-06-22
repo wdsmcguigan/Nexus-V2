@@ -32,6 +32,7 @@ import type {
   Task,
   TaskStatus,
   Template,
+  TimeEntry,
   Vault,
 } from "@/data/types";
 
@@ -97,6 +98,7 @@ export class LocalStore {
   tasks = new Map<string, Task>();
   tasksByStatus = new Map<TaskStatus, Set<string>>();
   notes = new Map<string, Note>();
+  timeEntries = new Map<string, TimeEntry>();
   /** Saved IANA timezone strings for the Clock section (timekit module config). */
   timekitZones: string[] = [];
   /** email address → contactId (O(1) lookup from inspector) */
@@ -176,6 +178,7 @@ export class LocalStore {
     this.tasks.clear();
     this.tasksByStatus.clear();
     this.notes.clear();
+    this.timeEntries.clear();
     this.timekitZones = [];
 
     for (const a of snap.accounts) this.accounts.set(a.id, a);
@@ -446,6 +449,16 @@ export class LocalStore {
 
   setTimekitZones(zones: string[]): void {
     this.timekitZones = zones;
+    this._notify();
+  }
+
+  putTimeEntry(e: TimeEntry): void {
+    this.timeEntries.set(e.id, e);
+    this._notify();
+  }
+
+  deleteTimeEntry(id: string): void {
+    this.timeEntries.delete(id);
     this._notify();
   }
 
