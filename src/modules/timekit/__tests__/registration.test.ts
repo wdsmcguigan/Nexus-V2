@@ -42,4 +42,12 @@ describe("Timekit module registration", () => {
     expect(m?.mutationKinds).toContain("org.nexus.timekit/COMPLETE_TIMER");
     expect(listModuleCommands().find((c) => c.key === "org.nexus.timekit:new-timer")?.spec.title).toBe("New timer");
   });
+
+  it("declares the alarm entity and a new-alarm command", () => {
+    registerTimekitModule();
+    const m = getModule(TIMEKIT_MODULE_ID);
+    expect(m?.entities).toContain("org.nexus.timekit/alarm");
+    expect(m?.mutationKinds).toContain("org.nexus.timekit/FIRE_ALARM");
+    expect(listModuleCommands().find((c) => c.key === "org.nexus.timekit:new-alarm")?.spec.title).toBe("New alarm");
+  });
 });
