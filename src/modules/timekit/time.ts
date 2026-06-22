@@ -1,4 +1,4 @@
-import type { TimeEntry } from "@/data/types";
+import type { TimeEntry, CountdownTimer } from "@/data/types";
 
 /**
  * Format an epoch (ms) as a wall clock. With `zone`, renders that IANA zone's
@@ -27,4 +27,17 @@ export function formatDuration(ms: number): string {
   const sec = total % 60;
   const pad = (n: number) => String(n).padStart(2, "0");
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
+/** When a running timer will reach zero, or null when not running. */
+export function timerEndsAt(t: CountdownTimer): number | null {
+  if (t.startedAt == null) return null;
+  return t.startedAt + (t.durationMs - t.elapsedBeforeMs);
+}
+
+/** Remaining ms for a timer. Never negative. */
+export function timerRemainingMs(t: CountdownTimer, now: number): number {
+  if (t.state === "done") return 0;
+  if (t.startedAt == null) return Math.max(0, t.durationMs - t.elapsedBeforeMs);
+  return Math.max(0, timerEndsAt(t)! - now);
 }

@@ -40,3 +40,32 @@ describe("formatDuration", () => {
     expect(formatDuration(-5_000)).toBe("0:00");
   });
 });
+
+import { timerEndsAt, timerRemainingMs } from "@/modules/timekit/time";
+import type { CountdownTimer } from "@/data/types";
+
+function timer(p: Partial<CountdownTimer>): CountdownTimer {
+  return {
+    id: "ct-1", vaultId: "local", label: "T", durationMs: 10_000,
+    startedAt: null, elapsedBeforeMs: 0, state: "idle", createdAt: 0, ...p,
+  };
+}
+
+describe("timerEndsAt / timerRemainingMs", () => {
+  it("running: endsAt = startedAt + (duration - elapsedBefore)", () => {
+    const t = timer({ state: "running", startedAt: 1_000, durationMs: 10_000, elapsedBeforeMs: 2_000 });
+    expect(timerEndsAt(t)).toBe(9_000);          // 1000 + (10000 - 2000)
+    expect(timerRemainingMs(t, 4_000)).toBe(5_000);
+  });
+  it("idle/paused: remaining = duration - elapsedBefore (now ignored)", () => {
+    expect(timerEndsAt(timer({ state: "idle" }))).toBeNull();
+    expect(timerRemainingMs(timer({ state: "paused", elapsedBeforeMs: 3_000 }), 999)).toBe(7_000);
+  });
+  it("done: remaining is 0", () => {
+    expect(timerRemainingMs(timer({ state: "done" }), 0)).toBe(0);
+  });
+  it("running past end clamps to 0", () => {
+    const t = timer({ state: "running", startedAt: 0, durationMs: 1_000, elapsedBeforeMs: 0 });
+    expect(timerRemainingMs(t, 5_000)).toBe(0);
+  });
+});
