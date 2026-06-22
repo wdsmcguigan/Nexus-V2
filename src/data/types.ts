@@ -201,6 +201,17 @@ export interface Note {
   updatedAt: number;   // drives list sort; stamped at record-time
 }
 
+
+// ─── TKENT — Time Entry (Timekit module) ─────────────────────────────────────
+
+export interface TimeEntry {
+  id: string;
+  vaultId: string;
+  startedAt: number;          // epoch ms
+  stoppedAt: number | null;   // null = running
+  note: string | null;
+  createdAt: number;
+}
 // ─── CFD — Custom field definition ───────────────────────────────────────────
 // Airtable-style user-defined typed field. Unlimited count.
 // Is NOT LBL (system+user typed metadata) or TAG (untyped strings).
