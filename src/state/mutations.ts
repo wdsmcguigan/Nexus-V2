@@ -67,6 +67,7 @@ interface UndoEntry {
   /** False for actions that are visible in history but cannot be reversed (e.g. sent email). */
   canUndo: boolean;
   source?: MutationSource;
+  generatedBy?: string;
 }
 
 const _undoStack: UndoEntry[] = [];
@@ -137,7 +138,11 @@ export function redoLastMutation(store: LocalStore = _defaultStore): string | nu
   _undoStack.push(entry);
   if (_undoStack.length > UNDO_MAX) _undoStack.shift();
   _skipStack = true;
-  for (const step of entry.forwardSteps) recordMutation(step.kind, step.payload, store);
+  // Re-emit with the original provenance so a redone AI/rule action persists its
+  // source (not the default "user"). _skipStack keeps redo from pushing a new
+  // undo entry; opts only affects the persisted envelope.
+  const opts = entry.source ? { source: entry.source, generatedBy: entry.generatedBy } : undefined;
+  for (const step of entry.forwardSteps) recordMutation(step.kind, step.payload, store, opts);
   _skipStack = false;
   return entry.description;
 }
@@ -391,7 +396,10 @@ export function recordMutation(
   const undoEntry = _skipStack
     ? null
     : (_buildReverseEntry(kind, payload, store) ?? _buildNonUndoableEntry(kind, payload));
-  if (undoEntry && opts?.source) undoEntry.source = opts.source;
+  if (undoEntry && opts?.source) {
+    undoEntry.source = opts.source;
+    undoEntry.generatedBy = opts.generatedBy;
+  }
 
   const mutation = _applyAndPersist(kind, payload, store, opts);
 
@@ -431,7 +439,7 @@ export function recordMutations(
   }
   if (!_skipStack) {
     if (undoable && reverse.length) {
-      _undoStack.push({ forwardSteps: [...steps], reverseSteps: reverse, description, canUndo: true, source: opts?.source });
+      _undoStack.push({ forwardSteps: [...steps], reverseSteps: reverse, description, canUndo: true, source: opts?.source, generatedBy: opts?.generatedBy });
       if (_undoStack.length > UNDO_MAX) _undoStack.shift();
     }
     _redoStack.length = 0;

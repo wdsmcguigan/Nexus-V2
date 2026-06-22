@@ -4,6 +4,7 @@ import {
   recordMutation,
   applyMutation,
   undoLastMutation,
+  redoLastMutation,
   getUndoHistory,
   _resetUndoStacks,
 } from "@/state/mutations";
@@ -17,6 +18,37 @@ function freshStore(): LocalStore {
 
 function makeFolder(id: string, name: string) {
   return { id, vaultId: "v1", parentId: null, name, diskSlug: name, diskPath: name };
+}
+
+function seedMessage(s: LocalStore, id: string): void {
+  s.putMessage({
+    id,
+    vaultId: "v1",
+    folderId: "f-inbox",
+    threadId: "t1",
+    providerIds: {},
+    labelIds: [],
+    tags: [],
+    statusId: null,
+    priority: null,
+    star: null,
+    flag: null,
+    pinned: false,
+    muted: false,
+    notes: null,
+    customFields: {},
+    flags: { read: false, answered: false, draft: false, flagged: false },
+    receivedAt: 0,
+    sentAt: 0,
+    fromAddr: { name: "A", email: "a@example.com" },
+    toAddrs: [],
+    ccAddrs: [],
+    bccAddrs: [],
+    subject: "Test",
+    snippet: "",
+    bodyRef: "hash-1",
+    attachmentRefs: [],
+  });
 }
 
 beforeEach(() => _resetUndoStacks());
@@ -116,5 +148,26 @@ describe("mutation provenance", () => {
     expect(s.messages.get("m-pin-test")?.pinned).toBe(true);
     undoLastMutation(s);
     expect(s.messages.get("m-pin-test")?.pinned).toBe(false);
+  });
+
+  it("redo of an AI mutation re-persists its provenance (source stays 'ai')", () => {
+    const s = freshStore();
+    seedMessage(s, "m-redo-test");
+    recordMutation("SET_PINNED", { messageId: "m-redo-test", pinned: true }, s, {
+      source: "ai",
+      generatedBy: "claude-x",
+    });
+    undoLastMutation(s);
+    expect(s.messages.get("m-redo-test")?.pinned).toBe(false);
+
+    redoLastMutation(s);
+    // the effect is redone
+    expect(s.messages.get("m-redo-test")?.pinned).toBe(true);
+    // and the re-emitted/persisted mutation kept its provenance (not downgraded to "user")
+    const last = s.mutations[s.mutations.length - 1]!;
+    expect(last.source).toBe("ai");
+    expect(last.generatedBy).toBe("claude-x");
+    // history label is still AI
+    expect(getUndoHistory()[0]?.source).toBe("ai");
   });
 });
