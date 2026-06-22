@@ -3,11 +3,13 @@ import type { IDockviewPanelProps } from "dockview";
 import { cn } from "@/lib/utils";
 import { ClockSection } from "@/modules/timekit/ClockSection";
 import { TrackerSection } from "@/modules/timekit/TrackerSection";
+import { TimersSection } from "@/modules/timekit/TimersSection";
 import { getRequestedSection, subscribeSection, type TimekitSection } from "@/modules/timekit/panelState";
 
 const SECTIONS: { id: TimekitSection; label: string }[] = [
   { id: "clock", label: "Clock" },
   { id: "tracker", label: "Tracker" },
+  { id: "timers", label: "Timers" },
 ];
 
 /** Timekit dock panel: a tabbed Clock · Tracker (… Timers · Alarms in later stages). */
@@ -44,6 +46,7 @@ export function TimekitPanel(_: IDockviewPanelProps) {
       <div className="min-h-0 flex-1 overflow-auto">
         {section === "clock" && <ClockSection />}
         {section === "tracker" && <TrackerSection />}
+        {section === "timers" && <TimersSection />}
       </div>
     </div>
   );

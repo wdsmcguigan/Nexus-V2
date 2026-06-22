@@ -17,8 +17,12 @@ const manifest: ModuleManifest = {
   name: "Clock",
   version: "0.1.0",
   namespace: TIMEKIT_MODULE_ID,
-  entities: ["org.nexus.timekit/time-entry"],
-  mutationKinds: [KIND.SET_ZONES, KIND.START_TRACKING, KIND.STOP_TRACKING, KIND.SET_ENTRY_NOTE, KIND.DELETE_ENTRY],
+  entities: ["org.nexus.timekit/time-entry", "org.nexus.timekit/timer"],
+  mutationKinds: [
+    KIND.SET_ZONES, KIND.START_TRACKING, KIND.STOP_TRACKING, KIND.SET_ENTRY_NOTE, KIND.DELETE_ENTRY,
+    KIND.CREATE_TIMER, KIND.START_TIMER, KIND.PAUSE_TIMER, KIND.RESUME_TIMER,
+    KIND.COMPLETE_TIMER, KIND.RESET_TIMER, KIND.DELETE_TIMER,
+  ],
   capabilities: { "ui.contribute": ["dock", "command"] },
   trust: "core",
   contributes: {
@@ -28,6 +32,7 @@ const manifest: ModuleManifest = {
     commands: [
       { id: "open", title: "Open Clock", icon: "clock" },
       { id: "start-tracking", title: "Start time tracking", icon: "clock" },
+      { id: "new-timer", title: "New timer", icon: "clock" },
     ],
   },
 };
@@ -45,5 +50,6 @@ export function registerTimekitModule(): () => void {
     host.contribute.surface(TIMEKIT_MAIN_SURFACE_ID, TimekitPanel);
     host.contribute.command("open", () => openAt("clock"));
     host.contribute.command("start-tracking", () => openAt("tracker"));
+    host.contribute.command("new-timer", () => openAt("timers"));
   });
 }

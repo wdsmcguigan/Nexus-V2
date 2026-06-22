@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { localStore } from "@/storage/local";
 import { useStoreVersion } from "@/storage/useStore";
-import type { TimeEntry } from "@/data/types";
+import type { CountdownTimer, TimeEntry } from "@/data/types";
 
 /** The saved Clock timezone list (reactive). */
 export function useTimekitZones(): string[] {
@@ -14,6 +14,15 @@ export function useTimeEntries(): TimeEntry[] {
   const v = useStoreVersion();
   return useMemo(
     () => Array.from(localStore.timeEntries.values()).sort((a, b) => b.startedAt - a.startedAt),
+    [v],
+  );
+}
+
+/** All countdown timers, oldest-created first. */
+export function useCountdownTimers(): CountdownTimer[] {
+  const v = useStoreVersion();
+  return useMemo(
+    () => Array.from(localStore.countdownTimers.values()).sort((a, b) => a.createdAt - b.createdAt),
     [v],
   );
 }

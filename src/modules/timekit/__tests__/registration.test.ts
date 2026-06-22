@@ -34,4 +34,12 @@ describe("Timekit module registration", () => {
     const cmd = listModuleCommands().find((c) => c.key === "org.nexus.timekit:start-tracking");
     expect(cmd?.spec.title).toBe("Start time tracking");
   });
+
+  it("declares the timer entity and a new-timer command", () => {
+    registerTimekitModule();
+    const m = getModule(TIMEKIT_MODULE_ID);
+    expect(m?.entities).toContain("org.nexus.timekit/timer");
+    expect(m?.mutationKinds).toContain("org.nexus.timekit/COMPLETE_TIMER");
+    expect(listModuleCommands().find((c) => c.key === "org.nexus.timekit:new-timer")?.spec.title).toBe("New timer");
+  });
 });
