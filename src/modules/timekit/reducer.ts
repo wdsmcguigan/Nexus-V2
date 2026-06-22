@@ -1,6 +1,6 @@
 import type { ModuleReducer } from "@/state/moduleReducers";
 import type { LocalStore } from "@/storage/local";
-import type { CountdownTimer, TimeEntry } from "@/data/types";
+import type { Alarm, CountdownTimer, TimeEntry } from "@/data/types";
 
 function patchEntry(s: LocalStore, id: string, change: Partial<TimeEntry>): void {
   const prev = s.timeEntries.get(id);
@@ -12,6 +12,12 @@ function patchTimer(s: LocalStore, id: string, change: Partial<CountdownTimer>):
   const prev = s.countdownTimers.get(id);
   if (!prev) return;
   s.putCountdownTimer({ ...prev, ...change });
+}
+
+function patchAlarm(s: LocalStore, id: string, change: Partial<Alarm>): void {
+  const prev = s.alarms.get(id);
+  if (!prev) return;
+  s.putAlarm({ ...prev, ...change });
 }
 
 /** Applies all org.nexus.timekit mutations to the in-memory projections. */
@@ -69,6 +75,24 @@ export const timekitReducer: ModuleReducer = {
       case "org.nexus.timekit/DELETE_TIMER": {
         const p = payload as { id: string };
         s.deleteCountdownTimer(p.id);
+        break;
+      }
+      case "org.nexus.timekit/CREATE_ALARM":
+        s.putAlarm(payload as Alarm);
+        break;
+      case "org.nexus.timekit/SET_ALARM_ENABLED": {
+        const p = payload as { id: string; enabled: boolean };
+        patchAlarm(s, p.id, { enabled: p.enabled });
+        break;
+      }
+      case "org.nexus.timekit/FIRE_ALARM": {
+        const p = payload as { id: string; firedAt: number | null };
+        patchAlarm(s, p.id, { firedAt: p.firedAt });
+        break;
+      }
+      case "org.nexus.timekit/DELETE_ALARM": {
+        const p = payload as { id: string };
+        s.deleteAlarm(p.id);
         break;
       }
     }

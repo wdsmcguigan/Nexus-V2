@@ -23,6 +23,7 @@ import {
   completeTimerMutation,
   resetTimerMutation,
   deleteTimerMutation,
+  createAlarmMutation, setAlarmEnabledMutation, fireAlarmMutation, deleteAlarmMutation,
 } from "@/modules/timekit/mutations";
 
 function wire(): LocalStore {
@@ -135,5 +136,27 @@ describe("timekit countdown timers", () => {
     completeTimerMutation(t.id, s);
     undoLastMutation(s);
     expect(s.countdownTimers.get(t.id)?.state).toBe("running");
+  });
+});
+
+describe("timekit alarms", () => {
+  it("create → toggle enabled → fire → delete", () => {
+    const s = wire();
+    const a = createAlarmMutation("Standup", 5_000, s);
+    expect(s.alarms.get(a.id)?.enabled).toBe(true);
+    setAlarmEnabledMutation(a.id, false, s);
+    expect(s.alarms.get(a.id)?.enabled).toBe(false);
+    fireAlarmMutation(a.id, s);
+    expect(s.alarms.get(a.id)?.firedAt).not.toBeNull();
+    deleteAlarmMutation(a.id, s);
+    expect(s.alarms.has(a.id)).toBe(false);
+  });
+
+  it("undo of fire restores firedAt = null", () => {
+    const s = wire();
+    const a = createAlarmMutation("X", 1_000, s);
+    fireAlarmMutation(a.id, s);
+    undoLastMutation(s);
+    expect(s.alarms.get(a.id)?.firedAt).toBeNull();
   });
 });
