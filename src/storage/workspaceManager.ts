@@ -20,6 +20,8 @@ export interface DetachedWindowSnapshot {
   targetId: string | null;
   /** Last-known window geometry (physical px) + monitor; null until captured. */
   geometry: WindowGeometry | null;
+  /** For kind "module": the dock-surface componentKey to re-open. */
+  componentKey?: string;
 }
 
 export interface WorkspaceSnapshot {
