@@ -158,3 +158,11 @@ export function setNavSequencePending(v: boolean): void {
 export function isNavSequencePending(): boolean {
   return _navSequencePending;
 }
+
+/** True if `key` is claimed by a built-in shortcut (a DEFAULT_SHORTCUTS default
+ *  key or a chord prefix). Module command shortcuts may not shadow these. */
+export function isReservedShortcutKey(key: string): boolean {
+  const k = key.toLowerCase();
+  if (k === NAV_PREFIX || k === SELECTION_PREFIX) return true;
+  return DEFAULT_SHORTCUTS.some((s) => s.defaultKey.toLowerCase() === k);
+}
