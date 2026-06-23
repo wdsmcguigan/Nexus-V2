@@ -321,7 +321,8 @@ export type PopoutKind =
   | "list"
   | "contacts"
   | "calendar"
-  | "settings";
+  | "settings"
+  | "module";
 
 /**
  * Spawn a pop-out OS window. `payload` is an opaque string the new window
@@ -349,6 +350,30 @@ export interface PopoutEnvelope {
 export async function takePopoutPayload(label: string): Promise<PopoutEnvelope | null> {
   const raw = await invoke<string | null>("take_popout_payload", { label });
   return raw ? (JSON.parse(raw) as PopoutEnvelope) : null;
+}
+
+/** The shape carried in a "module" popout's opaque payload. */
+export interface ModulePopoutPayload {
+  componentKey: string;
+}
+
+export function encodeModulePopoutPayload(p: ModulePopoutPayload): string {
+  return JSON.stringify(p);
+}
+
+/** Parse a module popout payload; null on absent/invalid input. */
+export function decodeModulePopoutPayload(
+  payload: string | null | undefined,
+): ModulePopoutPayload | null {
+  if (!payload) return null;
+  try {
+    const v = JSON.parse(payload) as Partial<ModulePopoutPayload>;
+    return typeof v?.componentKey === "string" && v.componentKey
+      ? { componentKey: v.componentKey }
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function closePopoutWindow(label: string): Promise<void> {
