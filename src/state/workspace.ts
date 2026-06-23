@@ -206,7 +206,7 @@ interface WorkspaceState {
   openSettingsPanel: () => void;
 
   // Module dock surfaces (substrate Pillar 4)
-  openModulePanel: (componentKey: string, title: string) => void;
+  openModulePanel: (componentKey: string, title: string, params?: Record<string, unknown>) => void;
 
   // Panel focus + Focus Memory Stack
   activePanelId: string | null;
@@ -846,17 +846,20 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
-  openModulePanel: (componentKey, title) => {
+  openModulePanel: (componentKey, title, params) => {
     const api = getDockviewApi();
     if (!api) return;
     const existing = api.panels.find((p) => p.id === componentKey);
     if (existing) {
       existing.api.setActive();
+      // Singleton surface: re-point the already-open panel at the new launch context.
+      if (params) existing.api.updateParameters(params);
     } else {
       api.addPanel({
         id: componentKey,
         component: componentKey,
         title,
+        params,
         minimumWidth: 360, // generic default floor for module surfaces
         position: { direction: "right" },
       });
