@@ -14,7 +14,7 @@
 import { create } from "zustand";
 import type { Density, Theme } from "@/design-system/tokens";
 import { localStore } from "@/storage/local";
-import { broadcastUiPref, closePopoutWindow, isTauri, openPopoutWindow, type PopoutKind, type WindowGeometry } from "@/storage/tauri";
+import { broadcastUiPref, closePopoutWindow, encodeModulePopoutPayload, isTauri, openPopoutWindow, type PopoutKind, type WindowGeometry } from "@/storage/tauri";
 import * as Mut from "@/state/mutations";
 import {
   loadWorkspacesFromStorage,
@@ -254,6 +254,7 @@ interface WorkspaceState {
     targetId: string | null,
     geometry?: WindowGeometry | null,
     persist?: boolean,
+    componentKey?: string,
   ) => void;
   untrackDetachedWindow: (label: string) => void;
   setDetachedWindowGeometry: (label: string, geometry: WindowGeometry) => void;
@@ -962,9 +963,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   detachedWindows: {},
-  trackDetachedWindow: (label, kind, targetId, geometry = null, persist = true) => {
+  trackDetachedWindow: (label, kind, targetId, geometry = null, persist = true, componentKey) => {
     set((s) => ({
-      detachedWindows: { ...s.detachedWindows, [label]: { kind, targetId, geometry } },
+      detachedWindows: { ...s.detachedWindows, [label]: { kind, targetId, geometry, componentKey } },
     }));
     // `persist` is false during launch-time restore, before dockview is ready,
     // so we never overwrite the saved layout with an empty one.
@@ -1000,11 +1001,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const list = ws?.detachedWindows ?? [];
     for (const d of list) {
       if (d.kind === "composer") continue; // transient — never restored
-      const label = await openPopoutWindow(d.kind, {
-        targetId: d.targetId ?? undefined,
-        geometry: d.geometry ?? undefined,
-      }).catch(() => null);
-      if (label) get().trackDetachedWindow(label, d.kind, d.targetId, d.geometry, persist);
+      if (d.kind === "module" && !d.componentKey) continue; // corrupt module entry
+      const opts = d.kind === "module"
+        ? { payload: encodeModulePopoutPayload({ componentKey: d.componentKey! }), geometry: d.geometry ?? undefined }
+        : { targetId: d.targetId ?? undefined, geometry: d.geometry ?? undefined };
+      const label = await openPopoutWindow(d.kind, opts).catch(() => null);
+      if (label) get().trackDetachedWindow(label, d.kind, d.targetId, d.geometry, persist, d.componentKey);
     }
   },
 

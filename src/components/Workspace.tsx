@@ -67,7 +67,7 @@ async function detachPanelToWindow(id: string) {
   if (isModulePanelId(id)) {
     const payload = encodeModulePopoutPayload({ componentKey: id });
     const label = await openPopoutWindow("module", { payload });
-    useWorkspace.getState().trackDetachedWindow(label, "module", null, null, true);
+    useWorkspace.getState().trackDetachedWindow(label, "module", null, null, true, id);
     getDockviewApi()?.getPanel(id)?.api.close();
     return;
   }
