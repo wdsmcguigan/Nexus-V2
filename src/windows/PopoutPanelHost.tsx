@@ -7,7 +7,9 @@ import { ContactsPanel } from "@/components/contacts/ContactsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useWorkspace } from "@/state/workspace";
-import { takePopoutPayload, type PopoutKind } from "@/storage/tauri";
+import { takePopoutPayload, decodeModulePopoutPayload, type PopoutKind } from "@/storage/tauri";
+import type { IDockviewPanelProps } from "dockview";
+import { dockSurfaceComponents } from "@/modules/surfaceRegistry";
 
 // Synthetic, window-local panel ids. A pop-out has its own React root and no
 // shared dockview, so panel-keyed state (pin/inspector association) is scoped
@@ -31,6 +33,7 @@ const SETTINGS_ID = "popout-settings";
 export function PopoutPanelHost({ label }: { label: string }) {
   const kind = (label.split("-")[1] ?? "panel") as PopoutKind;
   const [ready, setReady] = React.useState(false);
+  const [modulePayload, setModulePayload] = React.useState<string | null>(null);
   const composerOpen = useWorkspace((s) => s.composerOpen);
 
   React.useEffect(() => {
@@ -39,6 +42,7 @@ export function PopoutPanelHost({ label }: { label: string }) {
       const env = await takePopoutPayload(label).catch(() => null);
       if (cancelled) return;
       const targetId = env?.targetId ?? null;
+      setModulePayload(env?.payload ?? null);
       if (targetId) {
         useWorkspace.getState().setSelectedEmail(targetId);
         if (kind === "viewer") useWorkspace.getState().pinViewerToEmail(VIEWER_ID, targetId);
@@ -72,6 +76,20 @@ export function PopoutPanelHost({ label }: { label: string }) {
       return <CalendarPanel />;
     case "settings":
       return <SettingsPanel panelId={SETTINGS_ID} />;
+    case "module": {
+      const parsed = decodeModulePopoutPayload(modulePayload);
+      const Comp = parsed ? dockSurfaceComponents()[parsed.componentKey] : undefined;
+      if (!Comp) {
+        return (
+          <div className="flex h-full w-full items-center justify-center text-text-muted">
+            Unsupported window type
+          </div>
+        );
+      }
+      // Module surfaces are dockview panel components; outside dockview we supply a
+      // minimal stub (params only — current modules don't read the dockview api).
+      return <Comp {...({ params: {} } as unknown as IDockviewPanelProps)} />;
+    }
     default:
       return (
         <div className="flex h-full w-full items-center justify-center text-text-muted">

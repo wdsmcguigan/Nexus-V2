@@ -20,7 +20,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { CalendarPanel } from "@/components/calendar/CalendarPanel";
 import { EventCreateModal } from "@/components/calendar/EventCreateModal";
 import { useWorkspace, setDockviewApi, setDefaultLayoutJson, getDefaultLayoutJson, scheduleAutoSave, getDockviewApi } from "@/state/workspace";
-import { isTauri, openPopoutWindow, type PopoutKind } from "@/storage/tauri";
+import { isTauri, openPopoutWindow, encodeModulePopoutPayload, type PopoutKind } from "@/storage/tauri";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
@@ -64,8 +64,15 @@ const DV_COMPONENTS: Record<string, React.FunctionComponent<IDockviewPanelProps>
 // layout. Navigation is intentionally non-detachable. Viewer/inspector carry
 // the currently-shown message so the pop-out opens on the right content.
 async function detachPanelToWindow(id: string) {
+  if (isModulePanelId(id)) {
+    const payload = encodeModulePopoutPayload({ componentKey: id });
+    const label = await openPopoutWindow("module", { payload });
+    useWorkspace.getState().trackDetachedWindow(label, "module", null, null, true);
+    getDockviewApi()?.getPanel(id)?.api.close();
+    return;
+  }
   const moduleKey = id.split("-")[0];
-  if (!moduleKey || moduleKey === "nav" || isModulePanelId(id)) return;
+  if (!moduleKey || moduleKey === "nav") return;
   const kind = moduleKey as PopoutKind;
   let targetId: string | null = null;
   if (moduleKey === "viewer" || moduleKey === "inspector") {
@@ -78,9 +85,8 @@ async function detachPanelToWindow(id: string) {
 }
 
 function DockviewTab(props: IDockviewPanelHeaderProps) {
-  // Module panels are non-detachable for now (their namespaced ids aren't valid
-  // PopoutKinds); Navigation is never detachable.
-  const detachable = isTauri() && !isModulePanelId(props.api.id) && props.api.id.split("-")[0] !== "nav";
+  // Navigation is never detachable; all other panels (including modules) are.
+  const detachable = isTauri() && props.api.id.split("-")[0] !== "nav";
   return (
     <div className="group/tab flex h-full items-center pl-1">
       <GripVertical size={11} className="mr-0.5 shrink-0 text-text-muted opacity-40" />
