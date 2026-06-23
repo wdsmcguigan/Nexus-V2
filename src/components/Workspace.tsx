@@ -26,9 +26,9 @@ import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
 import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
 import type { ModuleKey } from "@/data/types";
-import { resolvePanelColor, resolveBodyTintLevel } from "@/lib/panelColors";
+import { resolvePanelColor, resolveBodyTintLevel, resolveModulePanelColor } from "@/lib/panelColors";
 import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
-import { dockSurfaceComponents, isModulePanelId } from "@/modules/surfaceRegistry";
+import { dockSurfaceComponents, isModulePanelId, dockSurfaceColor } from "@/modules/surfaceRegistry";
 
 // ─── Panel wrapper components ─────────────────────────────────────────────────
 // dockview renders panel content by string key — wrap our panels so they
@@ -167,10 +167,18 @@ function applyModuleColor(group: { activePanel?: { id: string } | null; element?
     return;
   }
   // Module dock-surface panels (namespaced ids like "org.nexus.tasks:tasks.main")
-  // are not core ModuleKeys; skip core color resolution and clear the var so a
-  // stale color isn't left on the group.
+  // resolve color on the parallel module path: workspace/user override →
+  // manifest-declared → per-id hash fallback.
   if (isModulePanelId(activeId)) {
-    el.style.removeProperty("--module-color");
+    const declared = dockSurfaceColor(activeId);
+    const userPrefs = getAppPreferences().panelColors;
+    const activeWs = useWorkspace.getState().workspaces.find(
+      (w) => w.id === useWorkspace.getState().activeWorkspaceId,
+    );
+    el.style.setProperty(
+      "--module-color",
+      resolveModulePanelColor(activeId, declared, userPrefs, activeWs?.panelColors),
+    );
     return;
   }
   // Active panel ids in our layout match DV_COMPONENTS keys, with optional
