@@ -796,6 +796,11 @@ export interface PanelColorPrefs {
    * "#aabbcc". Missing keys fall through to the system default.
    */
   colors: Partial<Record<ModuleKey, string>>;
+  /** Per-module-panel color override, keyed by the dock-surface componentKey
+   *  (e.g. "org.nexus.tasks:tasks.main"). Value is "link-N" or hex. Parallel to
+   *  `colors` (which is for core panels). Missing keys fall through to the
+   *  module's declared color, then a per-id hash fallback. */
+  moduleColors?: Record<string, string>;
   /** Body-tint intensity. L2 = selected row + divider only. L3 = adds wash + hover. */
   bodyTintLevel: "L2" | "L3";
 }

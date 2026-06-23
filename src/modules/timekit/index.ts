@@ -27,7 +27,7 @@ const manifest: ModuleManifest = {
   trust: "core",
   contributes: {
     surfaces: [
-      { type: "dock", id: TIMEKIT_MAIN_SURFACE_ID, title: "Clock", icon: "clock", detachable: false },
+      { type: "dock", id: TIMEKIT_MAIN_SURFACE_ID, title: "Clock", icon: "clock", color: "link-6", detachable: false },
     ],
     commands: [
       { id: "open", title: "Open Clock", icon: "clock" },

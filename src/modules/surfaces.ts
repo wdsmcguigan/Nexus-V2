@@ -52,6 +52,9 @@ export interface SurfaceSpec {
   title: string;
   /** Optional icon hint (lucide name); host decides how to render it. */
   icon?: string;
+  /** Optional dock-surface color: a "link-N" token ref (→ var(--color-link-N)) or a hex
+   *  string. Drives the panel's --module-color; falls back to a per-id hash when absent. */
+  color?: string;
   /** Dock only: may the panel detach into its own OS window? Default false. */
   detachable?: boolean;
 }

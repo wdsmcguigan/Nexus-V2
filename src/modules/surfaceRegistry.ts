@@ -67,6 +67,11 @@ export function dockSurfaceComponents(): Record<string, DockSurfaceComponent> {
   return out;
 }
 
+/** The declared color of a registered dock surface (its SurfaceSpec.color), or undefined. */
+export function dockSurfaceColor(componentKey: string): string | undefined {
+  return _dockSurfaces.get(componentKey)?.spec.color;
+}
+
 /** Test-only: clear all registered dock surfaces. */
 export function _resetDockSurfaces(): void {
   _dockSurfaces.clear();
