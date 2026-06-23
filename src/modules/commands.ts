@@ -4,12 +4,15 @@
  * handler is bound at registration. The command palette renders these.
  */
 
+import { isReservedShortcutKey } from "@/lib/shortcuts";
+
 /** A command a module declares in its manifest. */
 export interface ModuleCommandSpec {
   /** Module-local command id, unique within the module (e.g. "open"). */
   id: string;
   title: string;
-  /** Optional display-only shortcut hint (e.g. "T"); not yet bound to a key. */
+  /** Optional single-key global shortcut (e.g. "t"). Bound by the global handler
+   *  via moduleCommandForKey (fixed; not rebindable yet). Reserved core keys are ignored. */
   shortcut?: string;
   /** Optional icon name hint; the palette maps it or uses a default. */
   icon?: string;
@@ -52,6 +55,15 @@ export function registerModuleCommand(
 /** All registered module commands. */
 export function listModuleCommands(): RegisteredCommand[] {
   return [..._commands.values()];
+}
+
+/** The registered module command bound to `key` via its declared `spec.shortcut`,
+ *  or null. Case-insensitive. Reserved (core) keys never match — core wins.
+ *  First registration wins on a module-vs-module collision. */
+export function moduleCommandForKey(key: string, commands: RegisteredCommand[]): RegisteredCommand | null {
+  if (isReservedShortcutKey(key)) return null;
+  const k = key.toLowerCase();
+  return commands.find((c) => c.spec.shortcut?.toLowerCase() === k) ?? null;
 }
 
 /** Test-only: clear all registered module commands. */
