@@ -278,6 +278,14 @@ Update the implementation (~line 965):
 
 Add `encodeModulePopoutPayload` to the existing `@/storage/tauri` import in `workspace.ts` (currently includes `openPopoutWindow`, `closePopoutWindow`, `type PopoutKind`, …).
 
+- [ ] **Step 3b: Pass the componentKey at the detach call site.** Task 2 had to drop the (then-nonexistent) 6th arg from the module detach call. Now that `trackDetachedWindow` accepts `componentKey`, update the module branch in `detachPanelToWindow` (`src/components/Workspace.tsx`, ~line 70) to pass it:
+
+```ts
+    useWorkspace.getState().trackDetachedWindow(label, "module", null, null, true, id);
+```
+
+(So a freshly-detached module window persists its componentKey and can be restored. Without this, the snapshot's `componentKey` is undefined and restore skips it.)
+
 - [ ] **Step 4: Run the full regression gate.**
 
 Run: `pnpm test && pnpm typecheck && pnpm lint`
