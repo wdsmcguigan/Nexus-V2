@@ -24,7 +24,8 @@ import { isTauri, openPopoutWindow, type PopoutKind } from "@/storage/tauri";
 import { useTotalInboxUnread } from "@/storage/useStore";
 import { localStore } from "@/storage/local";
 import { undoLastMutation, redoLastMutation, getUndoHistory, getRedoHistory } from "@/state/mutations";
-import { NAV_PREFIX, navTargetForKey, setNavSequencePending } from "@/lib/shortcuts";
+import { NAV_PREFIX, navTargetForKey, setNavSequencePending, isNavSequencePending } from "@/lib/shortcuts";
+import { moduleCommandForKey, listModuleCommands } from "@/modules/commands";
 import type { ModuleKey } from "@/data/types";
 import { resolvePanelColor, resolveBodyTintLevel, resolveModulePanelColor } from "@/lib/panelColors";
 import { getAppPreferences, useAppPreferencesVersion } from "@/lib/appPreferences";
@@ -344,6 +345,27 @@ export function Workspace() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [bumpStack]);
+
+  // Global module command shortcuts: a module command's declared single-key
+  // `spec.shortcut` runs the command from anywhere (e.g. "t" → Open Tasks).
+  React.useEffect(() => {
+    function isEditable(el: EventTarget | null): boolean {
+      const node = el as HTMLElement | null;
+      return !!node && (node.tagName === "INPUT" || node.tagName === "TEXTAREA" || node.isContentEditable);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditable(document.activeElement) || isEditable(e.target)) return;
+      if (isNavSequencePending()) return; // let "g…" chords win
+      const cmd = moduleCommandForKey(e.key, listModuleCommands());
+      if (cmd) {
+        e.preventDefault();
+        cmd.run();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Global navigation chords: "g" then a key (gi, gs, gt, gd, gb, ga, gc).
   // Works from any panel. The list panel's own handler defers to this one

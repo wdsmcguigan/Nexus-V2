@@ -93,6 +93,6 @@ A Contacts-migration spike found existing panels (email/calendar/contacts) need 
 1. ✅ **Parameterized launch (DONE)** — `openModulePanel(key, title, params?)` passes runtime params; panels read `props.params` (e.g. "open Contacts on this contact"). The first consumer is the Timekit module's section-focus commands.
 2. **Detachable module panels** — currently blocked (`isModulePanelId` guard); existing panels are pop-out-able.
 3. **Module panel color customization** — `applyModuleColor` skips namespaced ids.
-4. **Command/shortcut contribution** — command half DONE; global keyboard-shortcut binding for modules still deferred.
+4. ✅ **Command/shortcut contribution (DONE)** — command palette + global single-key binding: a command's `ModuleCommandSpec.shortcut` fires from anywhere via `moduleCommandForKey` (fixed; rebinding deferred). Reserved core keys (`DEFAULT_SHORTCUTS` + the `g`/`*` chord prefixes) always win.
 
 Build greenfield modules (Notes, Timer, …) first to keep proving/stabilizing the API (design P6); migrate existing panels later as a deliberate epic once these gaps are closed.
