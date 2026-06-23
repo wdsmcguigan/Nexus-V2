@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  Box,
   Compass,
   Mail,
   MessageSquare,
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
 import type { ModuleKey, PanelColorPrefs } from "@/data/types";
 import {
   DEFAULT_MODULE_COLORS,
+  moduleSurfaceFallbackColor,
 } from "@/lib/panelColors";
 import {
   getAppPreferences,
@@ -20,6 +22,7 @@ import {
 } from "@/lib/appPreferences";
 import { useWorkspace } from "@/state/workspace";
 import { SwatchPopover } from "@/components/settings/SwatchPopover";
+import { listDockSurfaces } from "@/modules/surfaceRegistry";
 
 interface ModuleMeta {
   key: ModuleKey;
@@ -87,8 +90,19 @@ export function PanelColorsSettings() {
     writePrefs({ ...activePrefs, colors: rest });
   };
 
+  const setModulePanelColor = (key: string, color: string) =>
+    writePrefs({
+      ...activePrefs,
+      moduleColors: { ...(activePrefs.moduleColors ?? {}), [key]: color },
+    });
+
+  const resetModulePanelColor = (key: string) => {
+    const { [key]: _omit, ...rest } = activePrefs.moduleColors ?? {};
+    writePrefs({ ...activePrefs, moduleColors: rest });
+  };
+
   const resetAll = () => {
-    writePrefs({ ...activePrefs, colors: {} });
+    writePrefs({ ...activePrefs, colors: {}, moduleColors: {} });
   };
 
   const setBodyTintLevel = (level: "L2" | "L3") => {
@@ -186,6 +200,52 @@ export function PanelColorsSettings() {
           );
         })}
       </div>
+
+      {/* Module panel rows (substrate modules — dynamic over registered surfaces) */}
+      {listDockSurfaces().length > 0 && (
+        <>
+          <h4 className="mb-2 mt-5 text-body-strong">Module panels</h4>
+          <div className="rounded-md border border-border-subtle">
+            {listDockSurfaces().map((s, idx, arr) => {
+              const key = s.componentKey;
+              const current =
+                activePrefs.moduleColors?.[key] ?? s.spec.color ?? moduleSurfaceFallbackColor(key);
+              const isOverride = !!activePrefs.moduleColors && key in activePrefs.moduleColors;
+              return (
+                <div
+                  key={key}
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2",
+                    idx < arr.length - 1 && "border-b border-border-subtle",
+                  )}
+                >
+                  <span className="flex size-5 items-center justify-center rounded-xs bg-surface-2 text-text-tertiary">
+                    <Box size={12} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body-strong">{s.spec.title}</div>
+                    <div className="text-caption text-text-tertiary">{s.moduleId}</div>
+                  </div>
+                  {isOverride && (
+                    <button
+                      type="button"
+                      onClick={() => resetModulePanelColor(key)}
+                      className="text-mono-xs text-text-tertiary hover:text-text-primary"
+                    >
+                      Reset
+                    </button>
+                  )}
+                  <SwatchPopover
+                    value={current}
+                    label={`${s.spec.title} color`}
+                    onChange={(c) => setModulePanelColor(key, c)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 }
