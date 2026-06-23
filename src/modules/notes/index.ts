@@ -22,7 +22,7 @@ const manifest: ModuleManifest = {
   trust: "core",
   contributes: {
     surfaces: [
-      { type: "dock", id: NOTES_MAIN_SURFACE_ID, title: "Notes", icon: "notebook", detachable: false },
+      { type: "dock", id: NOTES_MAIN_SURFACE_ID, title: "Notes", icon: "notebook", color: "link-13", detachable: false },
     ],
     commands: [{ id: "open", title: "Open Notes", icon: "notebook" }],
   },

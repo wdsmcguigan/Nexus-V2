@@ -22,7 +22,7 @@ const manifest: ModuleManifest = {
   trust: "core",
   contributes: {
     surfaces: [
-      { type: "dock", id: TASKS_MAIN_SURFACE_ID, title: "Tasks", icon: "check", detachable: false },
+      { type: "dock", id: TASKS_MAIN_SURFACE_ID, title: "Tasks", icon: "check", color: "link-11", detachable: false },
     ],
     commands: [{ id: "open", title: "Open Tasks", icon: "check" }],
   },

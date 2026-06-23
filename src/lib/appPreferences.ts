@@ -36,7 +36,7 @@ const DEFAULTS: AppPreferences = {
   translateApiKey: "",
   contactsSyncEnabled: {},
   calendarSyncEnabled: {},
-  panelColors: { colors: {}, bodyTintLevel: "L2" },
+  panelColors: { colors: {}, moduleColors: {}, bodyTintLevel: "L2" },
 };
 
 const STORAGE_KEY = "nexus_app_prefs_v1";
