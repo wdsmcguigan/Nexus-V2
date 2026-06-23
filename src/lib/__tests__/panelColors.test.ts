@@ -4,6 +4,8 @@ import {
   toCssColor,
   resolvePanelColor,
   resolveBodyTintLevel,
+  moduleSurfaceFallbackColor,
+  resolveModulePanelColor,
 } from "@/lib/panelColors";
 import type { PanelColorPrefs } from "@/data/types";
 
@@ -79,5 +81,57 @@ describe("resolveBodyTintLevel", () => {
       { colors: {}, bodyTintLevel: "L3" },
     );
     expect(result).toBe("L3");
+  });
+});
+
+describe("moduleSurfaceFallbackColor", () => {
+  it("is deterministic for the same id", () => {
+    const a = moduleSurfaceFallbackColor("org.nexus.tasks:tasks.main");
+    const b = moduleSurfaceFallbackColor("org.nexus.tasks:tasks.main");
+    expect(a).toBe(b);
+  });
+  it("always returns a link-N in 1..21", () => {
+    for (const id of ["a", "org.nexus.notes:notes.main", "x:y", "zzzzzzzz", "org.nexus.timekit:timekit.main"]) {
+      const m = /^link-(\d+)$/.exec(moduleSurfaceFallbackColor(id));
+      expect(m).not.toBeNull();
+      const n = Number(m![1]);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(21);
+    }
+  });
+  it("distinguishes at least some distinct ids", () => {
+    const set = new Set([
+      moduleSurfaceFallbackColor("org.nexus.tasks:tasks.main"),
+      moduleSurfaceFallbackColor("org.nexus.notes:notes.main"),
+      moduleSurfaceFallbackColor("org.nexus.timekit:timekit.main"),
+    ]);
+    expect(set.size).toBeGreaterThan(1);
+  });
+});
+
+describe("resolveModulePanelColor", () => {
+  const KEY = "org.nexus.tasks:tasks.main";
+  const userOnly: PanelColorPrefs = { colors: {}, bodyTintLevel: "L2" };
+
+  it("uses the declared color when nothing is overridden", () => {
+    expect(resolveModulePanelColor(KEY, "link-11", userOnly)).toBe("var(--color-link-11)");
+  });
+  it("falls back to the per-id hash when no declared color and no override", () => {
+    const out = resolveModulePanelColor(KEY, undefined, userOnly);
+    expect(out).toBe(toCssColor(moduleSurfaceFallbackColor(KEY)));
+  });
+  it("user override beats the declared color", () => {
+    const user: PanelColorPrefs = { colors: {}, moduleColors: { [KEY]: "link-7" }, bodyTintLevel: "L2" };
+    expect(resolveModulePanelColor(KEY, "link-11", user)).toBe("var(--color-link-7)");
+  });
+  it("workspace override beats user override", () => {
+    const user: PanelColorPrefs = { colors: {}, moduleColors: { [KEY]: "link-7" }, bodyTintLevel: "L2" };
+    const ws: PanelColorPrefs = { colors: {}, moduleColors: { [KEY]: "#ff0000" }, bodyTintLevel: "L2" };
+    expect(resolveModulePanelColor(KEY, "link-11", user, ws)).toBe("#ff0000");
+  });
+  it("workspace without this key falls through to user/declared", () => {
+    const user: PanelColorPrefs = { colors: {}, moduleColors: { [KEY]: "link-7" }, bodyTintLevel: "L2" };
+    const ws: PanelColorPrefs = { colors: {}, moduleColors: {}, bodyTintLevel: "L2" };
+    expect(resolveModulePanelColor(KEY, "link-11", user, ws)).toBe("var(--color-link-7)");
   });
 });

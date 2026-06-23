@@ -51,3 +51,34 @@ export function resolveBodyTintLevel(
 ): "L2" | "L3" {
   return workspace?.bodyTintLevel ?? user.bodyTintLevel;
 }
+
+/**
+ * Deterministic, stable per-id fallback color for a module dock surface that
+ * declares none. Maps the componentKey hash into the 21-color link palette.
+ * Returns the stored form ("link-N"), like DEFAULT_MODULE_COLORS.
+ */
+export function moduleSurfaceFallbackColor(componentKey: string): string {
+  let h = 0;
+  for (let i = 0; i < componentKey.length; i++) {
+    h = (h * 31 + componentKey.charCodeAt(i)) >>> 0;
+  }
+  return `link-${(h % 21) + 1}`;
+}
+
+/**
+ * Resolve the effective CSS color for a module dock panel.
+ * Order: workspace override → user override → manifest-declared → fallback(id).
+ */
+export function resolveModulePanelColor(
+  componentKey: string,
+  declared: string | undefined,
+  user: PanelColorPrefs,
+  workspace?: PanelColorPrefs,
+): string {
+  const stored =
+    workspace?.moduleColors?.[componentKey] ??
+    user.moduleColors?.[componentKey] ??
+    declared ??
+    moduleSurfaceFallbackColor(componentKey);
+  return toCssColor(stored);
+}
